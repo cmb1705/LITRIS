@@ -1,0 +1,49 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -Command \"$path = $env:CLAUDE_FILE_PATH; if ($path -match 'D:\\\\Zotero') { Write-Error 'BLOCKED: Cannot modify Zotero directory'; exit 1 }\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -Command \"$path = $env:CLAUDE_FILE_PATH; if ($path -match '\\.py$') { ruff check --fix $path 2>$null; ruff format $path 2>$null }\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -Command \"$logDir = 'D:\\Git_Repos\\Lit_Review\\data\\logs'; if (!(Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }; $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'; $tool = $env:CLAUDE_TOOL_NAME; $file = $env:CLAUDE_FILE_PATH; if ($file) { $entry = \\\"$timestamp | $tool | $file\\\"; Add-Content -Path (Join-Path $logDir 'operations.log') -Value $entry }\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}
