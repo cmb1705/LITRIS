@@ -131,12 +131,26 @@ Each paper extraction includes:
 
 ## API Usage
 
-### Claude API
+### Claude Agent SDK with Batch API
 
-- Model: claude-3-opus (configurable)
-- Track token usage per extraction
-- Implement retry with exponential backoff
-- Log costs in metadata.json
+- Model: claude-opus-4-5-20251101 (configurable)
+- Use Message Batches API for 50% cost savings on bulk extraction
+- Track token usage per extraction and batch-level aggregates
+- Batch API handles retries automatically
+- Log costs in metadata.json (with 50% discount applied)
+
+**Installation:**
+
+```bash
+pip install claude-agent-sdk anthropic
+```
+
+**Environment:**
+
+```bash
+# Set API key (Windows PowerShell)
+$env:ANTHROPIC_API_KEY = "your-api-key"
+```
 
 ### Embedding Model
 
@@ -277,8 +291,8 @@ Based on Zotero collections:
 - Filter: Minimal additional latency
 - Full retrieval: < 5 seconds
 
-### Cost Targets
+### Cost Targets (with Batch API 50% discount)
 
-- Test build (10 papers): ~$3
-- Full build (500 papers): ~$135 (Opus)
+- Test build (10 papers): ~$1.35
+- Full build (500 papers): ~$67.50 (Opus with batch discount)
 - Updates: Incremental cost only

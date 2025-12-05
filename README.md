@@ -27,7 +27,7 @@ Embedding Generation ──> ChromaDB Vector Store ──> Semantic Search
 
 - **Zotero Integration**: Read-only access to Zotero SQLite database and PDF storage
 - **PDF Processing**: PyMuPDF extraction with OCR fallback for scanned documents
-- **LLM Extraction**: Claude-powered extraction of thesis, methods, findings, limitations
+- **LLM Extraction**: Claude Agent SDK with Batch API for cost-efficient extraction (50% savings)
 - **Semantic Search**: Vector similarity search with metadata filtering
 - **Incremental Updates**: Detect and process new/modified papers without full rebuild
 
@@ -112,7 +112,8 @@ zotero:
   storage_path: "D:/Zotero/storage"
 
 extraction:
-  model: "claude-3-opus-20240229"
+  model: "claude-opus-4-5-20251101"
+  use_batch_api: true  # 50% cost savings
 
 embeddings:
   model: "sentence-transformers/all-MiniLM-L6-v2"
@@ -162,11 +163,11 @@ See [STATE.md](STATE.md) for detailed progress tracking.
 
 | Operation | Estimated Cost |
 |-----------|---------------|
-| Test build (10 papers) | ~$3 |
-| Full build (500 papers) | ~$135 |
+| Test build (10 papers) | ~$1.35 |
+| Full build (500 papers) | ~$67.50 |
 | Incremental updates | Variable |
 
-Costs assume Claude Opus. Using Sonnet reduces costs by ~90%.
+Costs assume Claude Opus 4.5 with Message Batches API (50% discount). Using Sonnet reduces costs further.
 
 ## License
 

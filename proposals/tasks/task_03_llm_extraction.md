@@ -9,7 +9,7 @@
 
 ## Objective
 
-Use Claude API to extract structured academic content from paper text, including thesis statements, methodology, key findings, claims, limitations, and future directions.
+Use the Claude Agent SDK with the Message Batches API to extract structured academic content from paper text, including thesis statements, methodology, key findings, claims, limitations, and future directions.
 
 ---
 
@@ -17,7 +17,8 @@ Use Claude API to extract structured academic content from paper text, including
 
 - Task 00 completed (configuration with API key)
 - Task 02 completed (text extraction working)
-- Anthropic API key configured
+- Anthropic API key configured (`ANTHROPIC_API_KEY` environment variable)
+- Claude Agent SDK installed (`pip install claude-agent-sdk`)
 - Understanding of extraction schema (see technical specification)
 
 ---
@@ -155,47 +156,69 @@ Specify exact JSON structure expected, matching Extraction schema.
 
 ---
 
-### 03.3 Create Claude API Client
+### 03.3 Create Claude Batch Client
 
 **File:** `src/analysis/llm_client.py`
 
-**Purpose:** Wrapper for Anthropic API with retry logic.
+**Purpose:** Wrapper for Anthropic Message Batches API for cost-efficient bulk extraction.
 
-**Class: ClaudeClient**
+**Class: ClaudeBatchClient**
 
 **Constructor Parameters:**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | api_key | str | From env | Anthropic API key |
-| model | str | From config | Model identifier |
-| max_retries | int | 3 | Retry attempts |
-| retry_delay | float | 5.0 | Base delay between retries |
+| model | str | From config | Model identifier (claude-opus-4-5-20251101) |
+| poll_interval | int | 30 | Seconds between batch status checks |
+| max_tokens | int | 4096 | Max tokens per response |
 
 **Methods:**
 
-#### `complete(system_prompt: str, user_prompt: str, max_tokens: int = 4096)`
+#### `create_batch(requests: list[BatchRequest]) -> str`
 
-**Returns:** `tuple[str, TokenUsage]`
+**Returns:** `batch_id: str`
 
 **Logic:**
-1. Construct messages list
-2. Call Anthropic API
-3. Extract response text
-4. Extract token usage from response
-5. Return tuple of (text, usage)
 
-**Retry Logic:**
-- Retry on rate limit errors (429)
-- Retry on server errors (5xx)
-- Exponential backoff: delay * 2^attempt
-- Max delay cap at 60 seconds
-- Log each retry attempt
+1. Format each request with `custom_id` (paper_id) and `params` (model, messages)
+2. Call `client.messages.batches.create(requests=requests)`
+3. Return `batch.id` for tracking
+
+#### `wait_for_completion(batch_id: str, timeout_minutes: int = 60) -> BatchStatus`
+
+**Returns:** `BatchStatus` with counts for succeeded, errored, expired
+
+**Logic:**
+
+1. Poll `client.messages.batches.retrieve(batch_id)` every `poll_interval` seconds
+2. Check `batch.processing_status` for "ended"
+3. Return batch status with request counts
+4. Raise timeout error if exceeds `timeout_minutes`
+
+#### `get_results(batch_id: str) -> Iterator[BatchResult]`
+
+**Returns:** Iterator of results (streaming to avoid memory issues)
+
+**Logic:**
+
+1. Stream results via `client.messages.batches.results(batch_id)`
+2. Yield each result with `custom_id`, status, and response content
+3. Handle succeeded vs errored results
+
+**Batch API Benefits:**
+
+- 50% cost reduction on all tokens
+- Automatic handling of transient failures
+- Up to 100,000 requests per batch
+- 24-hour processing window
+- Results retained for 29 days
 
 **Error Handling:**
-- Raise custom exceptions for different failure modes
-- Include original error details
-- Track total tokens across retries
+
+- Batch-level errors logged and raised
+- Individual request failures captured in results
+- Timeout handling with graceful degradation
 
 ---
 
@@ -328,18 +351,35 @@ Specify exact JSON structure expected, matching Extraction schema.
 **Returns:** `list[Extraction]`
 
 **Logic:**
-1. For each (paper_id, text, metadata):
-   - Call extract()
-   - Track success/failure
-   - Track cumulative token usage
-   - Call progress callback
-2. Log cost summary at end
-3. Return list of extractions
+
+1. Prepare batch requests:
+   - For each (paper_id, text, metadata), create extraction request
+   - Format with system prompt, user prompt containing paper text
+   - Set `custom_id` to paper_id for result matching
+
+2. Submit batch:
+   - Call `batch_client.create_batch(requests)`
+   - Log batch_id for tracking
+
+3. Wait for completion:
+   - Poll batch status via `batch_client.wait_for_completion(batch_id)`
+   - Report progress via callback
+
+4. Process results:
+   - Stream results via `batch_client.get_results(batch_id)`
+   - Match results to papers using `custom_id`
+   - Parse and validate each response
+   - Track success/failure counts
+
+5. Finalize:
+   - Log cost summary (with 50% batch discount)
+   - Return list of extractions
 
 **Cost Tracking:**
+
 - Sum input_tokens across all extractions
 - Sum output_tokens across all extractions
-- Calculate estimated cost using model pricing
+- Calculate estimated cost using model pricing with 50% batch discount
 - Log running total
 
 ---
@@ -381,12 +421,12 @@ Specify exact JSON structure expected, matching Extraction schema.
 **Expected:** Partial extraction with error notes
 **Verify:** extraction_confidence lowered
 
-### T03.6 Rate Limit Retry
+### T03.6 Batch API Submission
 
-**Test:** Retry on rate limit
-**Input:** Mock 429 response then success
-**Expected:** Succeeds after retry
-**Verify:** Retry logged, final result valid
+**Test:** Successfully submit batch and retrieve results
+**Input:** List of 5 paper requests
+**Expected:** Batch created, completed, results retrieved
+**Verify:** All 5 results returned with custom_ids matching paper_ids
 
 ### T03.7 Token Usage Tracking
 
@@ -472,9 +512,10 @@ Specify exact JSON structure expected, matching Extraction schema.
 
 ### API Cost Control
 
-- Track cumulative cost during batch processing
-- Implement cost ceiling option
-- Pause and warn if ceiling exceeded
+- Track cumulative cost during batch processing (with 50% batch discount applied)
+- Batch API provides predictable costs (submit all at once)
+- Monitor batch status for early warning of issues
+- Log final costs in metadata.json after batch completes
 
 ### Response Format Changes
 

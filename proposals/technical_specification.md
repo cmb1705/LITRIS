@@ -364,7 +364,16 @@ Tracks processing state for incremental updates.
 
 **Purpose:** Use Claude to extract structured sections and insights from paper text.
 
-**Model:** Claude claude-3-opus (via Anthropic API)
+**Model:** Claude Opus 4.5 (model ID: `claude-opus-4-5-20251101`)
+
+**Implementation Approach:** Claude Agent SDK with Message Batches API
+
+The extraction pipeline uses the Claude Agent SDK with the Message Batches API for cost-efficient bulk processing. This approach provides:
+
+- **50% cost reduction** compared to standard API pricing
+- **Batch processing** of up to 100,000 requests per batch
+- **Asynchronous execution** with 24-hour processing window
+- **Automatic retry** handling for transient failures
 
 **Input:** Full paper text (or truncated if exceeds context limits)
 
@@ -408,16 +417,34 @@ The prompt must:
 - Flag missing required fields
 - Log extraction quality metrics
 
+**Batch API Workflow:**
+
+1. **Batch Creation:**
+   - Collect papers into batches (up to 10,000 papers per batch for manageability)
+   - Each request includes `custom_id` matching `paper_id` for result correlation
+   - Submit batch via `client.messages.batches.create(requests=requests)`
+
+2. **Batch Monitoring:**
+   - Poll batch status every 30 seconds
+   - Track `processing_status` (in_progress, ended)
+   - Monitor `request_counts.succeeded`, `request_counts.errored`
+
+3. **Result Processing:**
+   - Stream results via `client.messages.batches.results(batch_id)`
+   - Match results to papers using `custom_id` (order not guaranteed)
+   - Write results to `data/index/extractions.json`
+
 **Token Usage Tracking:**
 - Record input tokens, output tokens per extraction
-- Calculate running cost
+- Calculate running cost (with 50% batch discount applied)
 - Store in extraction record
+- Track batch-level aggregates in `metadata.json`
 
 **Error Handling:**
-- Retry on API failures (exponential backoff)
-- Handle malformed responses
-- Log and skip papers that fail after retries
+- Batch API handles transient failures automatically
+- Failed individual requests logged in batch results
 - Store partial extractions with error notes
+- Retry failed papers in subsequent batch if needed
 
 ### 5.4 Embedding Generator
 
@@ -612,11 +639,11 @@ zotero:
 
 # Processing Configuration
 extraction:
-  model: "claude-3-opus-20240229"
-  max_retries: 3
-  retry_delay_seconds: 5
-  max_tokens_input: 150000  # Leave room for response
-  batch_size: 10  # Papers per batch for progress tracking
+  model: "claude-opus-4-5-20251101"
+  use_batch_api: true  # Use Message Batches API for 50% cost savings
+  batch_size: 500  # Papers per batch submission
+  poll_interval_seconds: 30  # Batch status polling interval
+  max_tokens_output: 4096  # Max tokens for response
 
 # Embedding Configuration
 embeddings:
@@ -784,7 +811,8 @@ Python 3.10+ (for modern type hints and match statements)
 
 | Package | Purpose | Version |
 |---------|---------|---------|
-| `anthropic` | Claude API client | latest |
+| `anthropic` | Claude API client (includes Batch API) | latest |
+| `claude-agent-sdk` | Claude Agent SDK for programmatic access | latest |
 | `pymupdf` (fitz) | PDF text extraction | latest |
 | `chromadb` | Vector store | latest |
 | `sentence-transformers` | Local embeddings | latest |
@@ -928,18 +956,28 @@ Include in `tests/fixtures/sample_papers/`:
 
 **Assumptions:**
 - Average paper: 8,000 tokens input, 2,000 tokens output
-- Claude Opus pricing: $15/M input, $75/M output
+- Claude Opus 4.5 pricing: $15/M input, $75/M output
+- **Message Batches API: 50% discount on all tokens**
 - 500 papers
 
-**Calculation:**
-- Input: 500 × 8,000 = 4M tokens × $15/M = $60
-- Output: 500 × 2,000 = 1M tokens × $75/M = $75
-- **Total: ~$135 for full library**
+**Calculation (with Batch API 50% discount):**
+
+- Input: 500 × 8,000 = 4M tokens × $15/M × 0.5 = $30
+- Output: 500 × 2,000 = 1M tokens × $75/M × 0.5 = $37.50
+- **Total: ~$67.50 for full library** (50% savings vs standard API)
+
+**Standard API Comparison (without batch discount):**
+
+- Input: 4M tokens × $15/M = $60
+- Output: 1M tokens × $75/M = $75
+- Total: ~$135 (2x more expensive)
 
 **Mitigation:**
-- Test on 10-paper sample first (~$2.70)
-- Consider Sonnet for bulk processing (~$16 total)
+
+- Test on 10-paper sample first (~$1.35 with batch API)
+- Consider Sonnet for bulk processing (~$8 total with batch discount)
 - Cache extractions to avoid re-processing
+- Batch API provides automatic retry handling
 
 ### 13.2 Embedding Costs
 
