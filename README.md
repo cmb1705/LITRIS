@@ -27,7 +27,7 @@ Embedding Generation ──> ChromaDB Vector Store ──> Semantic Search
 
 - **Zotero Integration**: Read-only access to Zotero SQLite database and PDF storage
 - **PDF Processing**: PyMuPDF extraction with OCR fallback for scanned documents
-- **LLM Extraction**: Claude Agent SDK with Batch API for cost-efficient extraction (50% savings)
+- **Dual Extraction Modes**: CLI (free with Max subscription) or Batch API (paid, 50% discount)
 - **Semantic Search**: Vector similarity search with metadata filtering
 - **Incremental Updates**: Detect and process new/modified papers without full rebuild
 
@@ -35,7 +35,8 @@ Embedding Generation ──> ChromaDB Vector Store ──> Semantic Search
 
 - Python 3.10+
 - Zotero desktop with local library
-- Anthropic API key (Claude access)
+- **For CLI mode**: Claude Code CLI with Max subscription (`claude login`)
+- **For Batch API mode**: Anthropic API key
 - Optional: Tesseract OCR for scanned PDFs
 
 ## Installation
@@ -112,12 +113,19 @@ zotero:
   storage_path: "D:/Zotero/storage"
 
 extraction:
+  mode: "cli"  # "cli" (free) or "batch_api" (paid, 50% discount)
   model: "claude-opus-4-5-20251101"
-  use_batch_api: true  # 50% cost savings
 
 embeddings:
   model: "sentence-transformers/all-MiniLM-L6-v2"
 ```
+
+### Extraction Mode Comparison
+
+| Mode | Cost | Speed | Best For |
+|------|------|-------|----------|
+| `cli` | Free (Max subscription) | ~30s/paper | Budget, incremental updates |
+| `batch_api` | ~$0.14/paper | ~1hr for 500 | Speed, bulk builds |
 
 ## Usage Examples
 
@@ -161,13 +169,14 @@ See [STATE.md](STATE.md) for detailed progress tracking.
 
 ## Cost Estimates
 
-| Operation | Estimated Cost |
-|-----------|---------------|
-| Test build (10 papers) | ~$1.35 |
-| Full build (500 papers) | ~$67.50 |
-| Incremental updates | Variable |
+| Operation | CLI Mode | Batch API Mode |
+|-----------|----------|----------------|
+| Test build (10 papers) | $0 | ~$1.35 |
+| Full build (500 papers) | $0 | ~$67.50 |
+| Incremental updates | $0 | Variable |
 
-Costs assume Claude Opus 4.5 with Message Batches API (50% discount). Using Sonnet reduces costs further.
+- **CLI mode**: Free with Max subscription (200-800 prompts/5hr limit)
+- **Batch API mode**: Pay-per-token with 50% batch discount
 
 ## License
 

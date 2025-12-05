@@ -57,8 +57,12 @@ D:\Git_Repos\Lit_Review\
 |   |   +-- text_cleaner.py
 |   |-- analysis\
 |   |   |-- __init__.py
-|   |   |-- llm_client.py
-|   |   |-- section_extractor.py
+|   |   |-- llm_client.py              # Batch API client
+|   |   |-- cli_executor.py            # CLI mode executor
+|   |   |-- rate_limit_handler.py      # CLI rate limit handling
+|   |   |-- progress_tracker.py        # CLI progress persistence
+|   |   |-- section_extractor.py       # Batch API extractor
+|   |   |-- cli_section_extractor.py   # CLI mode extractor
 |   |   |-- prompts.py
 |   |   +-- schemas.py
 |   +-- utils\

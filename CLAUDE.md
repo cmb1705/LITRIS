@@ -131,25 +131,45 @@ Each paper extraction includes:
 
 ## API Usage
 
-### Claude Agent SDK with Batch API
+### Extraction Modes
 
-- Model: claude-opus-4-5-20251101 (configurable)
-- Use Message Batches API for 50% cost savings on bulk extraction
-- Track token usage per extraction and batch-level aggregates
-- Batch API handles retries automatically
-- Log costs in metadata.json (with 50% discount applied)
+Two extraction modes are supported:
+
+| Mode | Cost | Speed | Authentication |
+|------|------|-------|----------------|
+| **CLI** | Free (Max subscription) | ~30s/paper sequential | `claude login` |
+| **Batch API** | ~$0.14/paper (50% off) | ~1hr for 500 parallel | `ANTHROPIC_API_KEY` |
+
+### CLI Mode (Recommended for Budget)
+
+Uses Claude Code CLI in headless mode with your Max subscription.
+
+```powershell
+# Ensure no API key (triggers billing)
+$env:ANTHROPIC_API_KEY = $null
+
+# Run extraction
+python scripts/build_index.py --mode cli
+```
+
+**Rate Limits (Max 20):** 200-800 prompts per 5-hour window
+
+### Batch API Mode (Recommended for Speed)
+
+Uses Anthropic Message Batches API with 50% discount.
+
+```powershell
+# Set API key
+$env:ANTHROPIC_API_KEY = "your-api-key"
+
+# Run extraction
+python scripts/build_index.py --mode batch_api
+```
 
 **Installation:**
 
 ```bash
-pip install claude-agent-sdk anthropic
-```
-
-**Environment:**
-
-```bash
-# Set API key (Windows PowerShell)
-$env:ANTHROPIC_API_KEY = "your-api-key"
+pip install anthropic
 ```
 
 ### Embedding Model
@@ -291,8 +311,13 @@ Based on Zotero collections:
 - Filter: Minimal additional latency
 - Full retrieval: < 5 seconds
 
-### Cost Targets (with Batch API 50% discount)
+### Cost Targets
 
-- Test build (10 papers): ~$1.35
-- Full build (500 papers): ~$67.50 (Opus with batch discount)
-- Updates: Incremental cost only
+| Mode | Test (10 papers) | Full (500 papers) | Notes |
+|------|------------------|-------------------|-------|
+| CLI | $0 | $0 | Uses Max subscription |
+| Batch API | ~$1.35 | ~$67.50 | 50% batch discount |
+
+- CLI mode: Free within Max subscription limits
+- Batch API: Pay-per-token with 50% batch discount
+- Updates: Incremental cost only (CLI recommended)

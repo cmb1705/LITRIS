@@ -366,14 +366,44 @@ Tracks processing state for incremental updates.
 
 **Model:** Claude Opus 4.5 (model ID: `claude-opus-4-5-20251101`)
 
-**Implementation Approach:** Claude Agent SDK with Message Batches API
+**Implementation Approaches:** Two extraction modes are supported:
 
-The extraction pipeline uses the Claude Agent SDK with the Message Batches API for cost-efficient bulk processing. This approach provides:
+| Mode | Cost | Speed | Best For |
+|------|------|-------|----------|
+| **CLI Mode** | Free (Max subscription) | Sequential (~30s/paper) | Budget-conscious, smaller batches |
+| **Batch API Mode** | ~$0.14/paper (50% discount) | Parallel (~1hr for 500) | Speed, large batches |
+
+#### 5.3.1 CLI Mode (Subscription-Based)
+
+Uses Claude Code CLI in headless mode, leveraging your Max subscription at no additional cost.
+
+**Key Characteristics:**
+
+- **No API billing** - Uses Max subscription limits
+- **Sequential processing** - One paper at a time
+- **Rate limits** - 200-800 prompts per 5-hour window (Max 20)
+- **Automatic pause/resume** - Handle limit resets gracefully
+
+**CLI Invocation Pattern:**
+
+```bash
+cat paper_text.txt | claude -p "Extract structured information..." --output-format json
+```
+
+**Authentication:** Must use `claude login` (not `ANTHROPIC_API_KEY` env var)
+
+#### 5.3.2 Batch API Mode (Pay-per-Token)
+
+Uses Anthropic Message Batches API for cost-efficient bulk processing.
+
+**Key Characteristics:**
 
 - **50% cost reduction** compared to standard API pricing
 - **Batch processing** of up to 100,000 requests per batch
 - **Asynchronous execution** with 24-hour processing window
 - **Automatic retry** handling for transient failures
+
+**Authentication:** Requires `ANTHROPIC_API_KEY` environment variable
 
 **Input:** Full paper text (or truncated if exceeds context limits)
 
@@ -417,6 +447,31 @@ The prompt must:
 - Flag missing required fields
 - Log extraction quality metrics
 
+**CLI Mode Workflow:**
+
+1. **Initialization:**
+   - Verify `claude login` authentication (no `ANTHROPIC_API_KEY` set)
+   - Load pending papers from `papers.json`
+   - Check for existing extractions to skip
+
+2. **Sequential Processing:**
+   - For each paper:
+     - Read extracted text from cache
+     - Pipe to `claude -p "..." --output-format json`
+     - Parse JSON response
+     - Validate against schema
+     - Write to `extractions.json`
+   - Track progress in `data/cache/cli_progress.json`
+
+3. **Rate Limit Handling:**
+   - Monitor for rate limit responses
+   - When limit hit: save progress, calculate reset time, pause
+   - Resume automatically or prompt user
+
+4. **Progress Persistence:**
+   - Save after each successful extraction
+   - Support `--resume` flag to continue from last checkpoint
+
 **Batch API Workflow:**
 
 1. **Batch Creation:**
@@ -434,17 +489,18 @@ The prompt must:
    - Match results to papers using `custom_id` (order not guaranteed)
    - Write results to `data/index/extractions.json`
 
-**Token Usage Tracking:**
+**Token Usage Tracking (Batch API only):**
+
 - Record input tokens, output tokens per extraction
 - Calculate running cost (with 50% batch discount applied)
 - Store in extraction record
 - Track batch-level aggregates in `metadata.json`
 
 **Error Handling:**
-- Batch API handles transient failures automatically
-- Failed individual requests logged in batch results
-- Store partial extractions with error notes
-- Retry failed papers in subsequent batch if needed
+
+- **CLI Mode:** Retry failed papers on next run, log errors
+- **Batch API:** Automatic retry for transient failures, failed requests logged in batch results
+- Both modes: Store partial extractions with error notes
 
 ### 5.4 Embedding Generator
 
@@ -639,11 +695,20 @@ zotero:
 
 # Processing Configuration
 extraction:
+  mode: "cli"  # "cli" (free, uses Max subscription) or "batch_api" (paid, 50% discount)
   model: "claude-opus-4-5-20251101"
-  use_batch_api: true  # Use Message Batches API for 50% cost savings
-  batch_size: 500  # Papers per batch submission
-  poll_interval_seconds: 30  # Batch status polling interval
   max_tokens_output: 4096  # Max tokens for response
+
+  # CLI mode settings (when mode: "cli")
+  cli:
+    pause_on_limit: true  # Pause when rate limit hit, or fail
+    auto_resume: false  # Automatically resume after limit reset
+    progress_file: "data/cache/cli_progress.json"
+
+  # Batch API settings (when mode: "batch_api")
+  batch_api:
+    batch_size: 500  # Papers per batch submission
+    poll_interval_seconds: 30  # Batch status polling interval
 
 # Embedding Configuration
 embeddings:
@@ -954,7 +1019,21 @@ Include in `tests/fixtures/sample_papers/`:
 
 ### 13.1 LLM Extraction Costs
 
+**Two extraction modes with different cost structures:**
+
+#### CLI Mode (Free with Max Subscription)
+
+| Plan | Cost | Rate Limit | Time for 500 Papers |
+|------|------|------------|---------------------|
+| Max 5x ($100/mo) | $0 | 50-200 prompts/5hr | ~12-50 hours |
+| Max 20x ($200/mo) | $0 | 200-800 prompts/5hr | ~3-12 hours |
+
+**Note:** CLI mode uses your existing subscription. No additional cost beyond your monthly plan.
+
+#### Batch API Mode (Pay-per-Token)
+
 **Assumptions:**
+
 - Average paper: 8,000 tokens input, 2,000 tokens output
 - Claude Opus 4.5 pricing: $15/M input, $75/M output
 - **Message Batches API: 50% discount on all tokens**
@@ -972,12 +1051,21 @@ Include in `tests/fixtures/sample_papers/`:
 - Output: 1M tokens × $75/M = $75
 - Total: ~$135 (2x more expensive)
 
+#### Mode Selection Guidance
+
+| Scenario | Recommended Mode |
+|----------|------------------|
+| Budget priority, have time | CLI (free) |
+| Speed priority, one-time build | Batch API ($67.50) |
+| Regular incremental updates | CLI (free) |
+| Large library (1000+ papers) | Batch API (faster) |
+
 **Mitigation:**
 
-- Test on 10-paper sample first (~$1.35 with batch API)
+- Use CLI mode for testing and development (free)
+- Use Batch API for final production build if speed needed
 - Consider Sonnet for bulk processing (~$8 total with batch discount)
 - Cache extractions to avoid re-processing
-- Batch API provides automatic retry handling
 
 ### 13.2 Embedding Costs
 
