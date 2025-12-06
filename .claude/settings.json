@@ -11,6 +11,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -File D:\\Git_Repos\\Lit_Review\\scripts\\hooks\\verify_task_completion.ps1",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [

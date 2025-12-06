@@ -32,8 +32,26 @@ class LitrisAdapter:
         if self._engine is None:
             logger.info("Initializing SearchEngine...")
             index_dir = self._get_index_dir()
-            # ChromaDB is stored inside the index directory
             chroma_dir = index_dir / "chroma"
+
+            # Validate paths exist
+            if not index_dir.exists():
+                logger.error(f"Index directory not found: {index_dir}")
+                raise FileNotFoundError(
+                    f"Index directory not found: {index_dir}. "
+                    "Run the /build command to create the literature index."
+                )
+
+            papers_index = index_dir / "papers_index.json"
+            if not papers_index.exists():
+                logger.error(f"Papers index not found: {papers_index}")
+                raise FileNotFoundError(
+                    f"Papers index not found: {papers_index}. "
+                    "Run the /build command to create the literature index."
+                )
+
+            if not chroma_dir.exists():
+                logger.warning(f"ChromaDB directory not found: {chroma_dir}. Vector search may fail.")
 
             self._engine = SearchEngine(
                 index_dir=index_dir,

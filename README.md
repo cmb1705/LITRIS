@@ -240,7 +240,8 @@ python scripts/update_index.py
 |----------|-------------|
 | [STATE.md](STATE.md) | Implementation progress tracker |
 | [CLAUDE.md](CLAUDE.md) | Project memory for Claude Code |
-| [Technical Specification](proposals/technical_specification.md) | Full system design |
+| [Technical Specification](proposals/completed/technical_specification.md) | Full system design (Phase 1) |
+| [MCP Technical Specification](proposals/mcp_technical_specification.md) | MCP integration design |
 
 ## Cost Estimates
 

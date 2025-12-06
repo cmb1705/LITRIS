@@ -8,18 +8,22 @@ import asyncio
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 from typing import Any
+import uuid
 
 from mcp.server.fastmcp import FastMCP
 
 from src.mcp.adapters import LitrisAdapter
 from src.mcp.validators import (
+    ValidationError,
     validate_query,
     validate_paper_id,
     validate_top_k,
     validate_year,
     validate_chunk_types,
+    validate_recency_boost,
 )
 from src.utils.logging_config import get_logger, setup_logging
 
@@ -80,33 +84,53 @@ async def litris_search(
     Returns:
         Search results with paper metadata and extractions
     """
-    logger.info(f"litris_search called: query='{query[:50]}...' top_k={top_k}")
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+    logger.info(f"[{request_id}] litris_search called: query='{query[:50]}...' top_k={top_k}")
 
-    # Validate inputs
-    validate_query(query)
-    top_k = validate_top_k(top_k)
-    if year_min is not None:
-        validate_year(year_min, "year_min")
-    if year_max is not None:
-        validate_year(year_max, "year_max")
-    if chunk_types is not None:
-        validate_chunk_types(chunk_types)
+    try:
+        # Validate inputs
+        validate_query(query)
+        top_k = validate_top_k(top_k)
+        if year_min is not None:
+            validate_year(year_min, "year_min")
+        if year_max is not None:
+            validate_year(year_max, "year_max")
+        if chunk_types is not None:
+            validate_chunk_types(chunk_types)
+        recency_boost = validate_recency_boost(recency_boost)
 
-    adapter = get_adapter()
-    results = adapter.search(
-        query=query,
-        top_k=top_k,
-        chunk_types=chunk_types,
-        year_min=year_min,
-        year_max=year_max,
-        collections=collections,
-        item_types=item_types,
-        include_extraction=include_extraction,
-        recency_boost=recency_boost,
-    )
+        adapter = get_adapter()
+        results = adapter.search(
+            query=query,
+            top_k=top_k,
+            chunk_types=chunk_types,
+            year_min=year_min,
+            year_max=year_max,
+            collections=collections,
+            item_types=item_types,
+            include_extraction=include_extraction,
+            recency_boost=recency_boost,
+        )
 
-    logger.info(f"litris_search returning {results.get('result_count', 0)} results")
-    return results
+        elapsed = time.time() - start_time
+        logger.info(f"[{request_id}] litris_search returning {results.get('result_count', 0)} results in {elapsed:.3f}s")
+        return results
+
+    except ValidationError as e:
+        elapsed = time.time() - start_time
+        logger.warning(f"[{request_id}] Validation error in {elapsed:.3f}s: {e}")
+        return {"error": "VALIDATION_ERROR", "message": str(e), "result_count": 0, "results": []}
+
+    except FileNotFoundError as e:
+        elapsed = time.time() - start_time
+        logger.error(f"[{request_id}] Index not found in {elapsed:.3f}s: {e}")
+        return {"error": "INDEX_NOT_FOUND", "message": "Literature index not found. Run /build to create.", "result_count": 0, "results": []}
+
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"[{request_id}] Search failed in {elapsed:.3f}s: {e}")
+        return {"error": "SEARCH_FAILED", "message": str(e), "result_count": 0, "results": []}
 
 
 @mcp.tool()
@@ -119,19 +143,38 @@ async def litris_get_paper(paper_id: str) -> dict[str, Any]:
     Returns:
         Complete paper metadata and extraction data
     """
-    logger.info(f"litris_get_paper called: paper_id='{paper_id}'")
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+    logger.info(f"[{request_id}] litris_get_paper called: paper_id='{paper_id}'")
 
-    validate_paper_id(paper_id)
+    try:
+        validate_paper_id(paper_id)
 
-    adapter = get_adapter()
-    result = adapter.get_paper(paper_id)
+        adapter = get_adapter()
+        result = adapter.get_paper(paper_id)
 
-    if result.get("found"):
-        logger.info(f"litris_get_paper: found paper '{result.get('paper', {}).get('title', 'Unknown')[:50]}'")
-    else:
-        logger.warning(f"litris_get_paper: paper not found: {paper_id}")
+        elapsed = time.time() - start_time
+        if result.get("found"):
+            logger.info(f"[{request_id}] litris_get_paper: found paper '{result.get('paper', {}).get('title', 'Unknown')[:50]}' in {elapsed:.3f}s")
+        else:
+            logger.warning(f"[{request_id}] litris_get_paper: paper not found: {paper_id} in {elapsed:.3f}s")
 
-    return result
+        return result
+
+    except ValidationError as e:
+        elapsed = time.time() - start_time
+        logger.warning(f"[{request_id}] Validation error in {elapsed:.3f}s: {e}")
+        return {"error": "VALIDATION_ERROR", "message": str(e), "paper_id": paper_id, "found": False}
+
+    except FileNotFoundError as e:
+        elapsed = time.time() - start_time
+        logger.error(f"[{request_id}] Index not found in {elapsed:.3f}s: {e}")
+        return {"error": "INDEX_NOT_FOUND", "message": "Literature index not found. Run /build to create.", "paper_id": paper_id, "found": False}
+
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"[{request_id}] Get paper failed in {elapsed:.3f}s: {e}")
+        return {"error": "SEARCH_FAILED", "message": str(e), "paper_id": paper_id, "found": False}
 
 
 @mcp.tool()
@@ -145,16 +188,35 @@ async def litris_similar(paper_id: str, top_k: int = 10) -> dict[str, Any]:
     Returns:
         List of similar papers with similarity scores
     """
-    logger.info(f"litris_similar called: paper_id='{paper_id}' top_k={top_k}")
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+    logger.info(f"[{request_id}] litris_similar called: paper_id='{paper_id}' top_k={top_k}")
 
-    validate_paper_id(paper_id)
-    top_k = validate_top_k(top_k)
+    try:
+        validate_paper_id(paper_id)
+        top_k = validate_top_k(top_k)
 
-    adapter = get_adapter()
-    results = adapter.find_similar(paper_id, top_k)
+        adapter = get_adapter()
+        results = adapter.find_similar(paper_id, top_k)
 
-    logger.info(f"litris_similar returning {results.get('result_count', 0)} similar papers")
-    return results
+        elapsed = time.time() - start_time
+        logger.info(f"[{request_id}] litris_similar returning {results.get('result_count', 0)} similar papers in {elapsed:.3f}s")
+        return results
+
+    except ValidationError as e:
+        elapsed = time.time() - start_time
+        logger.warning(f"[{request_id}] Validation error in {elapsed:.3f}s: {e}")
+        return {"error": "VALIDATION_ERROR", "message": str(e), "source_paper_id": paper_id, "result_count": 0, "similar_papers": []}
+
+    except FileNotFoundError as e:
+        elapsed = time.time() - start_time
+        logger.error(f"[{request_id}] Index not found in {elapsed:.3f}s: {e}")
+        return {"error": "INDEX_NOT_FOUND", "message": "Literature index not found. Run /build to create.", "source_paper_id": paper_id, "result_count": 0, "similar_papers": []}
+
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"[{request_id}] Similar search failed in {elapsed:.3f}s: {e}")
+        return {"error": "SEARCH_FAILED", "message": str(e), "source_paper_id": paper_id, "result_count": 0, "similar_papers": []}
 
 
 @mcp.tool()
@@ -164,13 +226,27 @@ async def litris_summary() -> dict[str, Any]:
     Returns:
         Index statistics including paper counts, collections, and disciplines
     """
-    logger.info("litris_summary called")
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+    logger.info(f"[{request_id}] litris_summary called")
 
-    adapter = get_adapter()
-    summary = adapter.get_summary()
+    try:
+        adapter = get_adapter()
+        summary = adapter.get_summary()
 
-    logger.info(f"litris_summary: {summary.get('total_papers', 0)} papers indexed")
-    return summary
+        elapsed = time.time() - start_time
+        logger.info(f"[{request_id}] litris_summary: {summary.get('total_papers', 0)} papers indexed in {elapsed:.3f}s")
+        return summary
+
+    except FileNotFoundError as e:
+        elapsed = time.time() - start_time
+        logger.error(f"[{request_id}] Index not found in {elapsed:.3f}s: {e}")
+        return {"error": "INDEX_NOT_FOUND", "message": "Literature index not found. Run /build to create.", "total_papers": 0}
+
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"[{request_id}] Summary failed in {elapsed:.3f}s: {e}")
+        return {"error": "SEARCH_FAILED", "message": str(e), "total_papers": 0}
 
 
 @mcp.tool()
@@ -180,13 +256,27 @@ async def litris_collections() -> dict[str, Any]:
     Returns:
         List of collection names with paper counts
     """
-    logger.info("litris_collections called")
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+    logger.info(f"[{request_id}] litris_collections called")
 
-    adapter = get_adapter()
-    collections = adapter.get_collections()
+    try:
+        adapter = get_adapter()
+        collections = adapter.get_collections()
 
-    logger.info(f"litris_collections: {len(collections.get('collections', []))} collections")
-    return collections
+        elapsed = time.time() - start_time
+        logger.info(f"[{request_id}] litris_collections: {len(collections.get('collections', []))} collections in {elapsed:.3f}s")
+        return collections
+
+    except FileNotFoundError as e:
+        elapsed = time.time() - start_time
+        logger.error(f"[{request_id}] Index not found in {elapsed:.3f}s: {e}")
+        return {"error": "INDEX_NOT_FOUND", "message": "Literature index not found. Run /build to create.", "collections": []}
+
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"[{request_id}] Collections failed in {elapsed:.3f}s: {e}")
+        return {"error": "SEARCH_FAILED", "message": str(e), "collections": []}
 
 
 def create_server() -> FastMCP:

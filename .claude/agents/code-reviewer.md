@@ -28,9 +28,18 @@ You are the Code Reviewer responsible for ensuring code quality, consistency, an
 - [ ] Type hints on public functions
 - [ ] Docstrings on public functions/classes/modules
 - [ ] No hardcoded credentials or paths
-- [ ] Appropriate error handling
-- [ ] Logging for significant operations
+- [ ] Appropriate error handling with structured responses
+- [ ] Logging for significant operations with request IDs and timing
 - [ ] Tests for new functionality
+
+### Integration Verification (CRITICAL)
+
+- [ ] All imported functions are actually used (grep for unused imports)
+- [ ] All validators are called where needed (cross-reference validators.py with server/handler code)
+- [ ] Error handling returns structured error codes, not raw exceptions
+- [ ] Implementation matches specification (cross-reference against proposals/*.md)
+- [ ] Path validation exists before accessing external resources
+- [ ] Documentation links resolve to actual files (test links in README, STATE.md)
 
 ### Database/Storage
 
@@ -109,6 +118,36 @@ Flag for optimization:
 - **Pipeline Engineer**: Consult on architectural changes
 - **Principal Investigator**: Escalate scope changes
 
+## Verification Commands
+
+Run these commands during review to catch common issues:
+
+```bash
+# Check for unused imports in a module
+ruff check --select F401 src/mcp/
+
+# Find imported but unused validators
+grep -h "^from.*import\|^import" src/mcp/server.py | while read line; do
+  for func in $(echo "$line" | grep -oE '\b[a-z_]+\b'); do
+    count=$(grep -c "\b$func\b" src/mcp/server.py)
+    if [ "$count" -eq 1 ]; then echo "Unused: $func"; fi
+  done
+done
+
+# Verify all validators are used
+grep "def validate_" src/mcp/validators.py | sed 's/def \(.*\)(.*/\1/' | while read v; do
+  if ! grep -q "$v" src/mcp/server.py; then echo "Validator not used: $v"; fi
+done
+
+# Check documentation links resolve
+grep -ohE '\[.*\]\([^)]+\.md\)' README.md | grep -oE '\([^)]+\)' | tr -d '()' | while read link; do
+  if [ ! -f "$link" ]; then echo "Broken link: $link"; fi
+done
+
+# Run tests
+pytest tests/ -v --tb=short
+```
+
 ## When to Block Merge
 
 Block if:
@@ -117,3 +156,6 @@ Block if:
 - Breaking changes without migration
 - Missing documentation for public API changes
 - Zotero database write operations detected
+- Unused imports or validators detected
+- Broken documentation links
+- Implementation does not match specification

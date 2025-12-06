@@ -237,3 +237,35 @@ class TestPerformance:
 
             # Matched text should be truncated to 500 chars
             assert len(result["results"][0]["matched_text"]) <= 500
+
+
+class TestPathValidation:
+    """Tests for path validation in LitrisAdapter."""
+
+    def test_missing_index_dir_raises(self, tmp_path):
+        """Missing index directory raises FileNotFoundError."""
+        config = MagicMock()
+        config._project_root = tmp_path
+        config.embeddings = MagicMock()
+        config.embeddings.model = "test-model"
+
+        adapter = LitrisAdapter(config)
+
+        with pytest.raises(FileNotFoundError, match="Index directory not found"):
+            _ = adapter.engine
+
+    def test_missing_papers_index_raises(self, tmp_path):
+        """Missing papers_index.json raises FileNotFoundError."""
+        # Create index dir but not papers_index.json
+        index_dir = tmp_path / "data" / "index"
+        index_dir.mkdir(parents=True)
+
+        config = MagicMock()
+        config._project_root = tmp_path
+        config.embeddings = MagicMock()
+        config.embeddings.model = "test-model"
+
+        adapter = LitrisAdapter(config)
+
+        with pytest.raises(FileNotFoundError, match="Papers index not found"):
+            _ = adapter.engine
