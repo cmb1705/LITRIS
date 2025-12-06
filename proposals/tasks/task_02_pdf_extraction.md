@@ -465,15 +465,15 @@ Beyond low character count, detect:
 
 ## Acceptance Criteria
 
-- [ ] Extracts text from standard academic PDFs
-- [ ] Uses Zotero cache when available
-- [ ] Calculates meaningful quality score
-- [ ] Cleans text (ligatures, hyphenation, whitespace)
-- [ ] Caches extractions for reuse
-- [ ] Handles encrypted PDFs without crashing
-- [ ] Handles corrupted PDFs without crashing
-- [ ] Preserves page boundary information
-- [ ] All unit tests pass
+- [x] Extracts text from standard academic PDFs
+- [x] Uses Zotero cache when available
+- [x] Calculates meaningful quality score
+- [x] Cleans text (ligatures, hyphenation, whitespace)
+- [x] Caches extractions for reuse
+- [x] Handles encrypted PDFs without crashing
+- [x] Handles corrupted PDFs without crashing
+- [x] Preserves page boundary information
+- [x] All unit tests pass
 
 ---
 
@@ -481,11 +481,11 @@ Beyond low character count, detect:
 
 | File | Status |
 |------|--------|
-| src/extraction/__init__.py | Task 00 |
-| src/extraction/pdf_extractor.py | Pending |
-| src/extraction/text_cleaner.py | Pending |
-| tests/test_pdf_extraction.py | Pending |
-| tests/fixtures/sample_papers/*.pdf | Pending |
+| src/extraction/__init__.py | Complete |
+| src/extraction/pdf_extractor.py | Complete |
+| src/extraction/text_cleaner.py | Complete |
+| tests/test_pdf_extraction.py | Complete |
+| tests/fixtures/sample_papers/*.pdf | Skipped (tests use generated PDFs) |
 
 ---
 

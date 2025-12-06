@@ -406,15 +406,15 @@ else:
 
 ## Acceptance Criteria
 
-- [ ] CLI authentication verification works
-- [ ] Single paper extraction via CLI succeeds
-- [ ] JSON responses parse correctly
-- [ ] Progress tracking saves/loads correctly
-- [ ] Resume from checkpoint works
-- [ ] Rate limit detection triggers appropriately
-- [ ] Graceful pause preserves progress
-- [ ] Build script supports `--mode cli`
-- [ ] All unit tests pass
+- [x] CLI authentication verification works
+- [x] Single paper extraction via CLI succeeds
+- [x] JSON responses parse correctly
+- [x] Progress tracking saves/loads correctly
+- [x] Resume from checkpoint works
+- [x] Rate limit detection triggers appropriately
+- [x] Graceful pause preserves progress
+- [x] Build script supports `--mode cli`
+- [x] All unit tests pass
 
 ---
 
@@ -422,11 +422,11 @@ else:
 
 | File | Status |
 |------|--------|
-| src/analysis/cli_executor.py | Pending |
-| src/analysis/rate_limit_handler.py | Pending |
-| src/analysis/progress_tracker.py | Pending |
-| src/analysis/cli_section_extractor.py | Pending |
-| tests/test_cli_extraction.py | Pending |
+| src/analysis/cli_executor.py | Complete |
+| src/analysis/rate_limit_handler.py | Complete |
+| src/analysis/progress_tracker.py | Complete |
+| src/analysis/cli_section_extractor.py | Complete |
+| tests/test_cli_extraction.py | Complete |
 
 ---
 

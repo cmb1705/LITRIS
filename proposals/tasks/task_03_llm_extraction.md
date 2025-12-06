@@ -545,16 +545,16 @@ Specify exact JSON structure expected, matching Extraction schema.
 
 ## Acceptance Criteria
 
-- [ ] Successfully calls Claude API with retry logic
-- [ ] Extracts all schema fields from well-structured papers
-- [ ] Handles missing sections gracefully
-- [ ] Parses JSON from LLM responses
-- [ ] Tracks token usage per extraction
-- [ ] Truncates long papers appropriately
-- [ ] Detects paper sections for smart truncation
-- [ ] Reports extraction confidence
-- [ ] Logs errors without crashing
-- [ ] All unit tests pass
+- [x] Successfully calls Claude API with retry logic
+- [x] Extracts all schema fields from well-structured papers
+- [x] Handles missing sections gracefully
+- [x] Parses JSON from LLM responses
+- [x] Tracks token usage per extraction
+- [x] Truncates long papers appropriately
+- [x] Detects paper sections for smart truncation
+- [x] Reports extraction confidence
+- [x] Logs errors without crashing
+- [x] All unit tests pass
 
 ---
 
@@ -562,12 +562,12 @@ Specify exact JSON structure expected, matching Extraction schema.
 
 | File | Status |
 |------|--------|
-| src/analysis/__init__.py | Task 00 |
-| src/analysis/schemas.py | Pending |
-| src/analysis/prompts.py | Pending |
-| src/analysis/llm_client.py | Pending |
-| src/analysis/section_extractor.py | Pending |
-| tests/test_llm_extraction.py | Pending |
+| src/analysis/__init__.py | Complete |
+| src/analysis/schemas.py | Complete |
+| src/analysis/prompts.py | Complete |
+| src/analysis/llm_client.py | Complete |
+| src/analysis/section_extractor.py | Complete |
+| tests/test_llm_extraction.py | Complete |
 
 ---
 

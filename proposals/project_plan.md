@@ -408,7 +408,7 @@ D:\Git_Repos\Lit_Review\
 
 - [x] 3.5.1 OCR dependencies installed (Tesseract, Poppler)
 - [x] 3.5.2 OCR handler verified working
-- [x] 3.5.3 All 166 tests passing
+- [x] 3.5.3 All 167 tests passing
 
 ---
 
