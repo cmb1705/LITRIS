@@ -350,19 +350,33 @@ def run_embedding_generation(
         logger.info("Clearing existing embeddings...")
         vector_store.clear()
 
-    # Build paper lookup
+    # Build paper lookups - by full paper_id and by zotero_key for backward compat
     paper_lookup = {p.paper_id: p for p in papers}
+    paper_by_zotero_key: dict[str, PaperMetadata] = {}
+    for p in papers:
+        # Only store first paper per zotero_key (for old-style ID matching)
+        if p.zotero_key not in paper_by_zotero_key:
+            paper_by_zotero_key[p.zotero_key] = p
 
     # Filter to papers with extractions
+    # Handle both old-style (zotero_key) and new-style (zotero_key_attachment_key) IDs
     papers_with_extractions = []
     extraction_lookup = {}
 
     for paper_id, ext_data in extractions.items():
+        paper = None
+        # Try exact match first (new-style ID)
         if paper_id in paper_lookup:
-            papers_with_extractions.append(paper_lookup[paper_id])
+            paper = paper_lookup[paper_id]
+        # Fall back to zotero_key match (old-style ID)
+        elif "_" not in paper_id and paper_id in paper_by_zotero_key:
+            paper = paper_by_zotero_key[paper_id]
+
+        if paper:
+            papers_with_extractions.append(paper)
             # Extract the actual extraction data
             ext = ext_data.get("extraction", ext_data)
-            extraction_lookup[paper_id] = PaperExtraction(**ext)
+            extraction_lookup[paper.paper_id] = PaperExtraction(**ext)
 
     if not papers_with_extractions:
         logger.warning("No papers with extractions found for embedding")
@@ -508,6 +522,9 @@ def main():
                 consumed_old_style.add(paper.zotero_key)
                 return True
         return False
+
+    # Save full papers list for embedding generation (needs all papers, not just unextracted)
+    all_papers_with_pdfs = papers.copy()
 
     # Filter out already-extracted papers BEFORE applying limit
     # This way --limit N means "extract N new papers"
@@ -754,7 +771,7 @@ def main():
     if not args.skip_embeddings:
         try:
             chunks_added = run_embedding_generation(
-                papers,
+                all_papers_with_pdfs,  # Use full list, not filtered extraction list
                 existing_extractions,
                 index_dir,
                 config.embeddings.model,
