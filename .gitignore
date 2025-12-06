@@ -138,6 +138,9 @@ celerybeat.pid
 .env
 .envrc
 .venv
+
+# Local configuration (contains user-specific paths)
+config.yaml
 env/
 venv/
 ENV/

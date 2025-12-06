@@ -1,10 +1,11 @@
-# Literature Review Index System Configuration
+# LITRIS Configuration
+# Copy this file to config.yaml and update paths for your system
 
 zotero:
   # Path to Zotero SQLite database
-  database_path: "D:/Zotero/zotero.sqlite"
+  database_path: "/path/to/zotero.sqlite"
   # Path to Zotero storage directory containing PDFs
-  storage_path: "D:/Zotero/storage"
+  storage_path: "/path/to/zotero/storage"
 
 extraction:
   # Extraction mode: "cli" (free with Max subscription) or "batch_api" (paid, 50% discount)

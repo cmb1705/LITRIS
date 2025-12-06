@@ -1,4 +1,4 @@
-# Project Memory: Literature Review Index System
+# Project Memory: Literature Review Indexing System (LITRIS)
 
 > Extended reference: [CLAUDE_SUPPLEMENTAL.md](CLAUDE_SUPPLEMENTAL.md)
 
@@ -6,11 +6,10 @@
 
 **Purpose**: AI-assisted literature review system for Zotero libraries with LLM extraction and semantic search.
 
-**Location**: `D:\Git_Repos\Lit_Review\` | **Zotero**: `D:\Zotero\` (read-only)
+**Name**: LITRIS (Literature Review Indexing System)
 
 ## Development Environment
 
-- **OS**: Windows (PowerShell)
 - **Python**: 3.10+ with .venv
 - **Dependencies**: anthropic, pymupdf, chromadb, sentence-transformers, pydantic
 
@@ -31,7 +30,7 @@
 
 ### NEVER Modify
 
-- `D:\Zotero\` - Read-only database and storage
+- Zotero database and storage directories (read-only)
 - `data/raw/` - Immutable if created
 
 ### Zotero Database Rules
@@ -94,14 +93,14 @@
 
 | Hook | Action |
 |------|--------|
-| PreToolUse (Write/Edit) | Block D:\Zotero\ writes |
+| PreToolUse (Write/Edit) | Block Zotero directory writes |
 | PostToolUse (Write/Edit) | Ruff on .py files |
 | PostToolUse (Bash/Write/Edit) | Log to operations.log |
 
 ## Security
 
 - API keys in environment variables only
-- Never commit .env
+- Never commit .env or config.yaml with real paths
 - Validate paths; block protected directories
 
 ---

@@ -379,7 +379,16 @@ def run_embedding_generation(
             extraction_lookup[paper.paper_id] = PaperExtraction(**ext)
 
     if not papers_with_extractions:
+        # Provide diagnostic info to help debug matching issues
         logger.warning("No papers with extractions found for embedding")
+        logger.warning(f"  Papers provided: {len(papers)}")
+        logger.warning(f"  Extractions available: {len(extractions)}")
+        if papers and extractions:
+            sample_paper_ids = [p.paper_id for p in papers[:3]]
+            sample_extraction_ids = list(extractions.keys())[:3]
+            logger.warning(f"  Sample paper IDs: {sample_paper_ids}")
+            logger.warning(f"  Sample extraction IDs: {sample_extraction_ids}")
+            logger.warning("  Check if ID formats match (old: zotero_key, new: zotero_key_attachment)")
         return 0
 
     logger.info(f"Generating embeddings for {len(papers_with_extractions)} papers...")
@@ -778,12 +787,15 @@ def main():
                 args.rebuild_embeddings,
                 logger,
             )
-            logger.info(f"Embedding generation complete: {chunks_added} chunks")
+            if chunks_added == 0:
+                logger.warning("No embedding chunks were added - check extraction/paper matching")
+            else:
+                logger.info(f"Embedding generation complete: {chunks_added} chunks")
         except Exception as e:
             logger.error(f"Embedding generation failed: {e}")
-            if args.verbose:
-                import traceback
-                traceback.print_exc()
+            import traceback
+            traceback.print_exc()
+            logger.error("Embedding step failed but continuing with summary generation")
 
     # Step 3: Summary Generation
     try:

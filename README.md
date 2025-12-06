@@ -1,10 +1,10 @@
-# Literature Review Index System
+# Literature Review Indexing System (LITRIS)
 
 Build a semantic search index from a Zotero library, enabling AI-assisted literature review, citation support, and research gap identification.
 
 ## Overview
 
-This system extracts structured insights from academic papers in a Zotero library using LLM analysis, then indexes them for semantic search. It enables:
+LITRIS extracts structured insights from academic papers in a Zotero library using LLM analysis, then indexes them for semantic search. It enables:
 
 - **Literature discovery** - Find papers relevant to research questions
 - **Citation support** - Retrieve metadata and key claims for academic writing
@@ -14,13 +14,13 @@ This system extracts structured insights from academic papers in a Zotero librar
 ## Architecture
 
 ```
-Zotero SQLite ──> Metadata Extraction ──> Paper Records
-      │
+Zotero SQLite --> Metadata Extraction --> Paper Records
+      |
       v
-PDF Storage ──> Text Extraction ──> LLM Analysis ──> Structured Extractions
-      │
+PDF Storage --> Text Extraction --> LLM Analysis --> Structured Extractions
+      |
       v
-Embedding Generation ──> ChromaDB Vector Store ──> Semantic Search
+Embedding Generation --> ChromaDB Vector Store --> Semantic Search
 ```
 
 ## Features
@@ -30,6 +30,7 @@ Embedding Generation ──> ChromaDB Vector Store ──> Semantic Search
 - **Dual Extraction Modes**: CLI (free with Max subscription) or Batch API (paid, 50% discount)
 - **Semantic Search**: Vector similarity search with metadata filtering
 - **Incremental Updates**: Detect and process new/modified papers without full rebuild
+- **Multi-attachment Support**: Handles papers with multiple PDF attachments
 
 ## Prerequisites
 
@@ -43,8 +44,8 @@ Embedding Generation ──> ChromaDB Vector Store ──> Semantic Search
 
 ```bash
 # Clone repository
-git clone git@github.com:cmb1705/Lit_Review.git
-cd Lit_Review
+git clone https://github.com/YOUR_USERNAME/LITRIS.git
+cd LITRIS
 
 # Create virtual environment
 python -m venv .venv
@@ -54,10 +55,8 @@ python -m venv .venv
 # Install dependencies
 pip install -r requirements.txt
 
-# Configure environment
-cp .env.example .env
-# Edit .env with your API keys
-
+# Configure paths
+cp config.yaml.example config.yaml
 # Edit config.yaml with your Zotero paths
 ```
 
@@ -65,52 +64,42 @@ cp .env.example .env
 
 ```bash
 # Test build with 10 papers
-python scripts/build_index.py --limit 10
+python scripts/build_index.py --limit 10 --mode cli
 
 # Query the index
 python scripts/query_index.py -q "network analysis methods"
 
 # Full library build
-python scripts/build_index.py
+python scripts/build_index.py --mode cli
 ```
 
 ## Project Structure
 
 ```
-Lit_Review/
+LITRIS/
 ├── .claude/              # Claude Code configuration
 │   ├── agents/           # Specialized AI agents
 │   ├── skills/           # Domain knowledge
 │   └── commands/         # Slash commands
 ├── src/                  # Source code
 │   ├── zotero/           # Zotero database reader
-│   ├── extraction/       # PDF and LLM extraction
+│   ├── analysis/         # PDF and LLM extraction
 │   ├── indexing/         # Embeddings and storage
 │   └── query/            # Search interface
 ├── scripts/              # CLI tools
 ├── data/                 # Index and cache (gitignored)
-├── proposals/            # Technical specification and tasks
+├── proposals/            # Technical specifications
 └── tests/                # Test suite
 ```
 
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [STATE.md](STATE.md) | Implementation progress tracker |
-| [CLAUDE.md](CLAUDE.md) | Project memory for Claude Code |
-| [Technical Specification](proposals/technical_specification.md) | Full system design |
-| [Project Plan](proposals/project_plan.md) | Phased TODO lists |
-| [Task Files](proposals/tasks/) | Detailed implementation guides |
-
 ## Configuration
 
-Edit `config.yaml` to customize:
+Create a `config.yaml` file (see `config.yaml.example`):
 
 ```yaml
 zotero:
-  database_path: "D:/Zotero/zotero.sqlite"
-  storage_path: "D:/Zotero/storage"
+  database_path: "/path/to/zotero.sqlite"
+  storage_path: "/path/to/zotero/storage"
 
 extraction:
   mode: "cli"  # "cli" (free) or "batch_api" (paid, 50% discount)
@@ -142,6 +131,25 @@ python scripts/query_index.py -q "research methods" --year-min 2020
 python scripts/query_index.py -q "methodology" -f markdown
 ```
 
+### Build Options
+
+```bash
+# Parallel extraction (faster)
+python scripts/build_index.py --mode cli --parallel 5
+
+# Skip embeddings (extraction only)
+python scripts/build_index.py --mode cli --skip-embeddings
+
+# Rebuild embeddings only
+python scripts/build_index.py --skip-extraction
+
+# Retry failed extractions
+python scripts/build_index.py --mode cli --retry-failed
+
+# Show papers without PDFs
+python scripts/build_index.py --show-skipped
+```
+
 ### Update the Index
 
 ```bash
@@ -152,22 +160,13 @@ python scripts/update_index.py --detect-only
 python scripts/update_index.py
 ```
 
-## Development Status
+## Documentation
 
-**Current Phase**: Phase 5 Complete (98% overall)
-
-See [STATE.md](STATE.md) for detailed progress tracking.
-
-| Phase | Status |
-|-------|--------|
-| 0: Setup | ✓ Complete |
-| 1: Foundation | ✓ Complete |
-| 2: Semantic Search | ✓ Complete |
-| 3: Robustness | ✓ Complete |
-| 4: Incremental Updates | ✓ Complete |
-| 5: Refinement | ✓ Complete |
-
-**Test Suite**: 191 tests passing
+| Document | Description |
+|----------|-------------|
+| [STATE.md](STATE.md) | Implementation progress tracker |
+| [CLAUDE.md](CLAUDE.md) | Project memory for Claude Code |
+| [Technical Specification](proposals/technical_specification.md) | Full system design |
 
 ## Cost Estimates
 
@@ -177,7 +176,7 @@ See [STATE.md](STATE.md) for detailed progress tracking.
 | Full build (500 papers) | $0 | ~$67.50 |
 | Incremental updates | $0 | Variable |
 
-- **CLI mode**: Free with Max subscription (200-800 prompts/5hr limit)
+- **CLI mode**: Free with Max subscription (rate limited)
 - **Batch API mode**: Pay-per-token with 50% batch discount
 
 ## License
