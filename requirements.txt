@@ -29,3 +29,6 @@ Pillow>=10.0
 
 # MCP (Model Context Protocol) server
 mcp>=1.0
+
+# Secure credential storage (uses OS keyring, e.g., Windows Credential Manager)
+keyring>=24.3

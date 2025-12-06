@@ -1,7 +1,6 @@
 """LLM client for paper extraction."""
 
 import json
-import os
 import time
 from typing import Literal
 
@@ -10,6 +9,7 @@ from anthropic import Anthropic
 from src.analysis.cli_executor import ClaudeCliExecutor
 from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
 from src.analysis.schemas import ExtractionResult, PaperExtraction
+from src.utils.secrets import get_anthropic_api_key
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -48,10 +48,12 @@ class LLMClient:
                 "Use scripts/batch_extract.py to submit and collect batch jobs."
             )
         if mode == "api":
-            api_key = os.getenv("ANTHROPIC_API_KEY")
+            api_key = get_anthropic_api_key()
             if not api_key:
                 raise ValueError(
-                    "ANTHROPIC_API_KEY environment variable required for API mode"
+                    "Anthropic API key required for API mode. "
+                    "Set ANTHROPIC_API_KEY or store it in the OS keyring "
+                    "(service: 'litris', key: 'ANTHROPIC_API_KEY')."
                 )
             self.client = Anthropic(api_key=api_key)
         elif mode == "cli":

@@ -6,13 +6,14 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 from anthropic import Anthropic
 
 from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
 from src.analysis.schemas import ExtractionResult, PaperExtraction
 from src.utils.logging_config import get_logger
+from src.utils.secrets import get_anthropic_api_key
 from src.zotero.models import PaperMetadata
 
 logger = get_logger(__name__)
@@ -67,22 +68,30 @@ class BatchExtractionClient:
             max_tokens: Maximum tokens for response.
             batch_dir: Directory to store batch state files.
         """
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        api_key = get_anthropic_api_key()
         if not api_key:
             raise ValueError(
-                "ANTHROPIC_API_KEY environment variable required for batch API"
+                "Anthropic API key required for batch API. "
+                "Set ANTHROPIC_API_KEY or store it in the OS keyring "
+                "(service: 'litris', key: 'ANTHROPIC_API_KEY')."
             )
 
         self.client = Anthropic(api_key=api_key)
         self.model = model
-        self.max_tokens = max_tokens
+        # Claude batch API hard-limits output tokens to 64k; clamp to avoid rejections.
+        if max_tokens > 64000:
+            logger.info(
+                "Clamping max_tokens from %s to 64000 to satisfy Claude batch API limits",
+                max_tokens,
+            )
+        self.max_tokens = min(max_tokens, 64000)
         self.batch_dir = batch_dir or Path("data/batches")
         self.batch_dir.mkdir(parents=True, exist_ok=True)
 
     def create_batch_requests(
         self,
         papers: list[PaperMetadata],
-        text_getter: callable,
+        text_getter: Callable,
     ) -> list[BatchRequest]:
         """Create batch requests from papers.
 
@@ -185,7 +194,7 @@ class BatchExtractionClient:
         batch_id: str,
         poll_interval: int = 60,
         max_wait: int = 86400,
-        progress_callback: callable | None = None,
+        progress_callback: Callable | None = None,
     ) -> BatchStatus:
         """Wait for batch to complete.
 

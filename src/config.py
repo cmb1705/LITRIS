@@ -8,6 +8,8 @@ import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
+from src.utils.secrets import get_anthropic_api_key
+
 
 class ZoteroConfig(BaseModel):
     """Zotero-related configuration."""
@@ -223,7 +225,7 @@ class Config(BaseModel):
         return path
 
     def get_anthropic_key(self) -> str | None:
-        """Get Anthropic API key from environment.
+        """Get Anthropic API key from environment or keyring.
 
         Returns:
             API key string, or None if using CLI mode.
@@ -231,12 +233,14 @@ class Config(BaseModel):
         Raises:
             ValueError: If batch_api mode but no API key set.
         """
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        api_key = get_anthropic_api_key()
 
         if self.extraction.mode == "batch_api" and not api_key:
             raise ValueError(
-                "ANTHROPIC_API_KEY environment variable is required for batch_api mode.\n"
-                "Either set the API key or change extraction.mode to 'cli' in config.yaml"
+                "Anthropic API key is required for batch_api mode.\n"
+                "Either set ANTHROPIC_API_KEY or store it in the OS keyring "
+                "(service: 'litris', key: 'ANTHROPIC_API_KEY'), "
+                "or change extraction.mode to 'cli' in config.yaml"
             )
 
         return api_key
