@@ -32,3 +32,6 @@ mcp>=1.0
 
 # Secure credential storage (uses OS keyring, e.g., Windows Credential Manager)
 keyring>=24.3
+
+# Markdown to HTML conversion (for PDF export)
+markdown>=3.4

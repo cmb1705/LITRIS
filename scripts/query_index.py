@@ -12,6 +12,7 @@ sys.path.insert(0, str(project_root))
 from src.config import Config
 from src.query.retrieval import (
     OutputFormat,
+    convert_markdown_to_pdf,
     format_paper_detail,
     format_results,
     format_summary,
@@ -72,14 +73,19 @@ def parse_args():
     # Output options
     parser.add_argument(
         "--output", "-o",
-        choices=["json", "markdown", "brief"],
-        default="brief",
-        help="Output format (default: brief)",
+        choices=["json", "markdown", "brief", "pdf"],
+        default="markdown",
+        help="Output format (default: markdown)",
     )
     parser.add_argument(
-        "--save",
+        "--pdf",
         action="store_true",
-        help="Save results to file",
+        help="Save results as PDF (shortcut for --output pdf)",
+    )
+    parser.add_argument(
+        "--no-save",
+        action="store_true",
+        help="Do not save results to file (default: auto-save to data/query_results/)",
     )
     parser.add_argument(
         "--include-extraction",
@@ -109,6 +115,14 @@ def parse_args():
         help="List all collections in the index",
     )
 
+    # Conversion
+    parser.add_argument(
+        "--convert-to-pdf",
+        type=Path,
+        metavar="MD_FILE",
+        help="Convert an existing markdown report to PDF",
+    )
+
     # Config
     parser.add_argument(
         "--config",
@@ -128,6 +142,24 @@ def parse_args():
 def main():
     """Main entry point."""
     args = parse_args()
+
+    # Handle --pdf shortcut
+    if args.pdf:
+        args.output = "pdf"
+
+    # Handle markdown to PDF conversion (standalone operation)
+    if args.convert_to_pdf:
+        md_path = args.convert_to_pdf
+        if not md_path.exists():
+            print(f"Error: File not found: {md_path}")
+            return 1
+        try:
+            pdf_path = convert_markdown_to_pdf(md_path)
+            print(f"Converted to PDF: {pdf_path}")
+            return 0
+        except Exception as e:
+            print(f"Error converting to PDF: {e}")
+            return 1
 
     # Setup logging
     log_level = "DEBUG" if args.verbose else "INFO"
@@ -209,8 +241,8 @@ def main():
         )
         print(output)
 
-        if args.save:
-            save_results(
+        if not args.no_save:
+            filepath = save_results(
                 results,
                 f"Similar to: {args.similar}",
                 results_dir,
@@ -218,6 +250,7 @@ def main():
                 "similar",
                 args.include_extraction,
             )
+            logger.info(f"Results saved to {filepath}")
 
         return 0
 
@@ -251,14 +284,14 @@ def main():
     )
     print(output)
 
-    # Save if requested
-    if args.save:
+    # Auto-save results (default behavior)
+    if not args.no_save:
         filepath = save_results(
             results,
             args.query,
             results_dir,
             args.output,
-            "results",
+            "search",
             args.include_extraction,
         )
         logger.info(f"Results saved to {filepath}")

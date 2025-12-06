@@ -40,7 +40,7 @@ LITRIS enables a human-AI research collaboration where the index serves as compr
 Research Question (Human)
         |
         v
-LITRIS Index (236 papers)
+LITRIS Index (your papers)
         |
         v
 [Extractions: thesis, methodology, findings, limitations]
@@ -106,6 +106,16 @@ Direct tool access for Claude Code enables seamless research collaboration:
 
 See [docs/mcp_troubleshooting.md](docs/mcp_troubleshooting.md) for setup details.
 
+### Claude Code Slash Commands
+
+When using Claude Code in this project, these slash commands are available:
+
+| Command | Description |
+|---------|-------------|
+| `/search <query>` | Search the literature index with semantic search |
+| `/build` | Build/update the index from Zotero library |
+| `/review-paper <id>` | Review extraction quality for a specific paper |
+
 ## Prerequisites
 
 - Python 3.10+
@@ -137,14 +147,17 @@ cp config.yaml.example config.yaml
 ## Quick Start
 
 ```bash
-# Test build with 10 papers
-python scripts/build_index.py --limit 10 --mode cli
+# Preview what will be indexed
+python scripts/build_index.py --dry-run
 
-# Query the index
+# Test build with 10 papers (using Claude subscription)
+python scripts/build_index.py --limit 10 --use-subscription
+
+# Query the index (results auto-saved to data/query_results/)
 python scripts/query_index.py -q "network analysis methods"
 
 # Full library build
-python scripts/build_index.py --mode cli
+python scripts/build_index.py --use-subscription
 ```
 
 ## Project Structure
@@ -195,43 +208,66 @@ embeddings:
 ### Search the Literature
 
 ```bash
-# Basic search
+# Basic search (auto-saves to data/query_results/)
 python scripts/query_index.py -q "citation network analysis"
 
 # Filter by year
 python scripts/query_index.py -q "research methods" --year-min 2020
 
-# Output as markdown
-python scripts/query_index.py -q "methodology" -f markdown
+# Filter by chunk type (thesis, methodology, findings, etc.)
+python scripts/query_index.py -q "machine learning" --chunk-types methodology findings
+
+# Export as PDF
+python scripts/query_index.py -q "emerging topics" --pdf
+
+# Brief console output (no file save)
+python scripts/query_index.py -q "quick check" --output brief --no-save
+
+# Convert existing markdown report to PDF
+python scripts/query_index.py --convert-to-pdf data/query_results/report.md
+
+# Get paper details by ID
+python scripts/query_index.py --paper "PAPER_ID"
+
+# Find similar papers
+python scripts/query_index.py --similar "PAPER_ID"
+
+# Index statistics
+python scripts/query_index.py --summary
 ```
 
 ### Build Options
 
 ```bash
-# Parallel extraction (faster)
-python scripts/build_index.py --mode cli --parallel 5
+# Preview what will be processed
+python scripts/build_index.py --dry-run
 
-# Skip embeddings (extraction only)
-python scripts/build_index.py --mode cli --skip-embeddings
+# Use Claude subscription (free with Max/Pro)
+python scripts/build_index.py --use-subscription
 
-# Rebuild embeddings only
+# Skip DOI duplicates (when adding from new Zotero database)
+python scripts/build_index.py --use-subscription --dedupe-by-doi
+
+# Analyze DOI overlap before building
+python scripts/build_index.py --show-doi-overlap
+
+# Rebuild embeddings only (skip extraction)
 python scripts/build_index.py --skip-extraction
-
-# Retry failed extractions
-python scripts/build_index.py --mode cli --retry-failed
 
 # Show papers without PDFs
 python scripts/build_index.py --show-skipped
+
+# Limit processing to N papers
+python scripts/build_index.py --limit 50 --use-subscription
 ```
 
-### Update the Index
+### Incremental Updates
+
+The build script automatically detects new papers and only processes those not already in the index:
 
 ```bash
-# Check for changes
-python scripts/update_index.py --detect-only
-
-# Apply updates
-python scripts/update_index.py
+# Just run build again - it skips already-extracted papers
+python scripts/build_index.py --use-subscription
 ```
 
 ## Documentation
