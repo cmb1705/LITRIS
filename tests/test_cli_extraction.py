@@ -17,20 +17,38 @@ from src.analysis.cli_executor import (
 )
 from src.analysis.progress_tracker import ProgressTracker
 from src.analysis.rate_limit_handler import RateLimitExceededError, RateLimitHandler
+from src.zotero.models import Author
 
 
 class TestClaudeCliExecutor:
     """Test CLI executor functionality."""
 
-    def test_verify_auth_fails_with_api_key(self, monkeypatch):
-        """Test that API key presence is detected."""
+    def test_verify_auth_with_api_key_warns(self, monkeypatch, caplog, tmp_path):
+        """Test that API key presence warns about billing when no OAuth available."""
+        from src.analysis.cli_executor import ClaudeCliAuthenticator
+
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-        executor = ClaudeCliExecutor()
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
 
-        with pytest.raises(CliExecutionError) as exc_info:
-            executor.verify_authentication()
+        with patch("shutil.which") as mock_which:
+            mock_which.return_value = "/usr/bin/claude"
 
-        assert "ANTHROPIC_API_KEY" in str(exc_info.value)
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0, stdout="1.0.0")
+
+                # Mock credentials path to not exist (so API key is the fallback)
+                nonexistent_path = tmp_path / "nonexistent"
+                with patch.object(
+                    ClaudeCliAuthenticator, "_get_credentials_path", return_value=nonexistent_path
+                ):
+                    executor = ClaudeCliExecutor()
+                    result = executor.verify_authentication()
+
+                    # Should succeed but with warning
+                    assert result is True
+                    assert executor.authenticator.get_auth_method() == "api_key"
+                    # Check warning was logged
+                    assert any("API billing" in record.message for record in caplog.records)
 
     def test_verify_auth_no_api_key(self, monkeypatch):
         """Test auth check passes without API key."""
@@ -290,6 +308,47 @@ class TestProgressTracker:
 
 class TestCliSectionExtractor:
     """Test CLI section extractor integration."""
+
+    def test_prompt_uses_full_name_and_year(self, tmp_path, monkeypatch):
+        """Ensure prompt uses author full names and publication_year."""
+        from datetime import datetime
+        from src.analysis.cli_section_extractor import CliSectionExtractor
+        from src.zotero.models import PaperMetadata
+
+        captured = {}
+
+        class DummyExecutor:
+            def extract(self, prompt, input_text):
+                captured["prompt"] = prompt
+                captured["input_text"] = input_text
+                # Minimal valid response
+                return {"thesis_statement": "Thesis", "research_questions": []}
+
+        dummy_rate = MagicMock()
+        dummy_rate.record_request = MagicMock()
+
+        metadata = PaperMetadata(
+            zotero_key="KEY12345",
+            zotero_item_id=1,
+            title="Test Paper",
+            item_type="journalArticle",
+            publication_year=2020,
+            authors=[Author(first_name="Alice", last_name="Smith"), Author(first_name="Bob", last_name="Lee")],
+            date_added=datetime.now(),
+            date_modified=datetime.now(),
+        )
+
+        extractor = CliSectionExtractor(
+            cache_dir=tmp_path,
+            executor=DummyExecutor(),
+            rate_handler=dummy_rate,
+        )
+
+        extractor.extract_single("paper1", "Some text body", metadata)
+
+        assert "Alice Smith" in captured["prompt"]
+        assert "Bob Lee" in captured["prompt"]
+        assert "2020" in captured["prompt"]
 
     def test_parse_response_full(self, tmp_path):
         """Test parsing a full extraction response."""

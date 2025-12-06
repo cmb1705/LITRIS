@@ -29,14 +29,26 @@ class ExtractionConfig(BaseModel):
     model: str = "claude-opus-4-5-20251101"
     max_tokens: int = 100000
     timeout: int = 120
+    use_cache: bool = True
+    parallel_workers: int = 1
 
     @field_validator("mode")
     @classmethod
     def validate_mode(cls, v: str) -> str:
         """Validate extraction mode."""
-        valid_modes = {"cli", "batch_api"}
+        valid_modes = {"api", "cli", "batch_api"}
         if v not in valid_modes:
             raise ValueError(f"mode must be one of {valid_modes}, got '{v}'")
+        return v
+
+    @field_validator("parallel_workers")
+    @classmethod
+    def validate_parallel_workers(cls, v: int) -> int:
+        """Validate parallel workers count."""
+        if v < 1:
+            raise ValueError("parallel_workers must be at least 1")
+        if v > 10:
+            raise ValueError("parallel_workers should not exceed 10")
         return v
 
 
@@ -67,6 +79,7 @@ class ProcessingConfig(BaseModel):
     batch_size: int = 10
     ocr_enabled: bool = False
     min_text_length: int = 100
+    ocr_config: dict[str, Any] | None = None
 
 
 class Config(BaseModel):

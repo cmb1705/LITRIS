@@ -43,6 +43,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+markers = [
+    "integration: marks tests as integration (skipped by default)",
+]
 
 [tool.ruff]
 line-length = 100

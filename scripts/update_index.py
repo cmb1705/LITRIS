@@ -479,6 +479,8 @@ def main():
             model=config.extraction.model,
             max_tokens=config.extraction.max_tokens,
             min_text_length=config.processing.min_text_length,
+            ocr_enabled=config.processing.ocr_enabled,
+            ocr_config=config.processing.ocr_config,
         )
 
     embedding_gen = None

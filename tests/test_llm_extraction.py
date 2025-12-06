@@ -226,6 +226,39 @@ class TestExtractionStats:
         assert stats.success_rate == 0.0
 
 
+class TestSectionExtractorConfig:
+    """Tests for SectionExtractor configuration wiring."""
+
+    def test_section_extractor_passes_ocr_config(self, tmp_path, monkeypatch):
+        """Ensure OCR settings are forwarded to PDFExtractor."""
+        from src.analysis import section_extractor as se_module
+        captured = {}
+
+        class DummyPDFExtractor:
+            def __init__(self, cache_dir=None, enable_ocr=False, ocr_config=None):
+                captured["cache_dir"] = cache_dir
+                captured["enable_ocr"] = enable_ocr
+                captured["ocr_config"] = ocr_config
+
+        class DummyLLMClient:
+            def __init__(self, mode=None, model=None, max_tokens=None):
+                pass
+
+        monkeypatch.setattr(se_module, "PDFExtractor", DummyPDFExtractor)
+        monkeypatch.setattr(se_module, "LLMClient", DummyLLMClient)
+        # Defensive: ensure module global is swapped even if monkeypatch helper fails
+        se_module.LLMClient = DummyLLMClient
+
+        se_module.SectionExtractor(
+            cache_dir=tmp_path,
+            ocr_enabled=True,
+            ocr_config={"lang": "deu", "dpi": 400},
+        )
+
+        assert captured["enable_ocr"] is True
+        assert captured["ocr_config"] == {"lang": "deu", "dpi": 400}
+
+
 class TestLLMClientMocked:
     """Tests for LLMClient with mocked API."""
 

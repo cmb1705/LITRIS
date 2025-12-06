@@ -1,7 +1,6 @@
 """Pydantic models for Zotero data structures."""
 
 import re
-import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -45,7 +44,7 @@ class Collection(BaseModel):
 class PaperMetadata(BaseModel):
     """Complete metadata for a paper from Zotero."""
 
-    paper_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    paper_id: str = ""  # Will be set from zotero_key in model_post_init
     zotero_key: str
     zotero_item_id: int
     item_type: str
@@ -97,7 +96,11 @@ class PaperMetadata(BaseModel):
         return str(v).strip()
 
     def model_post_init(self, __context):
-        """Extract publication year from date if not set."""
+        """Initialize computed fields after model creation."""
+        # Use zotero_key as stable paper_id if not explicitly set
+        if not self.paper_id:
+            self.paper_id = self.zotero_key
+        # Extract publication year from date if not set
         if self.publication_year is None and self.publication_date:
             self.publication_year = self._extract_year(self.publication_date)
 

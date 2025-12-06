@@ -6,6 +6,7 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Literal
+import shutil
 
 from anthropic import Anthropic
 
@@ -15,7 +16,7 @@ from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-ExtractionMode = Literal["api", "cli"]
+ExtractionMode = Literal["api", "cli", "batch_api"]
 
 
 class LLMClient:
@@ -41,6 +42,11 @@ class LLMClient:
         self.max_tokens = max_tokens
         self.timeout = timeout
 
+        if mode == "batch_api":
+            raise ValueError(
+                "batch_api mode is not supported via LLMClient. "
+                "Use scripts/batch_extract.py to submit and collect batch jobs."
+            )
         if mode == "api":
             api_key = os.getenv("ANTHROPIC_API_KEY")
             if not api_key:
@@ -151,40 +157,28 @@ class LLMClient:
             Tuple of (response_text, input_tokens, output_tokens).
             Note: CLI mode does not provide token counts.
         """
-        # Create temp file for prompt
-        import tempfile
+        cli_path = shutil.which("claude") or "claude"
+        cmd = [
+            cli_path,
+            "--print",
+            "--model", self.model,
+            "--system-prompt", EXTRACTION_SYSTEM_PROMPT,
+            "--output-format", "text",
+        ]
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", delete=False, encoding="utf-8"
-        ) as f:
-            f.write(prompt)
-            prompt_file = f.name
+        result = subprocess.run(
+            cmd,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=self.timeout,
+            encoding="utf-8",
+        )
 
-        try:
-            # Call Claude CLI
-            cmd = [
-                "claude",
-                "--print",
-                "--model", self.model,
-                "--system", EXTRACTION_SYSTEM_PROMPT,
-                "-f", prompt_file,
-            ]
+        if result.returncode != 0:
+            raise RuntimeError(f"CLI error: {result.stderr or result.stdout}")
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
-                encoding="utf-8",
-            )
-
-            if result.returncode != 0:
-                raise RuntimeError(f"CLI error: {result.stderr}")
-
-            return result.stdout, 0, 0
-
-        finally:
-            Path(prompt_file).unlink(missing_ok=True)
+        return result.stdout, 0, 0
 
     def _parse_response(self, response_text: str) -> PaperExtraction:
         """Parse JSON response into PaperExtraction.

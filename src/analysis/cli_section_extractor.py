@@ -106,8 +106,8 @@ class CliSectionExtractor:
         # Build prompt
         prompt = build_extraction_prompt(
             title=metadata.title,
-            authors=", ".join(a.name for a in metadata.authors) if metadata.authors else "",
-            year=metadata.year,
+            authors=", ".join(a.full_name for a in metadata.authors) if metadata.authors else "",
+            year=metadata.publication_year,
             item_type=metadata.item_type,
             text=paper_text,
         )

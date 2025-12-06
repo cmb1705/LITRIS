@@ -98,6 +98,18 @@ class VectorStore:
         if not valid_chunks:
             return 0
 
+        # Validate embedding dimensions on first chunk
+        first_embedding = valid_chunks[0].embedding
+        if first_embedding:
+            dim = len(first_embedding)
+            # Check if collection already has embeddings with different dimension
+            existing_count = self.collection.count()
+            if existing_count > 0:
+                # ChromaDB will error if dimensions mismatch, but log for clarity
+                logger.debug(f"Adding embeddings with dimension {dim} to collection with {existing_count} existing chunks")
+            else:
+                logger.info(f"Initializing collection with embedding dimension {dim}")
+
         logger.info(f"Adding {len(valid_chunks)} chunks to vector store")
 
         # Process in batches
@@ -321,12 +333,13 @@ class VectorStore:
             except Exception:
                 chunk_type_counts[chunk_type] = 0
 
-        # Get unique paper count
+        # Get unique paper count using metadatas only (no documents/embeddings)
         try:
             all_results = self.collection.get(include=["metadatas"])
             paper_ids = set()
-            if all_results["metadatas"]:
-                for meta in all_results["metadatas"]:
+            metadatas = all_results.get("metadatas") if isinstance(all_results, dict) else None
+            if metadatas:
+                for meta in metadatas:
                     if meta and "paper_id" in meta:
                         paper_ids.add(meta["paper_id"])
             unique_papers = len(paper_ids)

@@ -47,8 +47,8 @@ class ValidationSummary:
 class ExtractionValidator:
     """Validate extraction results for quality and completeness."""
 
-    REQUIRED_FIELDS = ["research_question", "methodology", "key_findings"]
-    RECOMMENDED_FIELDS = ["key_claims", "context", "limitations"]
+    REQUIRED_FIELDS = ["research_questions", "methodology", "key_findings"]
+    RECOMMENDED_FIELDS = ["key_claims", "conclusions", "limitations"]
 
     MIN_CONFIDENCE = 0.5
     LOW_CONFIDENCE_THRESHOLD = 0.7
@@ -134,8 +134,8 @@ class ExtractionValidator:
         if isinstance(methodology, dict):
             if not methodology.get("approach"):
                 result.warnings.append("Methodology missing approach")
-            if not methodology.get("sample"):
-                result.warnings.append("Methodology missing sample info")
+            if not methodology.get("sample_size"):
+                result.warnings.append("Methodology missing sample_size info")
 
         # Check key_findings quality
         findings = extraction_data.get("key_findings", [])

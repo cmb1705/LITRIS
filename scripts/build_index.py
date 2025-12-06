@@ -2,6 +2,7 @@
 """Build the literature review index from Zotero library."""
 
 import argparse
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +13,7 @@ sys.path.insert(0, str(project_root))
 
 from tqdm import tqdm
 
+from src.analysis.cli_executor import AuthenticationError, ClaudeCliAuthenticator
 from src.analysis.schemas import PaperExtraction
 from src.analysis.section_extractor import SectionExtractor
 from src.config import Config
@@ -44,9 +46,9 @@ def parse_args():
     )
     parser.add_argument(
         "--mode",
-        choices=["api", "cli"],
+        choices=["api", "cli", "batch_api"],
         default=None,
-        help="Extraction mode (overrides config)",
+        help="Extraction mode: api (Anthropic API), cli (Claude CLI), batch_api (use batch_extract.py)",
     )
     parser.add_argument(
         "--resume",
@@ -97,6 +99,11 @@ def parse_args():
         help="Show list of failed papers from previous run",
     )
     parser.add_argument(
+        "--show-skipped",
+        action="store_true",
+        help="Show list of papers without PDFs (cannot be extracted)",
+    )
+    parser.add_argument(
         "--reset-checkpoint",
         action="store_true",
         help="Reset checkpoint to start fresh",
@@ -105,6 +112,28 @@ def parse_args():
         "-v", "--verbose",
         action="store_true",
         help="Enable verbose logging",
+    )
+    parser.add_argument(
+        "--parallel",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Number of parallel extraction workers (CLI mode only, default: 1)",
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable extraction caching (re-extract all papers)",
+    )
+    parser.add_argument(
+        "--clear-cache",
+        action="store_true",
+        help="Clear extraction cache before running",
+    )
+    parser.add_argument(
+        "--use-subscription",
+        action="store_true",
+        help="Use Claude subscription (Max/Pro) instead of API billing",
     )
     return parser.parse_args()
 
@@ -148,6 +177,73 @@ def save_checkpoint(
 
     # Save metadata
     safe_write_json(index_dir / "metadata.json", metadata)
+
+
+def verify_cli_authentication() -> bool:
+    """Verify CLI authentication is set up for CLI mode extraction.
+
+    Returns:
+        True if authenticated, False if user needs to set up.
+
+    Raises:
+        SystemExit: If user declines to set up authentication.
+    """
+    authenticator = ClaudeCliAuthenticator()
+    is_auth, status = authenticator.is_authenticated()
+
+    if is_auth:
+        auth_method = authenticator.get_auth_method()
+        print(f"\n[OK] CLI authentication verified: {auth_method}")
+        if auth_method == "api_key":
+            print("\n" + "=" * 60)
+            print("WARNING: API KEY BILLING DETECTED")
+            print("=" * 60)
+            print("\nYou have ANTHROPIC_API_KEY set, which will incur API charges.")
+            print("This is NOT using your Claude Max/Pro subscription.")
+            print("\nTo use your subscription (free with plan):")
+            print("  1. Unset ANTHROPIC_API_KEY before running:")
+            print("     $env:ANTHROPIC_API_KEY = $null  # PowerShell")
+            print("  2. Or set CLAUDE_CODE_OAUTH_TOKEN from 'claude' login")
+            print("")
+            try:
+                response = input("Continue with API billing? [y/N]: ")
+                if response.lower() not in ("y", "yes"):
+                    print("\nExiting. Unset ANTHROPIC_API_KEY to use subscription.")
+                    sys.exit(0)
+            except (EOFError, KeyboardInterrupt):
+                print("\n\nCancelled.")
+                sys.exit(1)
+        return True
+
+    # Not authenticated - show options
+    print("\n" + "=" * 60)
+    print("CLI Mode Authentication Required")
+    print("=" * 60)
+    print(f"\nStatus: {status}")
+    print(authenticator.get_setup_instructions())
+
+    # Offer to open browser for authentication
+    try:
+        response = input("\nWould you like to open Claude for authentication? [y/N]: ")
+        if response.lower() in ("y", "yes"):
+            try:
+                authenticator.trigger_interactive_login()
+                print("\nAfter completing authentication in the browser:")
+                print("1. Run 'claude setup-token' in the Claude terminal")
+                print("2. Set the CLAUDE_CODE_OAUTH_TOKEN environment variable")
+                print("3. Re-run this script")
+                sys.exit(0)
+            except Exception as e:
+                print(f"\nFailed to launch Claude: {e}")
+                print("Please run 'claude' manually in a terminal to authenticate.")
+                sys.exit(1)
+        else:
+            print("\nTo use CLI mode, you must authenticate first.")
+            print("Alternatively, use '--mode api' with ANTHROPIC_API_KEY set.")
+            sys.exit(1)
+    except (EOFError, KeyboardInterrupt):
+        print("\n\nAuthentication setup cancelled.")
+        sys.exit(1)
 
 
 def run_extraction(
@@ -337,8 +433,28 @@ def main():
 
     # Get all papers
     with LogContext(logger, "Loading papers from Zotero"):
-        papers = list(zotero.get_all_papers())
+        all_papers = list(zotero.get_all_papers())
+        # Filter to only papers with actual PDF files
+        papers = [p for p in all_papers if p.pdf_path]
+        papers_without_pdf = [p for p in all_papers if not p.pdf_path]
+        if papers_without_pdf:
+            logger.info(f"Found {len(all_papers)} papers, {len(papers_without_pdf)} without PDFs (skipped)")
         logger.info(f"Found {len(papers)} papers with PDFs")
+
+    # Handle show-skipped (papers without PDFs)
+    if args.show_skipped:
+        if papers_without_pdf:
+            print(f"\nPapers without PDFs ({len(papers_without_pdf)}):")
+            print("-" * 70)
+            for p in papers_without_pdf:
+                print(f"  {p.paper_id}: {p.title[:60]}...")
+                if p.authors:
+                    print(f"           {p.author_string}")
+            print("-" * 70)
+            print(f"Total: {len(papers_without_pdf)} papers cannot be extracted (no PDF)")
+        else:
+            print("\nAll papers have PDFs available.")
+        return 0
 
     # Initialize checkpoint manager
     checkpoint_mgr = CheckpointManager(index_dir, checkpoint_id="extraction")
@@ -362,10 +478,29 @@ def main():
             print("\nNo failed papers recorded")
         return 0
 
-    # Apply limit if specified
+    # Load existing extractions early (for filtering and dry-run accuracy)
+    existing_extractions_data = safe_read_json(
+        index_dir / "extractions.json", default={}
+    )
+    if isinstance(existing_extractions_data, dict) and "extractions" in existing_extractions_data:
+        existing_extraction_ids = set(existing_extractions_data["extractions"].keys())
+    elif isinstance(existing_extractions_data, dict):
+        existing_extraction_ids = set(existing_extractions_data.keys())
+    else:
+        existing_extraction_ids = set()
+
+    # Filter out already-extracted papers BEFORE applying limit
+    # This way --limit N means "extract N new papers"
+    total_papers = len(papers)
+    already_extracted_count = len([p for p in papers if p.paper_id in existing_extraction_ids])
+    papers = [p for p in papers if p.paper_id not in existing_extraction_ids]
+    if already_extracted_count > 0:
+        logger.info(f"Filtered out {already_extracted_count} already-extracted papers")
+
+    # Apply limit if specified (now applies to unextracted papers only)
     if args.limit:
         papers = papers[: args.limit]
-        logger.info(f"Limited to {len(papers)} papers")
+        logger.info(f"Limited to {len(papers)} new papers (from {total_papers} total, {already_extracted_count} already done)")
 
     # Build skip set from command line
     skip_paper_ids = set(args.skip_paper)
@@ -421,21 +556,64 @@ def main():
             p for p in papers_to_extract if p.paper_id not in skip_paper_ids
         ]
 
+    # Note: Already-extracted papers were filtered out earlier (before --limit)
+
     if not papers and not args.skip_extraction:
-        logger.info("No papers to process")
+        logger.info("No new papers to process")
         return 0
 
     # Dry run - just show what would be processed
     if args.dry_run:
-        print(f"\nWould process {len(papers_to_extract)} papers:")
-        for i, paper in enumerate(papers_to_extract[:20], 1):
-            print(f"  {i}. {paper.title[:60]}...")
-        if len(papers_to_extract) > 20:
-            print(f"  ... and {len(papers_to_extract) - 20} more")
+        print(f"\nTotal in library: {total_papers}")
+        print(f"Already extracted: {already_extracted_count}")
+        print(f"To extract: {len(papers_to_extract)}")
+
+        if papers_to_extract:
+            print(f"\nWould process {len(papers_to_extract)} papers:")
+            for i, paper in enumerate(papers_to_extract[:20], 1):
+                print(f"  {i}. {paper.title[:60]}...")
+            if len(papers_to_extract) > 20:
+                print(f"  ... and {len(papers_to_extract) - 20} more")
+        else:
+            print("\nNo new papers to extract.")
         return 0
 
     # Initialize extractor
     mode = args.mode or config.extraction.mode
+
+    # Handle --use-subscription flag
+    if args.use_subscription and mode == "cli":
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            logger.info("--use-subscription: Temporarily unsetting ANTHROPIC_API_KEY")
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+
+    # Verify CLI authentication if using CLI mode
+    if mode == "cli" and not args.skip_extraction:
+        verify_cli_authentication()
+
+    # batch_api mode uses separate script
+    if mode == "batch_api" and not args.skip_extraction:
+        print("\n" + "=" * 60)
+        print("Batch API Mode")
+        print("=" * 60)
+        print("\nThe Batch API requires a separate workflow due to async processing.")
+        print("Use the batch_extract.py script instead:")
+        print("\n  1. Submit batch:")
+        print("     python scripts/batch_extract.py submit --limit 100")
+        print("\n  2. Check status:")
+        print("     python scripts/batch_extract.py status <batch_id>")
+        print("\n  3. Wait for completion:")
+        print("     python scripts/batch_extract.py wait <batch_id>")
+        print("\n  4. Collect results:")
+        print("     python scripts/batch_extract.py collect <batch_id>")
+        print("\n  5. Generate embeddings (back here):")
+        print("     python scripts/build_index.py --skip-extraction")
+        print("\nBatch API offers 50% cost savings but processes asynchronously.")
+        return 0
+
+    # Determine extraction settings
+    use_cache = config.extraction.use_cache and not args.no_cache
+    parallel_workers = args.parallel if args.parallel else config.extraction.parallel_workers
 
     # Cost estimation
     if args.estimate_cost:
@@ -445,10 +623,17 @@ def main():
             model=config.extraction.model,
             max_tokens=config.extraction.max_tokens,
             min_text_length=config.processing.min_text_length,
+            ocr_enabled=config.processing.ocr_enabled,
+            ocr_config=config.processing.ocr_config,
+            use_cache=use_cache,
+            parallel_workers=parallel_workers,
         )
         print("\nEstimating extraction cost...")
         estimate = extractor.estimate_batch_cost(papers_to_extract)
         print(f"\nPapers with PDFs: {estimate['papers_with_pdf']}")
+        if estimate.get("papers_cached", 0) > 0:
+            print(f"Papers cached (will skip): {estimate['papers_cached']}")
+            print(f"Papers to extract: {estimate['papers_to_extract']}")
         if "average_text_length" in estimate:
             print(f"Average text length: {estimate['average_text_length']:,} chars")
             print(f"Cost per paper: ${estimate['estimated_cost_per_paper']:.4f}")
@@ -473,25 +658,39 @@ def main():
     else:
         existing_papers = {}
 
-    existing_extractions_data = safe_read_json(
-        index_dir / "extractions.json", default={}
-    )
+    # Use already-loaded extraction data (loaded earlier for filtering)
     if isinstance(existing_extractions_data, dict) and "extractions" in existing_extractions_data:
         existing_extractions = existing_extractions_data["extractions"]
-    else:
+    elif isinstance(existing_extractions_data, dict):
         existing_extractions = existing_extractions_data
+    else:
+        existing_extractions = {}
 
     # Step 1: LLM Extraction
     results = []
     if not args.skip_extraction and papers_to_extract:
         logger.info(f"Starting extraction with mode: {mode}")
+        if parallel_workers > 1:
+            logger.info(f"Using {parallel_workers} parallel workers")
+        if not use_cache:
+            logger.info("Extraction caching disabled")
+
         extractor = SectionExtractor(
             cache_dir=cache_dir,
             mode=mode,
             model=config.extraction.model,
             max_tokens=config.extraction.max_tokens,
             min_text_length=config.processing.min_text_length,
+            ocr_enabled=config.processing.ocr_enabled,
+            ocr_config=config.processing.ocr_config,
+            use_cache=use_cache,
+            parallel_workers=parallel_workers,
         )
+
+        # Clear cache if requested
+        if args.clear_cache:
+            cleared = extractor.clear_cache()
+            logger.info(f"Cleared {cleared} cached extractions")
 
         paper_dicts, existing_extractions, results = run_extraction(
             papers_to_extract,
@@ -556,8 +755,10 @@ def main():
     # Final summary
     duration = datetime.now() - start_time
     logger.info(f"\nBuild complete in {duration}")
-    logger.info(f"  Total papers: {len(paper_dicts)}")
+    logger.info(f"  Total papers with PDFs: {len(paper_dicts)}")
     logger.info(f"  Total extractions: {len(existing_extractions)}")
+    if papers_without_pdf:
+        logger.info(f"  Skipped (no PDF): {len(papers_without_pdf)}")
     logger.info(f"  Output: {index_dir}")
 
     if results:
