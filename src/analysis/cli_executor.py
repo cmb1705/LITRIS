@@ -333,6 +333,131 @@ class ClaudeCliExecutor:
         """
         return self.authenticator.trigger_interactive_login()
 
+    def call_with_prompt(
+        self,
+        prompt: str,
+        max_retries: int = 3,
+        retry_delay: float = 2.0,
+    ) -> str:
+        """Execute CLI with a prompt and return raw response text.
+
+        This is a simpler interface for when you have a complete prompt
+        and just need the raw text response (e.g., for custom parsing).
+
+        Args:
+            prompt: The complete prompt to send.
+            max_retries: Maximum retry attempts for transient failures.
+            retry_delay: Base delay between retries (uses exponential backoff).
+
+        Returns:
+            Raw response text from Claude.
+
+        Raises:
+            AuthenticationError: If not authenticated.
+            ExtractionTimeoutError: If extraction times out.
+            RateLimitError: If rate limit is hit.
+            CliExecutionError: For CLI errors after retries exhausted.
+        """
+        if not self._cli_path:
+            self.verify_authentication()
+
+        last_error = None
+        for attempt in range(max_retries + 1):
+            try:
+                return self._execute_prompt(prompt)
+            except (EmptyResponseError, TransientError) as e:
+                last_error = e
+                if attempt < max_retries:
+                    delay = retry_delay * (2 ** attempt)
+                    logger.warning(
+                        f"Transient error (attempt {attempt + 1}/{max_retries + 1}): {e}. "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(f"All {max_retries + 1} attempts failed: {e}")
+
+        raise CliExecutionError(f"CLI failed after {max_retries + 1} attempts: {last_error}")
+
+    def _execute_prompt(self, prompt: str) -> str:
+        """Execute a single prompt and return raw response.
+
+        Args:
+            prompt: The complete prompt to send.
+
+        Returns:
+            Raw response text.
+
+        Raises:
+            EmptyResponseError: If CLI returns empty output.
+            TransientError: For retriable errors.
+            AuthenticationError: If not authenticated.
+            ExtractionTimeoutError: If extraction times out.
+            RateLimitError: If rate limit is hit.
+            CliExecutionError: For other CLI errors.
+        """
+        cmd = [
+            self._cli_path,
+            "--print",
+            "--output-format",
+            self.output_format,
+            "-p",
+            prompt,
+        ]
+
+        env = os.environ.copy()
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                env=env,
+            )
+
+            # Check for authentication errors
+            combined_output = (result.stdout + result.stderr).lower()
+            if any(
+                x in combined_output
+                for x in ["invalid api key", "authentication", "unauthorized", "not authenticated"]
+            ):
+                raise AuthenticationError(
+                    "Authentication failed during extraction. Please re-authenticate.",
+                    setup_instructions=self.authenticator.get_setup_instructions(),
+                )
+
+            # Check for rate limit
+            if self._is_rate_limited(result.stdout, result.stderr):
+                reset_time = self._extract_reset_time(result.stdout + result.stderr)
+                raise RateLimitError(
+                    "Rate limit hit during extraction",
+                    reset_time=reset_time,
+                )
+
+            # Check for empty response
+            stdout_stripped = result.stdout.strip()
+            if not stdout_stripped:
+                stderr_info = result.stderr.strip()[:200] if result.stderr else "none"
+                raise EmptyResponseError(
+                    f"CLI returned empty response (returncode={result.returncode}, "
+                    f"stderr={stderr_info})"
+                )
+
+            # Check for errors
+            if result.returncode != 0:
+                error_msg = result.stderr or result.stdout
+                if "error" in error_msg.lower():
+                    raise TransientError(f"CLI error (may retry): {error_msg[:200]}")
+                raise CliExecutionError(f"CLI returned error: {error_msg}")
+
+            return result.stdout
+
+        except subprocess.TimeoutExpired:
+            raise ExtractionTimeoutError(
+                f"Extraction timed out after {self.timeout} seconds"
+            )
+
     def extract(
         self,
         prompt: str,

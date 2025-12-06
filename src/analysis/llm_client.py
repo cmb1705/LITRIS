@@ -2,14 +2,12 @@
 
 import json
 import os
-import subprocess
 import time
-from pathlib import Path
 from typing import Literal
-import shutil
 
 from anthropic import Anthropic
 
+from src.analysis.cli_executor import ClaudeCliExecutor
 from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
 from src.analysis.schemas import ExtractionResult, PaperExtraction
 from src.utils.logging_config import get_logger
@@ -41,6 +39,8 @@ class LLMClient:
         self.model = model
         self.max_tokens = max_tokens
         self.timeout = timeout
+        self.cli_executor = None
+        self.client = None
 
         if mode == "batch_api":
             raise ValueError(
@@ -54,8 +54,8 @@ class LLMClient:
                     "ANTHROPIC_API_KEY environment variable required for API mode"
                 )
             self.client = Anthropic(api_key=api_key)
-        else:
-            self.client = None
+        elif mode == "cli":
+            self.cli_executor = ClaudeCliExecutor(timeout=timeout)
 
     def extract(
         self,
@@ -148,7 +148,7 @@ class LLMClient:
         return response_text, input_tokens, output_tokens
 
     def _call_cli(self, prompt: str) -> tuple[str, int, int]:
-        """Call Claude CLI.
+        """Call Claude CLI using the ClaudeCliExecutor.
 
         Args:
             prompt: User prompt.
@@ -157,57 +157,9 @@ class LLMClient:
             Tuple of (response_text, input_tokens, output_tokens).
             Note: CLI mode does not provide token counts.
         """
-        cli_path = shutil.which("claude") or "claude"
-        cmd = [
-            cli_path,
-            "--print",
-            "--model", self.model,
-            "--system-prompt", EXTRACTION_SYSTEM_PROMPT,
-            "--output-format", "text",
-        ]
-
-        max_retries = 3
-        retry_delay = 2.0
-        last_error = None
-
-        for attempt in range(max_retries + 1):
-            try:
-                result = subprocess.run(
-                    cmd,
-                    input=prompt,
-                    capture_output=True,
-                    text=True,
-                    timeout=self.timeout,
-                    encoding="utf-8",
-                )
-
-                if result.returncode != 0:
-                    raise RuntimeError(f"CLI error: {result.stderr or result.stdout}")
-
-                # Check for empty response (transient failure)
-                stdout = result.stdout.strip()
-                if not stdout:
-                    stderr_info = result.stderr.strip()[:200] if result.stderr else "none"
-                    raise RuntimeError(
-                        f"CLI returned empty response (returncode={result.returncode}, "
-                        f"stderr={stderr_info})"
-                    )
-
-                return result.stdout, 0, 0
-
-            except (RuntimeError, subprocess.TimeoutExpired) as e:
-                last_error = e
-                if attempt < max_retries:
-                    delay = retry_delay * (2 ** attempt)
-                    logger.warning(
-                        f"CLI transient error (attempt {attempt + 1}/{max_retries + 1}): {e}. "
-                        f"Retrying in {delay:.1f}s..."
-                    )
-                    time.sleep(delay)
-                else:
-                    logger.error(f"All {max_retries + 1} CLI attempts failed: {e}")
-
-        raise RuntimeError(f"CLI failed after {max_retries + 1} attempts: {last_error}")
+        # Use the executor which has retry logic and error handling
+        response_text = self.cli_executor.call_with_prompt(prompt)
+        return response_text, 0, 0
 
     def _parse_response(self, response_text: str) -> PaperExtraction:
         """Parse JSON response into PaperExtraction.
