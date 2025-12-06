@@ -97,9 +97,13 @@ class PaperMetadata(BaseModel):
 
     def model_post_init(self, __context):
         """Initialize computed fields after model creation."""
-        # Use zotero_key as stable paper_id if not explicitly set
+        # Generate stable paper_id from zotero_key + attachment_key
+        # This ensures each PDF attachment gets a unique ID
         if not self.paper_id:
-            self.paper_id = self.zotero_key
+            if self.pdf_attachment_key:
+                self.paper_id = f"{self.zotero_key}_{self.pdf_attachment_key}"
+            else:
+                self.paper_id = self.zotero_key
         # Extract publication year from date if not set
         if self.publication_year is None and self.publication_date:
             self.publication_year = self._extract_year(self.publication_date)

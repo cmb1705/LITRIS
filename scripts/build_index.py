@@ -489,11 +489,33 @@ def main():
     else:
         existing_extraction_ids = set()
 
+    # Identify old-style extraction IDs (just zotero_key, no underscore)
+    # These need special handling for backward compatibility
+    old_style_extraction_ids = {eid for eid in existing_extraction_ids if "_" not in eid}
+
+    # Track which old-style IDs have been "consumed" (matched to first attachment)
+    consumed_old_style: set[str] = set()
+
+    def is_already_extracted(paper: PaperMetadata) -> bool:
+        """Check if paper is already extracted, handling both ID formats."""
+        # Exact match with new-style ID (zotero_key_attachment_key)
+        if paper.paper_id in existing_extraction_ids:
+            return True
+        # Old-style match: consume only once per zotero_key
+        # This ensures first attachment matches old extraction, second gets extracted
+        if paper.zotero_key in old_style_extraction_ids:
+            if paper.zotero_key not in consumed_old_style:
+                consumed_old_style.add(paper.zotero_key)
+                return True
+        return False
+
     # Filter out already-extracted papers BEFORE applying limit
     # This way --limit N means "extract N new papers"
     total_papers = len(papers)
-    already_extracted_count = len([p for p in papers if p.paper_id in existing_extraction_ids])
-    papers = [p for p in papers if p.paper_id not in existing_extraction_ids]
+    already_extracted_count = len([p for p in papers if is_already_extracted(p)])
+    # Reset consumed set and filter again (since we counted above)
+    consumed_old_style.clear()
+    papers = [p for p in papers if not is_already_extracted(p)]
     if already_extracted_count > 0:
         logger.info(f"Filtered out {already_extracted_count} already-extracted papers")
 

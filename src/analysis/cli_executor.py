@@ -396,13 +396,13 @@ class ClaudeCliExecutor:
             RateLimitError: If rate limit is hit.
             CliExecutionError: For other CLI errors.
         """
+        # Use stdin for prompt to avoid Windows command line length limits
+        # The -p flag with long text exceeds the ~8KB limit on Windows
         cmd = [
             self._cli_path,
             "--print",
             "--output-format",
             self.output_format,
-            "-p",
-            prompt,
         ]
 
         env = os.environ.copy()
@@ -410,10 +410,13 @@ class ClaudeCliExecutor:
         try:
             result = subprocess.run(
                 cmd,
+                input=prompt,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
                 env=env,
+                encoding="utf-8",
+                errors="replace",  # Replace unencodable chars instead of failing
             )
 
             # Check for authentication errors
