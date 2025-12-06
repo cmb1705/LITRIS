@@ -367,12 +367,12 @@ proposals/tasks/
 
 ## Acceptance Criteria
 
-- [ ] `pip install -r requirements.txt` succeeds
-- [ ] `python -c "from src.config import Config; Config.load()"` succeeds
-- [ ] All src/ subdirectories have `__init__.py`
-- [ ] `pytest tests/` runs (even if no tests yet)
-- [ ] Configuration validation catches missing Zotero path
-- [ ] Configuration validation catches missing API key
+- [x] `pip install -r requirements.txt` succeeds
+- [x] `python -c "from src.config import Config; Config.load()"` succeeds
+- [x] All src/ subdirectories have `__init__.py`
+- [x] `pytest tests/` runs (even if no tests yet)
+- [x] Configuration validation catches missing Zotero path
+- [x] Configuration validation catches missing API key
 
 ---
 
@@ -380,21 +380,21 @@ proposals/tasks/
 
 | File | Status |
 |------|--------|
-| pyproject.toml | Pending |
-| requirements.txt | Pending |
-| requirements-dev.txt | Pending |
-| .env.example | Pending |
-| .gitignore | Update |
-| config.yaml | Pending |
-| src/__init__.py | Pending |
-| src/config.py | Pending |
-| src/utils/__init__.py | Pending |
-| src/zotero/__init__.py | Pending |
-| src/extraction/__init__.py | Pending |
-| src/analysis/__init__.py | Pending |
-| src/indexing/__init__.py | Pending |
-| src/query/__init__.py | Pending |
-| tests/conftest.py | Pending |
+| pyproject.toml | Complete |
+| requirements.txt | Complete |
+| requirements-dev.txt | Complete |
+| .env.example | Complete |
+| .gitignore | Complete |
+| config.yaml | Complete |
+| src/__init__.py | Complete |
+| src/config.py | Complete |
+| src/utils/__init__.py | Complete |
+| src/zotero/__init__.py | Complete |
+| src/extraction/__init__.py | Complete |
+| src/analysis/__init__.py | Complete |
+| src/indexing/__init__.py | Complete |
+| src/query/__init__.py | Complete |
+| tests/conftest.py | Complete |
 
 ---
 

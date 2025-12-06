@@ -1,3 +1,8 @@
+---
+name: citation-formatting
+description: Format citations and references from indexed papers for academic use in APA, MLA, Chicago, and BibTeX styles.
+---
+
 # Citation Formatting Skill
 
 ## Purpose

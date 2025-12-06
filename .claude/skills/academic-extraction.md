@@ -1,3 +1,8 @@
+---
+name: academic-extraction
+description: Guide extraction of structured information from academic papers, ensuring accurate capture of thesis, methodology, findings, and contributions.
+---
+
 # Academic Paper Extraction Skill
 
 ## Purpose

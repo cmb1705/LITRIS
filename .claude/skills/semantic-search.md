@@ -1,3 +1,8 @@
+---
+name: semantic-search
+description: Guide effective query formulation and result interpretation for the semantic search system.
+---
+
 # Semantic Search Skill
 
 ## Purpose

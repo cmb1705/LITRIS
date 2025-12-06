@@ -455,15 +455,15 @@ WHERE it.itemID = ?
 
 ## Acceptance Criteria
 
-- [ ] Can connect to Zotero database in read-only mode
-- [ ] Retrieves all items with PDF attachments
-- [ ] Extracts complete metadata for each item
-- [ ] Correctly orders and formats author names
-- [ ] Resolves collection hierarchy paths
-- [ ] Resolves PDF file paths correctly
-- [ ] Handles missing/incomplete data gracefully
-- [ ] Provides clear error for locked database
-- [ ] All unit tests pass
+- [x] Can connect to Zotero database in read-only mode
+- [x] Retrieves all items with PDF attachments
+- [x] Extracts complete metadata for each item
+- [x] Correctly orders and formats author names
+- [x] Resolves collection hierarchy paths
+- [x] Resolves PDF file paths correctly
+- [x] Handles missing/incomplete data gracefully
+- [x] Provides clear error for locked database
+- [x] All unit tests pass
 
 ---
 
@@ -471,10 +471,10 @@ WHERE it.itemID = ?
 
 | File | Status |
 |------|--------|
-| src/zotero/__init__.py | Task 00 |
-| src/zotero/models.py | Pending |
-| src/zotero/database.py | Pending |
-| tests/test_zotero_reader.py | Pending |
+| src/zotero/__init__.py | Complete |
+| src/zotero/models.py | Complete |
+| src/zotero/database.py | Complete |
+| tests/test_zotero_reader.py | Complete |
 
 ---
 

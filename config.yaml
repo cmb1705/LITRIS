@@ -1,0 +1,39 @@
+# Literature Review Index System Configuration
+
+zotero:
+  # Path to Zotero SQLite database
+  database_path: "D:/Zotero/zotero.sqlite"
+  # Path to Zotero storage directory containing PDFs
+  storage_path: "D:/Zotero/storage"
+
+extraction:
+  # Extraction mode: "cli" (free with Max subscription) or "batch_api" (paid, 50% discount)
+  mode: "cli"
+  # Claude model to use for extraction
+  model: "claude-opus-4-5-20251101"
+  # Maximum tokens per paper (truncate if exceeded)
+  max_tokens: 100000
+  # Timeout in seconds for CLI mode
+  timeout: 120
+
+embeddings:
+  # Sentence transformer model for embeddings
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+  # Embedding dimension (must match model)
+  dimension: 384
+
+storage:
+  # ChromaDB persistence directory
+  chroma_path: "data/chroma"
+  # Extraction cache directory
+  cache_path: "data/cache"
+  # Collection name in ChromaDB
+  collection_name: "literature_review"
+
+processing:
+  # Number of papers to process in each batch
+  batch_size: 10
+  # Enable OCR fallback for scanned PDFs
+  ocr_enabled: false
+  # Minimum text length to consider extraction successful
+  min_text_length: 100

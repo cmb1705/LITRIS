@@ -1,8 +1,8 @@
 # Literature Review Index: Project Plan and File Structure
 
-**Version:** 1.0
+**Version:** 1.1
 **Date:** 2024-12-05
-**Status:** Planning
+**Status:** Phase 1 Complete
 
 ---
 
@@ -245,25 +245,25 @@ D:\Git_Repos\Lit_Review\
 
 ### 0.1 Project Initialization
 
-- [ ] 0.1.1 Create `pyproject.toml` with project metadata and tool configurations
-- [ ] 0.1.2 Create `requirements.txt` with core dependencies
-- [ ] 0.1.3 Create `requirements-dev.txt` with development dependencies
-- [ ] 0.1.4 Create `.env.example` with required environment variable templates
-- [ ] 0.1.5 Update `.gitignore` to include data directories, cache, logs, .env
+- [x] 0.1.1 Create `pyproject.toml` with project metadata and tool configurations
+- [x] 0.1.2 Create `requirements.txt` with core dependencies
+- [x] 0.1.3 Create `requirements-dev.txt` with development dependencies
+- [x] 0.1.4 Create `.env.example` with required environment variable templates
+- [x] 0.1.5 Update `.gitignore` to include data directories, cache, logs, .env
 
 ### 0.2 Configuration Setup
 
-- [ ] 0.2.1 Create `config.yaml` with all configuration options
-- [ ] 0.2.2 Create `src/__init__.py` with package initialization
-- [ ] 0.2.3 Create `src/config.py` with configuration loader class
+- [x] 0.2.1 Create `config.yaml` with all configuration options
+- [x] 0.2.2 Create `src/__init__.py` with package initialization
+- [x] 0.2.3 Create `src/config.py` with configuration loader class
 
 ### 0.3 Directory Structure
 
-- [ ] 0.3.1 Create all `src/` subdirectories with `__init__.py` files
-- [ ] 0.3.2 Create `data/` subdirectories (index, cache, logs, query_results)
-- [ ] 0.3.3 Create `scripts/` directory
-- [ ] 0.3.4 Create `tests/` directory with `conftest.py`
-- [ ] 0.3.5 Create `proposals/tasks/` directory
+- [x] 0.3.1 Create all `src/` subdirectories with `__init__.py` files
+- [x] 0.3.2 Create `data/` subdirectories (index, cache, logs, query_results)
+- [x] 0.3.3 Create `scripts/` directory
+- [x] 0.3.4 Create `tests/` directory with `conftest.py`
+- [x] 0.3.5 Create `proposals/tasks/` directory
 
 ---
 
@@ -271,57 +271,57 @@ D:\Git_Repos\Lit_Review\
 
 ### 1.1 Utility Modules
 
-- [ ] 1.1.1 Create `src/utils/logging_config.py` with logging setup
-- [ ] 1.1.2 Create `src/utils/file_utils.py` with file operation helpers
+- [x] 1.1.1 Create `src/utils/logging_config.py` with logging setup
+- [x] 1.1.2 Create `src/utils/file_utils.py` with file operation helpers
 
 ### 1.2 Zotero Database Reader
 
-- [ ] 1.2.1 Create `src/zotero/models.py` with Pydantic models for Paper, Author, Collection
-- [ ] 1.2.2 Create `src/zotero/database.py` with ZoteroDatabase class
-- [ ] 1.2.3 Implement database connection method (read-only)
-- [ ] 1.2.4 Implement query for all items with PDF attachments
-- [ ] 1.2.5 Implement metadata extraction joins (itemData, itemDataValues, fields)
-- [ ] 1.2.6 Implement author extraction (creators, itemCreators)
-- [ ] 1.2.7 Implement collection extraction (collections, collectionItems)
-- [ ] 1.2.8 Implement PDF path resolution from storage keys
-- [ ] 1.2.9 Write `tests/test_zotero_reader.py` with unit tests
+- [x] 1.2.1 Create `src/zotero/models.py` with Pydantic models for Paper, Author, Collection
+- [x] 1.2.2 Create `src/zotero/database.py` with ZoteroDatabase class
+- [x] 1.2.3 Implement database connection method (read-only)
+- [x] 1.2.4 Implement query for all items with PDF attachments
+- [x] 1.2.5 Implement metadata extraction joins (itemData, itemDataValues, fields)
+- [x] 1.2.6 Implement author extraction (creators, itemCreators)
+- [x] 1.2.7 Implement collection extraction (collections, collectionItems)
+- [x] 1.2.8 Implement PDF path resolution from storage keys
+- [x] 1.2.9 Write `tests/test_zotero_reader.py` with unit tests
 
 ### 1.3 PDF Text Extraction
 
-- [ ] 1.3.1 Create `src/extraction/pdf_extractor.py` with PDFExtractor class
-- [ ] 1.3.2 Implement PyMuPDF-based text extraction
-- [ ] 1.3.3 Implement Zotero cache detection and usage (.zotero-ft-cache)
-- [ ] 1.3.4 Implement extraction quality metrics (char count, word count, page ratio)
-- [ ] 1.3.5 Create `src/extraction/text_cleaner.py` with text normalization
-- [ ] 1.3.6 Implement Unicode normalization
-- [ ] 1.3.7 Implement PDF artifact cleanup (ligatures, broken words)
-- [ ] 1.3.8 Implement text caching to `data/cache/pdf_text/`
-- [ ] 1.3.9 Write `tests/test_pdf_extraction.py` with unit tests
-- [ ] 1.3.10 Add 3-5 sample PDFs to `tests/fixtures/sample_papers/`
+- [x] 1.3.1 Create `src/extraction/pdf_extractor.py` with PDFExtractor class
+- [x] 1.3.2 Implement PyMuPDF-based text extraction
+- [x] 1.3.3 Implement Zotero cache detection and usage (.zotero-ft-cache)
+- [x] 1.3.4 Implement extraction quality metrics (char count, word count, page ratio)
+- [x] 1.3.5 Create `src/extraction/text_cleaner.py` with text normalization
+- [x] 1.3.6 Implement Unicode normalization
+- [x] 1.3.7 Implement PDF artifact cleanup (ligatures, broken words)
+- [x] 1.3.8 Implement text caching to `data/cache/pdf_text/`
+- [x] 1.3.9 Write `tests/test_pdf_extraction.py` with unit tests
+- [ ] 1.3.10 Add 3-5 sample PDFs to `tests/fixtures/sample_papers/` (skipped: tests use generated PDFs)
 
 ### 1.4 LLM Extraction
 
-- [ ] 1.4.1 Create `src/analysis/schemas.py` with Pydantic models for Extraction output
-- [ ] 1.4.2 Create `src/analysis/prompts.py` with extraction prompt template
-- [ ] 1.4.3 Create `src/analysis/llm_client.py` with Claude API wrapper
-- [ ] 1.4.4 Implement API call with retry logic and exponential backoff
-- [ ] 1.4.5 Implement token usage tracking
-- [ ] 1.4.6 Create `src/analysis/section_extractor.py` with SectionExtractor class
-- [ ] 1.4.7 Implement extraction orchestration (text in, structured data out)
-- [ ] 1.4.8 Implement response parsing and validation
-- [ ] 1.4.9 Implement partial extraction handling for malformed responses
-- [ ] 1.4.10 Write `tests/test_llm_extraction.py` with mocked API tests
+- [x] 1.4.1 Create `src/analysis/schemas.py` with Pydantic models for Extraction output
+- [x] 1.4.2 Create `src/analysis/prompts.py` with extraction prompt template
+- [x] 1.4.3 Create `src/analysis/llm_client.py` with Claude API wrapper
+- [x] 1.4.4 Implement API call with retry logic and exponential backoff
+- [x] 1.4.5 Implement token usage tracking
+- [x] 1.4.6 Create `src/analysis/section_extractor.py` with SectionExtractor class
+- [x] 1.4.7 Implement extraction orchestration (text in, structured data out)
+- [x] 1.4.8 Implement response parsing and validation
+- [x] 1.4.9 Implement partial extraction handling for malformed responses
+- [x] 1.4.10 Write `tests/test_llm_extraction.py` with mocked API tests
 
 ### 1.5 Basic Build Script
 
-- [ ] 1.5.1 Create `scripts/build_index.py` with CLI interface
-- [ ] 1.5.2 Implement Zotero scan step
-- [ ] 1.5.3 Implement PDF extraction step with progress bar
-- [ ] 1.5.4 Implement LLM extraction step with progress bar
-- [ ] 1.5.5 Implement JSON output to `data/index/papers.json`
-- [ ] 1.5.6 Implement JSON output to `data/index/extractions.json`
-- [ ] 1.5.7 Implement basic `data/index/metadata.json` generation
-- [ ] 1.5.8 Test with 10-paper subset
+- [x] 1.5.1 Create `scripts/build_index.py` with CLI interface
+- [x] 1.5.2 Implement Zotero scan step
+- [x] 1.5.3 Implement PDF extraction step with progress bar
+- [x] 1.5.4 Implement LLM extraction step with progress bar
+- [x] 1.5.5 Implement JSON output to `data/index/papers.json`
+- [x] 1.5.6 Implement JSON output to `data/index/extractions.json`
+- [x] 1.5.7 Implement basic `data/index/metadata.json` generation
+- [x] 1.5.8 Test with 10-paper subset
 
 ---
 
