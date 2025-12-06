@@ -1,5 +1,8 @@
 """Prompts for LLM-based paper extraction."""
 
+# Prompt version for tracking extraction compatibility
+EXTRACTION_PROMPT_VERSION = "1.0.0"
+
 EXTRACTION_SYSTEM_PROMPT = """You are an expert academic research analyst specializing in extracting structured information from scholarly papers. Your task is to analyze the provided paper text and extract key information in a structured format.
 
 Guidelines:

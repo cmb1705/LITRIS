@@ -1,13 +1,16 @@
-"""PDF text extraction using PyMuPDF."""
+"""PDF text extraction using PyMuPDF with optional OCR fallback."""
 
 import hashlib
 from pathlib import Path
+from typing import Literal
 
 import pymupdf
 
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+ExtractionMethod = Literal["pymupdf", "ocr", "hybrid"]
 
 
 class PDFExtractionError(Exception):
@@ -17,17 +20,36 @@ class PDFExtractionError(Exception):
 
 
 class PDFExtractor:
-    """Extract text from PDF files using PyMuPDF."""
+    """Extract text from PDF files using PyMuPDF with optional OCR fallback."""
 
-    def __init__(self, cache_dir: Path | None = None):
+    def __init__(
+        self,
+        cache_dir: Path | None = None,
+        enable_ocr: bool = False,
+        ocr_config: dict | None = None,
+    ):
         """Initialize extractor.
 
         Args:
             cache_dir: Directory for caching extracted text.
+            enable_ocr: Enable OCR fallback for scanned PDFs.
+            ocr_config: Configuration dict for OCR handler (tesseract_cmd, poppler_path, dpi, lang).
         """
         self.cache_dir = cache_dir
+        self.enable_ocr = enable_ocr
+        self.ocr_handler = None
+
         if cache_dir:
             cache_dir.mkdir(parents=True, exist_ok=True)
+
+        if enable_ocr:
+            from src.extraction.ocr_handler import get_ocr_handler
+
+            self.ocr_handler = get_ocr_handler(**(ocr_config or {}))
+            if self.ocr_handler:
+                logger.info("OCR fallback enabled")
+            else:
+                logger.warning("OCR requested but dependencies unavailable")
 
     def extract_text(
         self,
@@ -46,6 +68,26 @@ class PDFExtractor:
         Raises:
             PDFExtractionError: If extraction fails.
         """
+        text, _ = self.extract_text_with_method(pdf_path, use_cache)
+        return text
+
+    def extract_text_with_method(
+        self,
+        pdf_path: Path,
+        use_cache: bool = True,
+    ) -> tuple[str, ExtractionMethod]:
+        """Extract text from a PDF file with method information.
+
+        Args:
+            pdf_path: Path to PDF file.
+            use_cache: Whether to use cached extraction if available.
+
+        Returns:
+            Tuple of (extracted text, extraction method used).
+
+        Raises:
+            PDFExtractionError: If extraction fails.
+        """
         if not pdf_path.exists():
             raise PDFExtractionError(f"PDF file not found: {pdf_path}")
 
@@ -54,19 +96,46 @@ class PDFExtractor:
             cached = self._get_cached(pdf_path)
             if cached is not None:
                 logger.debug(f"Using cached text for {pdf_path.name}")
-                return cached
+                # Cache doesn't track method, assume pymupdf
+                return cached, "pymupdf"
 
-        # Extract text
+        # Extract text with PyMuPDF first
         try:
             text = self._extract_with_pymupdf(pdf_path)
+            page_count = self.get_page_count(pdf_path)
+            method: ExtractionMethod = "pymupdf"
         except Exception as e:
-            raise PDFExtractionError(f"Failed to extract text from {pdf_path}: {e}")
+            # If PyMuPDF fails completely, try OCR if available
+            if self.ocr_handler:
+                logger.warning(f"PyMuPDF failed, attempting OCR: {e}")
+                try:
+                    result = self.ocr_handler.extract_text(pdf_path)
+                    text = result.text
+                    method = "ocr"
+                except Exception as ocr_error:
+                    raise PDFExtractionError(
+                        f"Both PyMuPDF and OCR failed for {pdf_path}: "
+                        f"PyMuPDF: {e}, OCR: {ocr_error}"
+                    )
+            else:
+                raise PDFExtractionError(f"Failed to extract text from {pdf_path}: {e}")
+        else:
+            # Check if OCR fallback is needed
+            if self.ocr_handler and self.ocr_handler.needs_ocr(text, page_count):
+                logger.info(f"Text quality low, attempting OCR for {pdf_path.name}")
+                try:
+                    result = self.ocr_handler.extract_hybrid(pdf_path, text, page_count)
+                    text = result.text
+                    method = result.method
+                except Exception as ocr_error:
+                    logger.warning(f"OCR fallback failed, using original text: {ocr_error}")
+                    # Keep original text and method
 
         # Cache result
         if use_cache and self.cache_dir:
             self._save_to_cache(pdf_path, text)
 
-        return text
+        return text, method
 
     def _extract_with_pymupdf(self, pdf_path: Path) -> str:
         """Extract text using PyMuPDF.
@@ -143,7 +212,7 @@ class PDFExtractor:
             Path to cache file.
         """
         # Use hash of absolute path to create unique cache key
-        path_hash = hashlib.md5(str(pdf_path.absolute()).encode()).hexdigest()[:16]
+        path_hash = hashlib.sha256(str(pdf_path.absolute()).encode()).hexdigest()[:16]
         return self.cache_dir / f"{path_hash}.txt"
 
     def _get_cached(self, pdf_path: Path) -> str | None:

@@ -21,3 +21,8 @@ chromadb>=0.4
 
 # Embeddings
 sentence-transformers>=2.2
+
+# OCR support (optional - requires Tesseract installation)
+pytesseract>=0.3.10
+pdf2image>=1.16
+Pillow>=10.0
