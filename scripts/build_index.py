@@ -21,6 +21,12 @@ from src.indexing.embeddings import EmbeddingGenerator
 from src.indexing.structured_store import StructuredStore
 from src.indexing.vector_store import VectorStore
 from src.utils.checkpoint import CheckpointManager
+from src.utils.deduplication import (
+    analyze_doi_overlap,
+    extract_existing_dois,
+    filter_by_doi,
+    normalize_doi,
+)
 from src.utils.file_utils import safe_read_json, safe_write_json
 from src.utils.logging_config import LogContext, setup_logging
 from src.zotero.database import ZoteroDatabase
@@ -134,6 +140,16 @@ def parse_args():
         "--use-subscription",
         action="store_true",
         help="Use Claude subscription (Max/Pro) instead of API billing",
+    )
+    parser.add_argument(
+        "--dedupe-by-doi",
+        action="store_true",
+        help="Skip papers with DOIs already in index (for cross-database deduplication)",
+    )
+    parser.add_argument(
+        "--show-doi-overlap",
+        action="store_true",
+        help="Analyze DOI overlap without processing (useful before switching databases)",
     )
     return parser.parse_args()
 
@@ -464,6 +480,39 @@ def main():
             logger.info(f"Found {len(all_papers)} papers, {len(papers_without_pdf)} without PDFs (skipped)")
         logger.info(f"Found {len(papers)} papers with PDFs")
 
+    # Handle show-doi-overlap (analyze DOI overlap without processing)
+    if args.show_doi_overlap:
+        print("\nAnalyzing DOI overlap between Zotero and existing index...")
+        analysis = analyze_doi_overlap(papers, index_dir)
+
+        print(f"\n{'=' * 60}")
+        print("DOI Overlap Analysis")
+        print(f"{'=' * 60}")
+        print(f"\nExisting index:")
+        print(f"  Papers with DOIs: {analysis['existing_index_dois']}")
+        print(f"\nNew Zotero database:")
+        print(f"  Total papers (with PDFs): {analysis['new_papers_total']}")
+        print(f"  With DOIs: {analysis['new_with_doi']}")
+        print(f"  Without DOIs: {analysis['new_without_doi']}")
+        print(f"\nOverlap analysis:")
+        print(f"  Duplicates (DOI match): {analysis['duplicates_by_doi']}")
+        print(f"  Genuinely new (with DOI): {analysis['genuinely_new_with_doi']}")
+        print(f"  Total to process: {len(analysis['new_papers_filtered'])}")
+
+        if analysis['duplicate_papers']:
+            print(f"\nDuplicate papers (will be skipped with --dedupe-by-doi):")
+            print("-" * 60)
+            for i, p in enumerate(analysis['duplicate_papers'][:10], 1):
+                print(f"  {i}. {p.title[:55]}...")
+                print(f"     DOI: {p.doi}")
+            if len(analysis['duplicate_papers']) > 10:
+                print(f"  ... and {len(analysis['duplicate_papers']) - 10} more")
+
+        print(f"\n{'=' * 60}")
+        print("Recommendation: Use --dedupe-by-doi to skip duplicate papers")
+        print(f"{'=' * 60}")
+        return 0
+
     # Handle show-skipped (papers without PDFs)
     if args.show_skipped:
         if papers_without_pdf:
@@ -545,6 +594,20 @@ def main():
     if already_extracted_count > 0:
         logger.info(f"Filtered out {already_extracted_count} already-extracted papers")
 
+    # DOI-based deduplication (for cross-database scenarios)
+    doi_duplicate_count = 0
+    if args.dedupe_by_doi:
+        existing_dois = extract_existing_dois(index_dir)
+        if existing_dois:
+            papers_before = len(papers)
+            papers, doi_duplicates = filter_by_doi(papers, existing_dois)
+            doi_duplicate_count = len(doi_duplicates)
+            if doi_duplicate_count > 0:
+                logger.info(
+                    f"DOI deduplication: {doi_duplicate_count} papers skipped "
+                    f"(matching DOIs in existing index)"
+                )
+
     # Apply limit if specified (now applies to unextracted papers only)
     if args.limit:
         papers = papers[: args.limit]
@@ -614,6 +677,8 @@ def main():
     if args.dry_run:
         print(f"\nTotal in library: {total_papers}")
         print(f"Already extracted: {already_extracted_count}")
+        if doi_duplicate_count > 0:
+            print(f"DOI duplicates skipped: {doi_duplicate_count}")
         print(f"To extract: {len(papers_to_extract)}")
 
         if papers_to_extract:

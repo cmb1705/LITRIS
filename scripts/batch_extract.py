@@ -25,6 +25,7 @@ from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
 from src.indexing.structured_store import StructuredStore
 from src.utils.checkpoint import CheckpointManager
+from src.utils.deduplication import extract_existing_dois, filter_by_doi
 from src.utils.file_utils import safe_read_json, safe_write_json
 from src.utils.logging_config import setup_logging
 from src.zotero.database import ZoteroDatabase
@@ -58,6 +59,11 @@ def parse_args():
         "--dry-run",
         action="store_true",
         help="Show what would be submitted without submitting",
+    )
+    submit_parser.add_argument(
+        "--dedupe-by-doi",
+        action="store_true",
+        help="Skip papers with DOIs already in index",
     )
 
     # Status command
@@ -141,6 +147,14 @@ def cmd_submit(args, logger):
 
     papers_to_extract = [p for p in papers if p.paper_id not in existing_ids]
     logger.info(f"Papers to extract: {len(papers_to_extract)} (skipping {len(existing_ids)} existing)")
+
+    # DOI-based deduplication
+    if args.dedupe_by_doi:
+        existing_dois = extract_existing_dois(index_dir)
+        if existing_dois:
+            papers_to_extract, doi_duplicates = filter_by_doi(papers_to_extract, existing_dois)
+            if doi_duplicates:
+                logger.info(f"DOI deduplication: {len(doi_duplicates)} papers skipped (matching DOIs)")
 
     if not papers_to_extract:
         logger.info("No papers to extract")
