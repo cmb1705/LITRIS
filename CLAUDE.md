@@ -97,6 +97,59 @@
 | PostToolUse (Write/Edit) | Ruff on .py files |
 | PostToolUse (Bash/Write/Edit) | Log to operations.log |
 
+## MCP Integration
+
+LITRIS exposes semantic search as MCP tools for Claude Code.
+
+### MCP Tools
+
+| Tool | Purpose |
+|------|---------|
+| litris_search | Semantic search with filters |
+| litris_get_paper | Full paper details |
+| litris_similar | Find similar papers |
+| litris_summary | Index statistics |
+| litris_collections | List collections |
+
+### Tool Naming
+
+When invoked from Claude Code, tools are prefixed: `mcp__litris__litris_search`
+
+### Server Startup
+
+```bash
+python -m src.mcp.server
+```
+
+### Configuration
+
+MCP server is defined in `.mcp.json` (project root):
+
+```json
+{
+  "mcpServers": {
+    "litris": {
+      "command": "python",
+      "args": ["-m", "src.mcp.server"],
+      "cwd": "path/to/litris"
+    }
+  }
+}
+```
+
+Enable in `.claude/settings.json`:
+
+```json
+{
+  "enableAllProjectMcpServers": true
+}
+```
+
+### Logging
+
+- Log file: `data/logs/mcp_server.log`
+- Log level: Set via `MCP_LOG_LEVEL` env var (default: INFO)
+
 ## Security
 
 - API keys in environment variables only

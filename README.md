@@ -32,6 +32,80 @@ Embedding Generation --> ChromaDB Vector Store --> Semantic Search
 - **Incremental Updates**: Detect and process new/modified papers without full rebuild
 - **Multi-attachment Support**: Handles papers with multiple PDF attachments
 
+## Collaborative Research Model
+
+LITRIS enables a human-AI research collaboration where the index serves as compressed domain knowledge:
+
+```
+Research Question (Human)
+        |
+        v
+LITRIS Index (236 papers)
+        |
+        v
+[Extractions: thesis, methodology, findings, limitations]
+        |
+        +--> AI scans 20-30 papers' core arguments
+        +--> Identifies patterns, contradictions, gaps
+        +--> Selects 3-5 papers for deep reading
+        |
+        v
+Full PDF Text (targeted retrieval)
+        |
+        +--> Verifies specific claims
+        +--> Extracts detailed methods
+        +--> Finds nuanced arguments
+        |
+        v
+Synthesis + Gap Analysis
+        |
+        +--> What does the index cover well?
+        +--> What's missing from the corpus?
+        +--> Web search for external papers
+        |
+        v
+Research Directions (Human + AI)
+```
+
+### Workflow
+
+1. **Human frames the question** - Guides inquiry, determines search direction
+2. **AI searches the index** - Semantic search across extractions
+3. **AI synthesizes findings** - Compares arguments, methods, results across papers
+4. **AI flags papers for deep reading** - When extraction detail is insufficient
+5. **Human guides deeper exploration** - Pivots, narrows, or expands scope
+6. **AI identifies gaps** - Compares corpus to external literature
+7. **Together propose directions** - Novel research questions, methodological innovations
+
+### MCP Integration
+
+Direct tool access for Claude Code enables seamless research collaboration:
+
+| Tool | Purpose |
+|------|---------|
+| `litris_search` | Semantic search with filters (year, collection, chunk type) |
+| `litris_get_paper` | Full extraction + PDF path for deep reading |
+| `litris_similar` | Find papers similar to a given paper |
+| `litris_summary` | Index coverage and statistics |
+| `litris_collections` | List available Zotero collections |
+
+**Setup**: Configure `.mcp.json` in project root and enable in `.claude/settings.json`:
+
+```json
+// .mcp.json
+{
+  "mcpServers": {
+    "litris": {
+      "command": "python",
+      "args": ["-m", "src.mcp.server"],
+      "cwd": "/path/to/LITRIS"
+    }
+  }
+}
+```
+
+See [docs/mcp_troubleshooting.md](docs/mcp_troubleshooting.md) for setup details.
+
 ## Prerequisites
 
 - Python 3.10+

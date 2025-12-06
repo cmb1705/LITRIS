@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "litris": {
+      "command": "python",
+      "args": ["-m", "src.mcp.server"],
+      "cwd": "D:\\Git_Repos\\Lit_Review"
+    }
+  }
+}
