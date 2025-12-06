@@ -479,17 +479,17 @@ results = search_engine.search(template)
 
 ## Acceptance Criteria
 
-- [ ] Extraction quality reviewed and documented
-- [ ] Prompt improvements implemented
-- [ ] Literature review export works
-- [ ] Citation export works (multiple formats)
-- [ ] Query templates available
-- [ ] docs/usage.md complete
-- [ ] docs/query_guide.md complete
-- [ ] docs/troubleshooting.md complete
-- [ ] README.md updated
-- [ ] Logging improvements implemented
-- [ ] All documentation accurate and tested
+- [x] Extraction quality reviewed and documented
+- [x] Prompt improvements implemented (v1.1.0 - added keywords field)
+- [x] Literature review export works (Markdown format)
+- [x] Citation export works (BibTeX, CSV, JSON formats)
+- [ ] Query templates available (optional - not implemented)
+- [x] docs/usage.md complete
+- [x] docs/query_guide.md complete
+- [x] docs/troubleshooting.md complete
+- [x] README.md updated
+- [x] Logging improvements implemented
+- [x] All documentation accurate and tested
 
 ---
 
@@ -497,13 +497,13 @@ results = search_engine.search(template)
 
 | File | Status |
 |------|--------|
-| scripts/export_results.py | Pending |
-| src/query/templates.py | Pending |
-| docs/usage.md | Pending |
-| docs/query_guide.md | Pending |
-| docs/troubleshooting.md | Pending |
-| docs/configuration.md | Pending |
-| README.md | Update |
+| scripts/export_results.py | Complete |
+| src/query/templates.py | Not implemented (optional) |
+| docs/usage.md | Complete |
+| docs/query_guide.md | Complete |
+| docs/troubleshooting.md | Complete |
+| docs/configuration.md | Not implemented (optional) |
+| README.md | Complete |
 
 ---
 

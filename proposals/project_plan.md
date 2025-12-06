@@ -1,8 +1,8 @@
 # Literature Review Index: Project Plan and File Structure
 
-**Version:** 1.2
+**Version:** 1.3
 **Date:** 2024-12-05
-**Status:** Phase 3 Complete
+**Status:** All Phases Complete
 
 ---
 
@@ -412,53 +412,53 @@ D:\Git_Repos\Lit_Review\
 
 ---
 
-## 7. Phase 4: Incremental Updates TODO List
+## 7. Phase 4: Incremental Updates TODO List ✓
 
 ### 4.1 Change Detection
 
-- [ ] 4.1.1 Implement Zotero modification date tracking
-- [ ] 4.1.2 Implement new item detection (items added since last run)
-- [ ] 4.1.3 Implement modified item detection (items changed since last run)
-- [ ] 4.1.4 Implement deleted item detection (items in index but not in Zotero)
+- [x] 4.1.1 Implement Zotero modification date tracking
+- [x] 4.1.2 Implement new item detection (items added since last run)
+- [x] 4.1.3 Implement modified item detection (items changed since last run)
+- [x] 4.1.4 Implement deleted item detection (items in index but not in Zotero)
 
 ### 4.2 Update Pipeline
 
-- [ ] 4.2.1 Create `scripts/update_index.py` with CLI interface
-- [ ] 4.2.2 Implement selective reprocessing for modified items
-- [ ] 4.2.3 Implement addition of new items to index
-- [ ] 4.2.4 Implement removal of deleted items from index
-- [ ] 4.2.5 Implement ChromaDB update operations (upsert, delete)
+- [x] 4.2.1 Create `scripts/update_index.py` with CLI interface
+- [x] 4.2.2 Implement selective reprocessing for modified items
+- [x] 4.2.3 Implement addition of new items to index
+- [x] 4.2.4 Implement removal of deleted items from index
+- [x] 4.2.5 Implement ChromaDB update operations (upsert, delete)
 
 ### 4.3 State Management
 
-- [ ] 4.3.1 Track last successful update timestamp
-- [ ] 4.3.2 Implement atomic updates to prevent corruption
-- [ ] 4.3.3 Write `tests/test_incremental_update.py` with integration tests
+- [x] 4.3.1 Track last successful update timestamp
+- [x] 4.3.2 Implement atomic updates to prevent corruption
+- [x] 4.3.3 Write `tests/test_incremental_update.py` with integration tests
 
 ---
 
-## 8. Phase 5: Refinement TODO List
+## 8. Phase 5: Refinement TODO List ✓
 
 ### 5.1 Prompt Optimization
 
-- [ ] 5.1.1 Review extraction quality across sample papers
-- [ ] 5.1.2 Identify common extraction failures
-- [ ] 5.1.3 Iterate on prompt template
-- [ ] 5.1.4 Document prompt version history
+- [x] 5.1.1 Review extraction quality across sample papers
+- [x] 5.1.2 Identify common extraction failures
+- [x] 5.1.3 Iterate on prompt template (v1.1.0 - added keywords field)
+- [x] 5.1.4 Document prompt version history
 
 ### 5.2 Output Formats
 
-- [ ] 5.2.1 Create `scripts/export_results.py`
-- [ ] 5.2.2 Implement BibTeX export (optional)
-- [ ] 5.2.3 Implement formatted literature review output
-- [ ] 5.2.4 Implement citation-ready snippets
+- [x] 5.2.1 Create `scripts/export_results.py`
+- [x] 5.2.2 Implement BibTeX export
+- [x] 5.2.3 Implement formatted literature review output (Markdown)
+- [x] 5.2.4 Implement citation-ready snippets (CSV, JSON exports)
 
 ### 5.3 Documentation
 
-- [ ] 5.3.1 Create `docs/usage.md` with getting started guide
-- [ ] 5.3.2 Create `docs/query_guide.md` with query examples
-- [ ] 5.3.3 Create `docs/troubleshooting.md` with common issues
-- [ ] 5.3.4 Update README.md with project overview
+- [x] 5.3.1 Create `docs/usage.md` with getting started guide
+- [x] 5.3.2 Create `docs/query_guide.md` with query examples
+- [x] 5.3.3 Create `docs/troubleshooting.md` with common issues
+- [x] 5.3.4 Update README.md with project overview
 
 ---
 

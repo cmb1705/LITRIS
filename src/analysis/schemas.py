@@ -155,6 +155,10 @@ class PaperExtraction(BaseModel):
         default=None,
         description="Brief summary of the paper's contribution",
     )
+    keywords: list[str] = Field(
+        default_factory=list,
+        description="Searchable keywords: concepts, methods, theories, phenomena",
+    )
     discipline_tags: list[str] = Field(
         default_factory=list,
         description="Relevant discipline or topic tags",
@@ -185,6 +189,7 @@ class PaperExtraction(BaseModel):
             "limitations": self.limitations,
             "future_directions": self.future_directions,
             "contribution_summary": self.contribution_summary,
+            "keywords": self.keywords,
             "discipline_tags": self.discipline_tags,
             "extraction_confidence": self.extraction_confidence,
         }

@@ -497,18 +497,18 @@ python scripts/update_index.py --items ABC123,DEF456 --force-reprocess
 
 ## Acceptance Criteria
 
-- [ ] Detects new items in Zotero
-- [ ] Detects modified items since last update
-- [ ] Detects deleted items
-- [ ] Adds new items to index
-- [ ] Updates modified items in index
-- [ ] Removes deleted items from index
-- [ ] Dry run mode works correctly
-- [ ] Detect only mode works correctly
-- [ ] Updates metadata timestamp
-- [ ] Records update history
-- [ ] Handles partial failures
-- [ ] All unit tests pass
+- [x] Detects new items in Zotero
+- [x] Detects modified items since last update
+- [x] Detects deleted items
+- [x] Adds new items to index
+- [x] Updates modified items in index
+- [x] Removes deleted items from index
+- [x] Dry run mode works correctly
+- [x] Detect only mode works correctly
+- [x] Updates metadata timestamp
+- [x] Records update history
+- [x] Handles partial failures
+- [x] All unit tests pass
 
 ---
 
@@ -516,9 +516,10 @@ python scripts/update_index.py --items ABC123,DEF456 --force-reprocess
 
 | File | Status |
 |------|--------|
-| src/zotero/change_detector.py | Pending |
-| scripts/update_index.py | Pending |
-| tests/test_incremental_update.py | Pending |
+| src/zotero/change_detector.py | Complete |
+| src/indexing/update_state.py | Complete |
+| scripts/update_index.py | Complete |
+| tests/test_incremental_update.py | Complete (25 tests) |
 
 ---
 

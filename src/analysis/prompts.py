@@ -1,7 +1,7 @@
 """Prompts for LLM-based paper extraction."""
 
 # Prompt version for tracking extraction compatibility
-EXTRACTION_PROMPT_VERSION = "1.0.0"
+EXTRACTION_PROMPT_VERSION = "1.1.0"
 
 EXTRACTION_SYSTEM_PROMPT = """You are an expert academic research analyst specializing in extracting structured information from scholarly papers. Your task is to analyze the provided paper text and extract key information in a structured format.
 
@@ -11,7 +11,8 @@ Guidelines:
 3. Focus on the main arguments and findings, not peripheral details.
 4. Maintain academic rigor in your interpretations.
 5. When uncertain, note this in the extraction_notes field.
-6. Assign confidence scores based on text clarity and completeness."""
+6. Assign confidence scores based on text clarity and completeness.
+7. For keywords, extract specific terms that would help researchers find this paper."""
 
 EXTRACTION_USER_PROMPT = '''Analyze the following academic paper and extract structured information.
 
@@ -28,39 +29,39 @@ Extract the following information and return as JSON:
 
 {{
   "thesis_statement": "The main thesis or central argument (1-2 sentences)",
-  "research_questions": ["List of research questions addressed"],
-  "theoretical_framework": "Theoretical lens or framework used",
+  "research_questions": ["List of explicit research questions or objectives addressed"],
+  "theoretical_framework": "Primary theoretical lens, framework, or paradigm used (null if not explicitly stated)",
   "methodology": {{
-    "approach": "qualitative/quantitative/mixed",
-    "design": "research design type",
-    "data_sources": ["list of data sources"],
-    "analysis_methods": ["methods used"],
-    "sample_size": "sample size if applicable",
-    "time_period": "time period covered if applicable"
+    "approach": "qualitative/quantitative/mixed/theoretical/review",
+    "design": "e.g., case study, experiment, survey, ethnography, systematic review, meta-analysis",
+    "data_sources": ["list of specific data sources used"],
+    "analysis_methods": ["specific analytical methods or techniques"],
+    "sample_size": "sample size or N if applicable (null otherwise)",
+    "time_period": "time period covered if applicable (null otherwise)"
   }},
   "key_findings": [
     {{
-      "finding": "Description of finding",
-      "evidence_type": "empirical/theoretical/methodological/case_study/survey/experimental/qualitative/quantitative/mixed",
-      "significance": "high/medium/low",
-      "page_reference": "page number if identifiable"
+      "finding": "Specific description of finding or result",
+      "evidence_type": "empirical/theoretical/methodological",
+      "significance": "high (novel/groundbreaking) / medium (confirms/extends) / low (minor/incremental)",
+      "page_reference": "page number if identifiable (null otherwise)"
     }}
   ],
   "key_claims": [
     {{
-      "claim": "The claim statement",
-      "support_type": "data/citation/logic/example/authority",
-      "page_reference": "page number if identifiable",
-      "strength": "high/medium/low"
+      "claim": "The claim or argument statement",
+      "support_type": "data (empirical evidence) / citation (literature support) / logic (reasoning) / example (illustrative case)",
+      "page_reference": "page number if identifiable (null otherwise)"
     }}
   ],
-  "conclusions": "Main conclusions (2-3 sentences)",
-  "limitations": ["List of acknowledged limitations"],
-  "future_directions": ["Suggested future research directions"],
-  "contribution_summary": "Brief summary of the paper's contribution (1-2 sentences)",
-  "discipline_tags": ["relevant topic/discipline tags"],
+  "conclusions": "Main conclusions summarized (2-3 sentences)",
+  "limitations": ["List of explicitly acknowledged limitations"],
+  "future_directions": ["Explicitly suggested future research directions"],
+  "contribution_summary": "Brief summary of the paper's primary contribution to the field (1-2 sentences)",
+  "keywords": ["5-10 searchable terms: concepts, methods, theories, phenomena studied"],
+  "discipline_tags": ["academic disciplines or subfields this paper contributes to"],
   "extraction_confidence": 0.0-1.0,
-  "extraction_notes": "Any notes about extraction quality or issues"
+  "extraction_notes": "Notes about extraction quality, missing sections, or ambiguous content"
 }}
 
 Respond ONLY with valid JSON. No additional text or markdown formatting.'''

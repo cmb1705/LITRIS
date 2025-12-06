@@ -295,6 +295,7 @@ class CliSectionExtractor:
             limitations=response.get("limitations", []),
             future_directions=response.get("future_directions", []),
             contribution_summary=response.get("contribution_summary"),
+            keywords=response.get("keywords", []),
             discipline_tags=response.get("discipline_tags", []),
             extraction_confidence=response.get("extraction_confidence", 0.7),
             extraction_notes=response.get("extraction_notes"),

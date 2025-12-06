@@ -7,6 +7,7 @@ from src.indexing.embeddings import (
     EmbeddingGenerator,
 )
 from src.indexing.structured_store import StructuredStore
+from src.indexing.update_state import UpdateRecord, UpdateState
 from src.indexing.vector_store import SearchResult, VectorStore
 
 __all__ = [
@@ -16,5 +17,7 @@ __all__ = [
     "EmbeddingGenerator",
     "SearchResult",
     "StructuredStore",
+    "UpdateRecord",
+    "UpdateState",
     "VectorStore",
 ]
