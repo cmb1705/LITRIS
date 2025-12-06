@@ -166,19 +166,48 @@ class LLMClient:
             "--output-format", "text",
         ]
 
-        result = subprocess.run(
-            cmd,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=self.timeout,
-            encoding="utf-8",
-        )
+        max_retries = 3
+        retry_delay = 2.0
+        last_error = None
 
-        if result.returncode != 0:
-            raise RuntimeError(f"CLI error: {result.stderr or result.stdout}")
+        for attempt in range(max_retries + 1):
+            try:
+                result = subprocess.run(
+                    cmd,
+                    input=prompt,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout,
+                    encoding="utf-8",
+                )
 
-        return result.stdout, 0, 0
+                if result.returncode != 0:
+                    raise RuntimeError(f"CLI error: {result.stderr or result.stdout}")
+
+                # Check for empty response (transient failure)
+                stdout = result.stdout.strip()
+                if not stdout:
+                    stderr_info = result.stderr.strip()[:200] if result.stderr else "none"
+                    raise RuntimeError(
+                        f"CLI returned empty response (returncode={result.returncode}, "
+                        f"stderr={stderr_info})"
+                    )
+
+                return result.stdout, 0, 0
+
+            except (RuntimeError, subprocess.TimeoutExpired) as e:
+                last_error = e
+                if attempt < max_retries:
+                    delay = retry_delay * (2 ** attempt)
+                    logger.warning(
+                        f"CLI transient error (attempt {attempt + 1}/{max_retries + 1}): {e}. "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(f"All {max_retries + 1} CLI attempts failed: {e}")
+
+        raise RuntimeError(f"CLI failed after {max_retries + 1} attempts: {last_error}")
 
     def _parse_response(self, response_text: str) -> PaperExtraction:
         """Parse JSON response into PaperExtraction.
@@ -198,6 +227,10 @@ class LLMClient:
         if text.endswith("```"):
             text = text[:-3]
         text = text.strip()
+
+        # Guard against empty response
+        if not text:
+            raise ValueError("Cannot parse empty response from LLM")
 
         # Parse JSON
         data = json.loads(text)
