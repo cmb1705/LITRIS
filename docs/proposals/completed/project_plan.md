@@ -27,7 +27,7 @@ The following is the complete anticipated file structure for the project. Files 
 
 ### Phase 0: Setup
 
-D:\Git_Repos\Lit_Review\
+LITRIS/
 |-- .gitignore                          [exists]
 |-- README.md                           [exists - update]
 |-- requirements.txt                    [create]
@@ -43,7 +43,7 @@ D:\Git_Repos\Lit_Review\
 
 ### Phase 1: Foundation
 
-D:\Git_Repos\Lit_Review\
+LITRIS/
 |-- src\
 |   |-- __init__.py
 |   |-- config.py
@@ -90,7 +90,7 @@ D:\Git_Repos\Lit_Review\
 
 ### Phase 2: Semantic Search
 
-D:\Git_Repos\Lit_Review\
+LITRIS/
 |-- src\
 |   |-- indexing\
 |   |   |-- __init__.py
@@ -115,7 +115,7 @@ D:\Git_Repos\Lit_Review\
 
 ### Phase 3: Robustness
 
-D:\Git_Repos\Lit_Review\
+LITRIS/
 |-- src\
 |   +-- extraction\
 |       +-- ocr_handler.py
@@ -130,7 +130,7 @@ D:\Git_Repos\Lit_Review\
 
 ### Phase 4: Incremental Updates
 
-D:\Git_Repos\Lit_Review\
+LITRIS/
 |-- scripts\
 |   +-- update_index.py
 +-- tests\
@@ -139,7 +139,7 @@ D:\Git_Repos\Lit_Review\
 
 ### Phase 5: Refinement
 
-D:\Git_Repos\Lit_Review\
+LITRIS/
 |-- docs\
 |   |-- usage.md
 |   |-- query_guide.md
@@ -150,7 +150,7 @@ D:\Git_Repos\Lit_Review\
 
 ### Complete Final Structure
 
-D:\Git_Repos\Lit_Review\
+LITRIS/
 |-- .env.example
 |-- .gitignore
 |-- config.yaml

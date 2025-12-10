@@ -359,7 +359,7 @@ class StructuredStore:
 
         metadata = {
             "schema_version": SCHEMA_VERSION,
-            "index_name": "Lit_Review_Index",
+            "index_name": "LITRIS_Index",
             "created_at": datetime.now().isoformat(),
             "last_full_build": datetime.now().isoformat(),
             "last_update": datetime.now().isoformat(),

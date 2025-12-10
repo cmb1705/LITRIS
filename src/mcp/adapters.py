@@ -42,7 +42,7 @@ class LitrisAdapter:
                     "Run the /build command to create the literature index."
                 )
 
-            papers_index = index_dir / "papers_index.json"
+            papers_index = index_dir / "papers.json"
             if not papers_index.exists():
                 logger.error(f"Papers index not found: {papers_index}")
                 raise FileNotFoundError(

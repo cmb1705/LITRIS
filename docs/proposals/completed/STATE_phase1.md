@@ -10,9 +10,9 @@
 
 | Document | Location | Purpose |
 |----------|----------|---------|
-| Technical Specification | [proposals/technical_specification.md](proposals/technical_specification.md) | Full system design |
-| Project Plan | [proposals/project_plan.md](proposals/project_plan.md) | TODO lists and file structure |
-| Task Files | [proposals/tasks/](proposals/tasks/) | Implementation details per task |
+| Technical Specification | [technical_specification.md](technical_specification.md) | Full system design |
+| Project Plan | [project_plan.md](project_plan.md) | TODO lists and file structure |
+| Task Files | [tasks/](tasks/) | Implementation details per task |
 
 ---
 

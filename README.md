@@ -13,7 +13,7 @@ LITRIS extracts structured insights from academic papers in a Zotero library usi
 
 ## Architecture
 
-```
+```text
 Zotero SQLite --> Metadata Extraction --> Paper Records
       |
       v
@@ -175,7 +175,7 @@ LITRIS/
 │   └── query/            # Search interface
 ├── scripts/              # CLI tools
 ├── data/                 # Index and cache (gitignored)
-├── proposals/            # Technical specifications
+├── docs/                 # Documentation and specifications
 └── tests/                # Test suite
 ```
 
@@ -276,8 +276,8 @@ python scripts/build_index.py --use-subscription
 |----------|-------------|
 | [STATE.md](STATE.md) | Implementation progress tracker |
 | [CLAUDE.md](CLAUDE.md) | Project memory for Claude Code |
-| [Technical Specification](proposals/completed/technical_specification.md) | Full system design (Phase 1) |
-| [MCP Technical Specification](proposals/mcp_technical_specification.md) | MCP integration design |
+| [Technical Specification](docs/proposals/completed/technical_specification.md) | Full system design (Phase 1) |
+| [MCP Technical Specification](docs/proposals/mcp_technical_specification.md) | MCP integration design |
 
 ## Cost Estimates
 

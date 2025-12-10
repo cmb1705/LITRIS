@@ -53,7 +53,7 @@
 
 - Track progress in [STATE.md](STATE.md)
 - Use TodoWrite for complex tasks
-- Task specs in `proposals/tasks/*.md`
+- Task specs in `docs/proposals/tasks/*.md`
 
 ## Key Files
 
@@ -61,7 +61,7 @@
 |------|---------|
 | STATE.md | Status tracker |
 | config.yaml | Configuration |
-| proposals/*.md | Specs and plans |
+| docs/proposals/*.md | Specs and plans |
 
 ## Custom Agents
 

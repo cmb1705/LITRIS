@@ -351,7 +351,7 @@ python scripts/build_index.py
 If issues persist:
 
 1. Check logs in console output with `-v` flag
-2. Review [GitHub Issues](https://github.com/cmb1705/Lit_Review/issues)
+2. Review [GitHub Issues](https://github.com/YOUR_USERNAME/LITRIS/issues)
 3. Open a new issue with:
    - Error message
    - Steps to reproduce

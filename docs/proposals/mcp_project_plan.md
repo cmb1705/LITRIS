@@ -204,17 +204,16 @@ LITRIS/
 +-- docs/
 |   +-- mcp_usage.md
 |   +-- mcp_troubleshooting.md
-|
-+-- proposals/
-|   +-- mcp_technical_specification.md
-|   +-- mcp_project_plan.md
-|   +-- tasks/
-|       +-- task_mcp_00_foundation.md
-|       +-- task_mcp_01_tools.md
-|       +-- task_mcp_02_integration.md
-|       +-- task_mcp_03_claude_config.md
-|       +-- task_mcp_04_testing.md
-|       +-- task_mcp_05_documentation.md
+|   +-- proposals/
+|       +-- mcp_technical_specification.md
+|       +-- mcp_project_plan.md
+|       +-- tasks/
+|           +-- task_mcp_00_foundation.md
+|           +-- task_mcp_01_tools.md
+|           +-- task_mcp_02_integration.md
+|           +-- task_mcp_03_claude_config.md
+|           +-- task_mcp_04_testing.md
+|           +-- task_mcp_05_documentation.md
 |
 +-- requirements.txt (updated)
 +-- config.yaml (unchanged)

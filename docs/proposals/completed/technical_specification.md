@@ -81,7 +81,7 @@ Build an intermediary knowledge layer between a Zotero library (~500+ academic d
 ## 3. Project Structure
 
 ```
-D:\Git_Repos\Lit_Review\
+LITRIS/
 ├── .gitignore
 ├── README.md
 ├── requirements.txt
@@ -1219,7 +1219,7 @@ The following are explicitly out of scope for initial build but documented for f
 ```json
 {
   "schema_version": "1.0",
-  "index_name": "Lit_Review_Index",
+  "index_name": "LITRIS_Index",
   "created_at": "ISO8601",
   "last_full_build": "ISO8601",
   "last_update": "ISO8601",

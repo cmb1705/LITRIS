@@ -37,7 +37,7 @@ You are the Code Reviewer responsible for ensuring code quality, consistency, an
 - [ ] All imported functions are actually used (grep for unused imports)
 - [ ] All validators are called where needed (cross-reference validators.py with server/handler code)
 - [ ] Error handling returns structured error codes, not raw exceptions
-- [ ] Implementation matches specification (cross-reference against proposals/*.md)
+- [ ] Implementation matches specification (cross-reference against docs/proposals/*.md)
 - [ ] Path validation exists before accessing external resources
 - [ ] Documentation links resolve to actual files (test links in README, STATE.md)
 

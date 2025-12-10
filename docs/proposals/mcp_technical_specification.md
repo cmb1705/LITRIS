@@ -563,7 +563,7 @@ A Claude Code skill could wrap common workflows:
 
 ### A. Extraction Schema Reference
 
-See proposals/completed/technical_specification.md for full extraction schema.
+See completed/technical_specification.md for full extraction schema.
 
 ### B. Chunk Type Descriptions
 
