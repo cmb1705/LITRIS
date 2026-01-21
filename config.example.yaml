@@ -1,0 +1,110 @@
+# Literature Review Index System (LITRIS) Configuration
+# Copy this file to config.yaml and customize for your environment.
+#
+# Schema version - do not modify manually. The system will auto-migrate
+# older configs to newer versions when loaded.
+version: "1.1.0"
+
+# =============================================================================
+# Reference Source Configuration
+# =============================================================================
+# LITRIS supports multiple reference sources:
+# - Zotero (default): Uses local Zotero database
+# - BibTeX: Imports from .bib files
+# - PDF Folder: Scans folders of PDF files
+
+zotero:
+  # Path to Zotero SQLite database
+  # Windows: C:/Users/YOUR_USERNAME/Zotero/zotero.sqlite
+  # macOS: /Users/YOUR_USERNAME/Zotero/zotero.sqlite
+  # Linux: /home/YOUR_USERNAME/Zotero/zotero.sqlite
+  database_path: "/path/to/Zotero/zotero.sqlite"
+
+  # Path to Zotero storage directory containing PDFs
+  # Windows: C:/Users/YOUR_USERNAME/Zotero/storage
+  # macOS: /Users/YOUR_USERNAME/Zotero/storage
+  # Linux: /home/YOUR_USERNAME/Zotero/storage
+  storage_path: "/path/to/Zotero/storage"
+
+# =============================================================================
+# LLM Extraction Configuration
+# =============================================================================
+extraction:
+  # LLM provider: "anthropic" (Claude), "openai" (GPT), or "google" (Gemini)
+  provider: "anthropic"
+
+  # Extraction mode:
+  # - "cli": Free with Claude Max subscription (uses Claude CLI)
+  # - "api": Direct API calls (requires API key, pay-per-use)
+  # - "batch_api": Anthropic batch API (50% discount, async processing)
+  mode: "cli"
+
+  # Model to use for extraction (provider-specific)
+  # Anthropic: claude-opus-4-5-20251101, claude-sonnet-4-20250514
+  # OpenAI: gpt-5.2, gpt-4o, gpt-4o-mini
+  # Google: gemini-3-pro, gemini-2.5-flash, gemini-2.5-pro
+  # Leave empty to use provider default
+  model: ""
+
+  # Maximum tokens per paper (papers exceeding this are truncated)
+  max_tokens: 100000
+
+  # Timeout in seconds for extraction requests
+  timeout: 120
+
+  # Enable extraction caching (recommended)
+  use_cache: true
+
+  # Number of parallel workers for batch processing
+  parallel_workers: 1
+
+  # Reasoning effort for OpenAI models (o1, gpt-5.2)
+  # Options: none, low, medium, high, xhigh
+  # Leave empty for non-OpenAI or to use default
+  reasoning_effort: ""
+
+# =============================================================================
+# Embedding Model Configuration
+# =============================================================================
+embeddings:
+  # Sentence transformer model for semantic search embeddings
+  # Default is fast and effective for academic text
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+
+  # Embedding dimension (must match the model's output dimension)
+  dimension: 384
+
+# =============================================================================
+# Storage Configuration
+# =============================================================================
+storage:
+  # ChromaDB vector database persistence directory
+  chroma_path: "data/chroma"
+
+  # Extraction cache directory (stores LLM extraction results)
+  cache_path: "data/cache"
+
+  # Collection name in ChromaDB
+  collection_name: "literature_review"
+
+# =============================================================================
+# Processing Configuration
+# =============================================================================
+processing:
+  # Number of papers to process in each batch
+  batch_size: 10
+
+  # Enable OCR fallback for scanned PDFs
+  # Requires Tesseract and Poppler installation
+  ocr_enabled: false
+
+  # Minimum text length (chars) to consider PDF extraction successful
+  # PDFs with less text may be candidates for OCR
+  min_text_length: 100
+
+  # OCR-specific configuration (used when ocr_enabled is true)
+  ocr_config:
+    # DPI for PDF to image conversion (higher = better quality, slower)
+    dpi: 300
+    # Tesseract language code (eng, deu, fra, etc.)
+    lang: "eng"

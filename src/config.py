@@ -8,7 +8,15 @@ import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
+from src.config_migration import (
+    CURRENT_VERSION,
+    migrate_config,
+    needs_migration,
+)
+from src.utils.logging_config import get_logger
 from src.utils.secrets import get_anthropic_api_key
+
+logger = get_logger(__name__)
 
 
 class ZoteroConfig(BaseModel):
@@ -121,6 +129,7 @@ class ProcessingConfig(BaseModel):
 class Config(BaseModel):
     """Main configuration class for the Literature Review system."""
 
+    version: str = CURRENT_VERSION
     zotero: ZoteroConfig
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
     embeddings: EmbeddingsConfig = Field(default_factory=EmbeddingsConfig)
@@ -130,12 +139,17 @@ class Config(BaseModel):
     _project_root: Path | None = None
 
     @classmethod
-    def load(cls, config_path: Path | str | None = None) -> "Config":
+    def load(
+        cls,
+        config_path: Path | str | None = None,
+        auto_migrate: bool = True,
+    ) -> "Config":
         """Load configuration from YAML file and environment variables.
 
         Args:
             config_path: Path to config.yaml. If None, searches for config.yaml
                         in current directory and parent directories.
+            auto_migrate: If True, automatically migrate old config versions.
 
         Returns:
             Loaded and validated Config instance.
@@ -163,8 +177,19 @@ class Config(BaseModel):
         with open(config_path, encoding="utf-8") as f:
             yaml_config = yaml.safe_load(f)
 
+        # Handle config migration if needed
+        if auto_migrate and needs_migration(yaml_config):
+            old_version = yaml_config.get("version", "1.0.0")
+            logger.info(f"Migrating config from version {old_version} to {CURRENT_VERSION}")
+            yaml_config = migrate_config(yaml_config)
+
         # Apply environment variable overrides
         yaml_config = cls._apply_env_overrides(yaml_config)
+
+        # Remove version field if present (Pydantic will use the default)
+        # but keep it for the model
+        if "version" not in yaml_config:
+            yaml_config["version"] = CURRENT_VERSION
 
         # Create config instance
         config = cls(**yaml_config)
