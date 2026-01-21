@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -Command \"$path = $env:CLAUDE_FILE_PATH; if ($path -match 'D:\\\\Zotero') { Write-Error 'BLOCKED: Cannot modify Zotero directory'; exit 1 }\"",
+            "command": "powershell -Command \"$path = $env:CLAUDE_FILE_PATH; $zoteroPath = if ($env:ZOTERO_STORAGE_PATH) { [regex]::Escape($env:ZOTERO_STORAGE_PATH) } else { 'Zotero' }; if ($path -match $zoteroPath) { Write-Error 'BLOCKED: Cannot modify Zotero directory'; exit 1 }\"",
             "timeout": 10
           }
         ]

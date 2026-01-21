@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "litris": {
+      "command": "/path/to/LITRIS/.venv/bin/python",
+      "args": ["-m", "src.mcp.server"],
+      "cwd": "/path/to/LITRIS"
+    }
+  }
+}

@@ -258,7 +258,7 @@ Beyond basic search, LITRIS enables complex multi-part research queries when pai
 >
 > Part 4: Compare the works in LITRIS to other relevant web searches of scientometric and infometric academic journals and provide a list of 5 additional papers to read on the topic.
 
-**Output:** [GNN vs LSTM Citation Forecasting Report](data/query_results/2025-12-06_gnn-lstm-citation-forecasting.md)
+**Output:** [GNN vs LSTM Citation Forecasting Report](docs/examples/2025-12-06_gnn-lstm-citation-forecasting.md)
 
 The generated report includes:
 
