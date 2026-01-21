@@ -25,6 +25,7 @@ class TestBaseLLMClient:
         providers = BaseLLMClient.get_available_providers()
         assert "anthropic" in providers
         assert "openai" in providers
+        assert "google" in providers
 
 
 class TestLLMFactory:
@@ -36,6 +37,7 @@ class TestLLMFactory:
         assert isinstance(providers, list)
         assert "anthropic" in providers
         assert "openai" in providers
+        assert "google" in providers
 
     def test_get_default_model_anthropic(self):
         """Should return Claude default model."""
@@ -46,6 +48,11 @@ class TestLLMFactory:
         """Should return GPT default model."""
         model = get_default_model("openai")
         assert "gpt" in model.lower()
+
+    def test_get_default_model_google(self):
+        """Should return Gemini default model."""
+        model = get_default_model("google")
+        assert "gemini" in model.lower()
 
     def test_get_provider_models_anthropic(self):
         """Should return Anthropic models."""
@@ -62,6 +69,14 @@ class TestLLMFactory:
         assert len(models) > 0
         # Should have GPT models
         assert any("gpt" in k.lower() for k in models.keys())
+
+    def test_get_provider_models_google(self):
+        """Should return Google models."""
+        models = get_provider_models("google")
+        assert isinstance(models, dict)
+        assert len(models) > 0
+        # Should have Gemini models
+        assert any("gemini" in k.lower() for k in models.keys())
 
     def test_create_invalid_provider(self):
         """Should raise error for invalid provider."""
@@ -180,6 +195,80 @@ class TestOpenAIClientEstimateCost:
         assert cost_mini < cost_5_2
 
 
+class TestGeminiClient:
+    """Tests for GeminiLLMClient."""
+
+    def test_provider_property(self):
+        """Should return 'google' as provider."""
+        from src.analysis.gemini_client import GeminiLLMClient
+
+        client = GeminiLLMClient.__new__(GeminiLLMClient)
+        assert client.provider == "google"
+
+    def test_default_model(self):
+        """Should have Gemini default model."""
+        from src.analysis.gemini_client import GeminiLLMClient
+
+        client = GeminiLLMClient.__new__(GeminiLLMClient)
+        assert "gemini" in client.default_model.lower()
+
+    def test_supported_modes(self):
+        """Should support api mode only."""
+        from src.analysis.gemini_client import GeminiLLMClient
+
+        client = GeminiLLMClient.__new__(GeminiLLMClient)
+        modes = client.supported_modes
+        assert "api" in modes
+        # Gemini does not have a CLI mode
+        assert "cli" not in modes
+
+    def test_list_models(self):
+        """Should list available Gemini models."""
+        from src.analysis.gemini_client import GeminiLLMClient
+
+        models = GeminiLLMClient.list_models()
+        assert isinstance(models, dict)
+        assert "gemini-2.5-flash" in models
+        assert "gemini-2.5-pro" in models
+
+    def test_model_pricing(self):
+        """Should have pricing for all listed models."""
+        from src.analysis.gemini_client import GeminiLLMClient
+
+        for model in GeminiLLMClient.MODELS.keys():
+            assert model in GeminiLLMClient.MODEL_PRICING
+
+
+class TestGeminiClientEstimateCost:
+    """Tests for Google Gemini cost estimation."""
+
+    def test_estimate_cost_gemini_flash(self):
+        """Should estimate cost for Gemini 2.5 Flash."""
+        from src.analysis.gemini_client import GeminiLLMClient
+
+        client = GeminiLLMClient.__new__(GeminiLLMClient)
+        client.model = "gemini-2.5-flash"
+
+        cost = client.estimate_cost(10000)  # 10k chars
+        assert cost > 0
+        assert isinstance(cost, float)
+
+    def test_estimate_cost_gemini_flash_cheaper_than_pro(self):
+        """Gemini Flash should be cheaper than Gemini Pro."""
+        from src.analysis.gemini_client import GeminiLLMClient
+
+        client_flash = GeminiLLMClient.__new__(GeminiLLMClient)
+        client_flash.model = "gemini-2.5-flash"
+
+        client_pro = GeminiLLMClient.__new__(GeminiLLMClient)
+        client_pro.model = "gemini-2.5-pro"
+
+        cost_flash = client_flash.estimate_cost(10000)
+        cost_pro = client_pro.estimate_cost(10000)
+
+        assert cost_flash < cost_pro
+
+
 class TestConfigExtraction:
     """Tests for extraction config with provider support."""
 
@@ -196,6 +285,13 @@ class TestConfigExtraction:
 
         config = ExtractionConfig(provider="openai")
         assert config.provider == "openai"
+
+    def test_config_google_provider(self, sample_config_dict):
+        """Should accept google provider."""
+        from src.config import ExtractionConfig
+
+        config = ExtractionConfig(provider="google")
+        assert config.provider == "google"
 
     def test_config_invalid_provider(self, sample_config_dict):
         """Should reject invalid provider."""
@@ -233,6 +329,14 @@ class TestConfigExtraction:
         config = ExtractionConfig(provider="openai", model=None)
         model = config.get_model_or_default()
         assert "gpt" in model.lower()
+
+    def test_config_get_model_or_default_google(self, sample_config_dict):
+        """Should return Gemini default when no model specified."""
+        from src.config import ExtractionConfig
+
+        config = ExtractionConfig(provider="google", model=None)
+        model = config.get_model_or_default()
+        assert "gemini" in model.lower()
 
     def test_config_get_model_explicit(self, sample_config_dict):
         """Should return explicit model when specified."""

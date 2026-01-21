@@ -5,7 +5,7 @@ from typing import Literal
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode, LLMProvider
 
 # Provider type for configuration
-Provider = Literal["anthropic", "openai"]
+Provider = Literal["anthropic", "openai", "google"]
 
 
 def create_llm_client(
@@ -22,7 +22,7 @@ def create_llm_client(
     provider selection and passes configuration to the appropriate client.
 
     Args:
-        provider: LLM provider ('anthropic' or 'openai').
+        provider: LLM provider ('anthropic', 'openai', or 'google').
         mode: Extraction mode ('api' for direct API, 'cli' for CLI tool).
         model: Model identifier. If None, uses provider's default.
         max_tokens: Maximum tokens for response.
@@ -47,11 +47,10 @@ def create_llm_client(
             reasoning_effort="high"
         )
 
-        # Create OpenAI client with Codex CLI
+        # Create Google Gemini client
         client = create_llm_client(
-            provider="openai",
-            mode="cli",
-            model="gpt-5.2-codex"
+            provider="google",
+            model="gemini-2.5-flash"
         )
     """
     if provider == "anthropic":
@@ -71,6 +70,14 @@ def create_llm_client(
             timeout=timeout,
             reasoning_effort=kwargs.get("reasoning_effort"),
         )
+    elif provider == "google":
+        from src.analysis.gemini_client import GeminiLLMClient
+        return GeminiLLMClient(
+            mode=mode,
+            model=model,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
     else:
         raise ValueError(
             f"Unsupported LLM provider: {provider}. "
@@ -80,7 +87,7 @@ def create_llm_client(
 
 def get_available_providers() -> list[str]:
     """Return list of available LLM providers."""
-    return ["anthropic", "openai"]
+    return ["anthropic", "openai", "google"]
 
 
 def get_provider_models(provider: Provider) -> dict[str, str]:
@@ -98,6 +105,9 @@ def get_provider_models(provider: Provider) -> dict[str, str]:
     elif provider == "openai":
         from src.analysis.openai_client import OpenAILLMClient
         return OpenAILLMClient.list_models()
+    elif provider == "google":
+        from src.analysis.gemini_client import GeminiLLMClient
+        return GeminiLLMClient.list_models()
     else:
         return {}
 
@@ -114,6 +124,7 @@ def get_default_model(provider: Provider) -> str:
     defaults = {
         "anthropic": "claude-opus-4-5-20251101",
         "openai": "gpt-5.2",
+        "google": "gemini-2.5-flash",
     }
     return defaults.get(provider, "")
 

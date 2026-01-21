@@ -40,7 +40,7 @@ class ExtractionConfig(BaseModel):
     @classmethod
     def validate_provider(cls, v: str) -> str:
         """Validate LLM provider."""
-        valid_providers = {"anthropic", "openai"}
+        valid_providers = {"anthropic", "openai", "google"}
         if v not in valid_providers:
             raise ValueError(f"provider must be one of {valid_providers}, got '{v}'")
         return v
@@ -83,6 +83,7 @@ class ExtractionConfig(BaseModel):
         defaults = {
             "anthropic": "claude-opus-4-5-20251101",
             "openai": "gpt-5.2",
+            "google": "gemini-3-pro",
         }
         return defaults.get(self.provider, "claude-opus-4-5-20251101")
 
