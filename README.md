@@ -145,6 +145,46 @@ cp config.yaml.example config.yaml
 # Edit config.yaml with your Zotero paths
 ```
 
+## Docker
+
+For a containerized workflow, use the provided `Dockerfile` and `docker-compose.yml`.
+
+Step 1: Copy the config template and update Zotero paths (or rely on Compose env overrides).
+
+```bash
+cp config.yaml.example config.yaml
+```
+
+Step 2: Copy the environment template and set host paths for Docker mounts.
+
+```bash
+cp .env.example .env
+```
+
+Set these in `.env`:
+
+```text
+ZOTERO_DB_HOST=/path/to/zotero.sqlite
+ZOTERO_STORAGE_HOST=/path/to/zotero/storage
+```
+
+Step 3: Build the image.
+
+```bash
+docker compose build
+```
+
+Run commands via Compose:
+
+```bash
+docker compose run --rm litris scripts/build_index.py --dry-run
+docker compose run --rm litris scripts/query_index.py -q "network analysis methods"
+```
+
+Note: The container targets API or batch modes. CLI modes require installing and authenticating
+the Claude Code or Codex CLI inside the image or running on the host. See
+`docs/troubleshooting.md` for CLI setup steps.
+
 ## Quick Start
 
 ```bash

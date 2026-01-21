@@ -1,0 +1,13 @@
+.git
+.venv
+__pycache__/
+*.pyc
+data/
+docs/sphinx/_build/
+node_modules/
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.env
+config.yaml

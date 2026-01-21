@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  litris:
+    build:
+      context: .
+    image: litris:dev
+    working_dir: /app
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+      - ${ZOTERO_DB_HOST}:/zotero/zotero.sqlite:ro
+      - ${ZOTERO_STORAGE_HOST}:/zotero/storage:ro
+    environment:
+      ZOTERO_DATABASE_PATH: /zotero/zotero.sqlite
+      ZOTERO_STORAGE_PATH: /zotero/storage
+    env_file:
+      - .env
