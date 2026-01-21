@@ -1,0 +1,22 @@
+# Codex CLI configuration for LITRIS project
+# https://developers.openai.com/codex/cli/configuration
+
+# Model settings
+model = "gpt-5.2"
+model_reasoning_effort = "high"
+
+# MCP Server configuration for LITRIS semantic search
+# Note: MCP servers are configured globally via `codex mcp add`
+#
+# To add LITRIS MCP server (run from LITRIS directory):
+#   codex mcp add litris --env "PYTHONPATH=d:\Git_Repos\LITRIS" -- "d:\Git_Repos\LITRIS\.venv\Scripts\python.exe" -m src.mcp.server
+#
+# Available tools:
+#   - litris_search: Semantic search over literature index
+#   - litris_get_paper: Get full paper details by ID
+#   - litris_similar: Find papers similar to a given paper
+#   - litris_summary: Get index statistics
+#   - litris_collections: List available collections
+#
+# Usage example:
+#   codex "Search my library for papers about machine learning ethics"
