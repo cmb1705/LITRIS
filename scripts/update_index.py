@@ -66,6 +66,18 @@ def parse_args():
         help="Extraction mode (overrides config)",
     )
     parser.add_argument(
+        "--summary-model",
+        type=str,
+        default=None,
+        help="Override model for summary extraction fields",
+    )
+    parser.add_argument(
+        "--methodology-model",
+        type=str,
+        default=None,
+        help="Override model for methodology extraction fields",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -471,16 +483,27 @@ def main():
     mode = args.mode or config.extraction.mode
     cache_dir = config.get_cache_path() / "pdf_text"
 
+    model_by_type = {}
+    if args.summary_model:
+        model_by_type["summary"] = args.summary_model
+    if args.methodology_model:
+        model_by_type["methodology"] = args.methodology_model
+    if not model_by_type:
+        model_by_type = None
+
     extractor = None
     if not args.skip_extraction and (new_items or modified_items):
         extractor = SectionExtractor(
             cache_dir=cache_dir,
+            provider=config.extraction.provider,
             mode=mode,
             model=config.extraction.model,
             max_tokens=config.extraction.max_tokens,
+            model_by_type=model_by_type,
             min_text_length=config.processing.min_text_length,
             ocr_enabled=config.processing.ocr_enabled,
             ocr_config=config.processing.ocr_config,
+            reasoning_effort=config.extraction.reasoning_effort,
         )
 
     embedding_gen = None

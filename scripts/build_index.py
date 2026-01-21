@@ -69,6 +69,18 @@ def parse_args():
         help="Model to use (e.g., gpt-5.2, claude-opus-4-5-20251101)",
     )
     parser.add_argument(
+        "--summary-model",
+        type=str,
+        default=None,
+        help="Override model for summary extraction fields",
+    )
+    parser.add_argument(
+        "--methodology-model",
+        type=str,
+        default=None,
+        help="Override model for methodology extraction fields",
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help="Resume from previous checkpoint",
@@ -724,6 +736,14 @@ def main():
     if args.model:
         config.extraction.model = args.model
 
+    model_by_type = {}
+    if args.summary_model:
+        model_by_type["summary"] = args.summary_model
+    if args.methodology_model:
+        model_by_type["methodology"] = args.methodology_model
+    if not model_by_type:
+        model_by_type = None
+
     logger.info(f"Using LLM provider: {provider}")
 
     # Handle --use-subscription flag (Anthropic only)
@@ -782,6 +802,7 @@ def main():
             mode=mode,
             model=config.extraction.model,
             max_tokens=config.extraction.max_tokens,
+            model_by_type=model_by_type,
             min_text_length=config.processing.min_text_length,
             ocr_enabled=config.processing.ocr_enabled,
             ocr_config=config.processing.ocr_config,
@@ -842,6 +863,7 @@ def main():
             mode=mode,
             model=config.extraction.model,
             max_tokens=config.extraction.max_tokens,
+            model_by_type=model_by_type,
             min_text_length=config.processing.min_text_length,
             ocr_enabled=config.processing.ocr_enabled,
             ocr_config=config.processing.ocr_config,

@@ -101,6 +101,7 @@ class AnthropicLLMClient(BaseLLMClient):
         year: int | str | None,
         item_type: str,
         text: str,
+        prompt_override: str | None = None,
     ) -> ExtractionResult:
         """Extract structured information from paper text.
 
@@ -111,6 +112,7 @@ class AnthropicLLMClient(BaseLLMClient):
             year: Publication year.
             item_type: Type of paper.
             text: Full text content.
+            prompt_override: Optional pre-built prompt to use instead of default.
 
         Returns:
             ExtractionResult with extraction or error.
@@ -118,7 +120,7 @@ class AnthropicLLMClient(BaseLLMClient):
         start_time = time.time()
 
         try:
-            prompt = build_extraction_prompt(
+            prompt = prompt_override or build_extraction_prompt(
                 title=title,
                 authors=authors,
                 year=year,

@@ -12,6 +12,7 @@ from typing import Callable
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode
 from src.analysis.llm_factory import create_llm_client
+from src.analysis.prompts import EXTRACTION_TYPE_FIELDS, build_extraction_prompt_for_type
 from src.analysis.schemas import ExtractionResult, PaperExtraction
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
@@ -202,6 +203,7 @@ class SectionExtractor:
         mode: ExtractionMode = "api",
         model: str | None = None,
         max_tokens: int = 8192,
+        model_by_type: dict[str, str] | None = None,
         min_text_length: int = 100,
         ocr_enabled: bool = False,
         ocr_config: dict | None = None,
@@ -217,6 +219,7 @@ class SectionExtractor:
             mode: LLM extraction mode.
             model: Model to use (None uses provider default).
             max_tokens: Maximum response tokens.
+            model_by_type: Optional mapping of extraction type to model name.
             min_text_length: Minimum text length to attempt extraction.
             ocr_enabled: Enable OCR fallback for scanned PDFs.
             ocr_config: Optional OCR handler config (tesseract_cmd, poppler_path, dpi, lang).
@@ -239,12 +242,26 @@ class SectionExtractor:
             max_tokens=max_tokens,
             reasoning_effort=reasoning_effort,
         )
+        self.max_tokens = max_tokens
+        self.timeout = self.llm_client.timeout
+        self.reasoning_effort = reasoning_effort
         self.min_text_length = min_text_length
         self.model = self.llm_client.model  # Use resolved model from client
         self.mode = mode
         self.provider = provider
         self.parallel_workers = parallel_workers
         self.use_cache = use_cache
+        self.type_models = self._resolve_type_models(model_by_type)
+        self.model_signature = self._build_model_signature()
+        self._clients_by_model: dict[str, BaseLLMClient] = {
+            self.llm_client.model: self.llm_client
+        }
+
+        if self.type_models:
+            logger.info(
+                "Using extraction models by type: "
+                + ", ".join(f"{k}={v}" for k, v in self.type_models.items())
+            )
 
         # Initialize extraction cache
         if cache_dir and use_cache:
@@ -278,7 +295,7 @@ class SectionExtractor:
             content_hash = None
             if check_cache and self.extraction_cache:
                 content_hash = self.extraction_cache.compute_content_hash(
-                    paper.pdf_path, self.model
+                    paper.pdf_path, self.model_signature
                 )
                 cached_result = self.extraction_cache.get(paper.paper_id, content_hash)
                 if cached_result:
@@ -314,14 +331,17 @@ class SectionExtractor:
             text = self.text_cleaner.truncate_for_llm(text)
 
             # Perform LLM extraction
-            result = self.llm_client.extract(
-                paper_id=paper.paper_id,
-                title=paper.title,
-                authors=paper.author_string,
-                year=paper.publication_year,
-                item_type=paper.item_type,
-                text=text,
-            )
+            if self.type_models:
+                result = self._extract_with_model_overrides(paper, text)
+            else:
+                result = self.llm_client.extract(
+                    paper_id=paper.paper_id,
+                    title=paper.title,
+                    authors=paper.author_string,
+                    year=paper.publication_year,
+                    item_type=paper.item_type,
+                    text=text,
+                )
 
             # Set indexed timestamp on success
             if result.success:
@@ -545,7 +565,7 @@ class SectionExtractor:
             }
 
         avg_length = sum(sample_lengths) / len(sample_lengths)
-        per_paper_cost = self.llm_client.estimate_cost(int(avg_length))
+        per_paper_cost = self._estimate_per_paper_cost(int(avg_length))
         total_cost = per_paper_cost * papers_to_extract
 
         return {
@@ -555,5 +575,152 @@ class SectionExtractor:
             "average_text_length": int(avg_length),
             "estimated_cost_per_paper": round(per_paper_cost, 4),
             "estimated_total_cost": round(total_cost, 2),
-            "model": self.llm_client.model,
+            "model": self.model_signature,
         }
+
+    def _resolve_type_models(self, model_by_type: dict[str, str] | None) -> dict[str, str]:
+        """Normalize model overrides for extraction types."""
+        if not model_by_type:
+            return {}
+
+        invalid_types = set(model_by_type) - set(EXTRACTION_TYPE_FIELDS.keys())
+        if invalid_types:
+            raise ValueError(
+                f"Unknown extraction types: {sorted(invalid_types)}. "
+                f"Valid types: {sorted(EXTRACTION_TYPE_FIELDS.keys())}."
+            )
+
+        return {
+            extraction_type: model_by_type.get(extraction_type, self.llm_client.model)
+            for extraction_type in EXTRACTION_TYPE_FIELDS
+        }
+
+    def _build_model_signature(self) -> str:
+        """Build a stable model signature for caching and metadata."""
+        if not self.type_models:
+            return self.llm_client.model
+        parts = [f"{name}={self.type_models[name]}" for name in EXTRACTION_TYPE_FIELDS]
+        return "|".join(parts)
+
+    def _get_client_for_model(self, model: str) -> BaseLLMClient:
+        """Get or create an LLM client for a specific model."""
+        client = self._clients_by_model.get(model)
+        if client:
+            return client
+
+        client = create_llm_client(
+            provider=self.provider,
+            mode=self.mode,
+            model=model,
+            max_tokens=self.max_tokens,
+            timeout=self.timeout,
+            reasoning_effort=self.reasoning_effort,
+        )
+        self._clients_by_model[model] = client
+        return client
+
+    def _merge_extractions(
+        self, partials: dict[str, PaperExtraction]
+    ) -> PaperExtraction:
+        """Merge partial extraction results into a full extraction."""
+        data: dict = {}
+        confidences = []
+        notes = []
+
+        for extraction_type, extraction in partials.items():
+            for field in EXTRACTION_TYPE_FIELDS[extraction_type]:
+                data[field] = getattr(extraction, field)
+
+            if extraction.extraction_confidence is not None:
+                confidences.append(extraction.extraction_confidence)
+            if extraction.extraction_notes:
+                notes.append(f"{extraction_type}: {extraction.extraction_notes}")
+
+        if confidences:
+            data["extraction_confidence"] = sum(confidences) / len(confidences)
+        if notes:
+            data["extraction_notes"] = " | ".join(notes)
+
+        return PaperExtraction(**data)
+
+    def _extract_with_model_overrides(
+        self, paper: PaperMetadata, text: str
+    ) -> ExtractionResult:
+        """Run multi-pass extraction using per-type model overrides."""
+        partials: dict[str, PaperExtraction] = {}
+        errors: list[str] = []
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_duration = 0.0
+
+        for extraction_type in EXTRACTION_TYPE_FIELDS:
+            model = self.type_models.get(extraction_type, self.llm_client.model)
+            client = self._get_client_for_model(model)
+            prompt = build_extraction_prompt_for_type(
+                extraction_type=extraction_type,
+                title=paper.title,
+                authors=paper.author_string,
+                year=paper.publication_year,
+                item_type=paper.item_type,
+                text=text,
+            )
+
+            result = client.extract(
+                paper_id=paper.paper_id,
+                title=paper.title,
+                authors=paper.author_string,
+                year=paper.publication_year,
+                item_type=paper.item_type,
+                text=text,
+                prompt_override=prompt,
+            )
+
+            total_input_tokens += result.input_tokens
+            total_output_tokens += result.output_tokens
+            total_duration += result.duration_seconds
+
+            if result.success and result.extraction:
+                partials[extraction_type] = result.extraction
+            else:
+                error_message = result.error or "Unknown error"
+                errors.append(f"{extraction_type}: {error_message}")
+
+        if errors:
+            return ExtractionResult(
+                paper_id=paper.paper_id,
+                success=False,
+                error="; ".join(errors),
+                duration_seconds=total_duration,
+                model_used=self.model_signature,
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
+            )
+
+        merged = self._merge_extractions(partials)
+
+        logger.info(
+            f"Extracted paper {paper.paper_id} in {total_duration:.1f}s "
+            f"(confidence: {merged.extraction_confidence:.2f})"
+        )
+
+        return ExtractionResult(
+            paper_id=paper.paper_id,
+            success=True,
+            extraction=merged,
+            duration_seconds=total_duration,
+            model_used=self.model_signature,
+            input_tokens=total_input_tokens,
+            output_tokens=total_output_tokens,
+        )
+
+    def _estimate_per_paper_cost(self, text_length: int) -> float:
+        """Estimate per-paper cost, accounting for multi-pass extraction."""
+        if not self.type_models:
+            return self.llm_client.estimate_cost(text_length)
+
+        total_cost = 0.0
+        for extraction_type in EXTRACTION_TYPE_FIELDS:
+            model = self.type_models.get(extraction_type, self.llm_client.model)
+            client = self._get_client_for_model(model)
+            total_cost += client.estimate_cost(text_length)
+        return total_cost

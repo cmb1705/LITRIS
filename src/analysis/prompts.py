@@ -66,6 +66,97 @@ Extract the following information and return as JSON:
 
 Respond ONLY with valid JSON. No additional text or markdown formatting.'''
 
+SUMMARY_EXTRACTION_USER_PROMPT = '''Analyze the following academic paper and extract structured information.
+
+PAPER METADATA:
+Title: {title}
+Authors: {authors}
+Year: {year}
+Type: {item_type}
+
+PAPER TEXT:
+{text}
+
+Extract the following information and return as JSON:
+
+{{
+  "thesis_statement": "The main thesis or central argument (1-2 sentences)",
+  "research_questions": ["List of explicit research questions or objectives addressed"],
+  "theoretical_framework": "Primary theoretical lens, framework, or paradigm used (null if not explicitly stated)",
+  "conclusions": "Main conclusions summarized (2-3 sentences)",
+  "contribution_summary": "Brief summary of the paper's primary contribution to the field (1-2 sentences)",
+  "keywords": ["5-10 searchable terms: concepts, methods, theories, phenomena studied"],
+  "discipline_tags": ["academic disciplines or subfields this paper contributes to"],
+  "extraction_confidence": 0.0-1.0,
+  "extraction_notes": "Notes about extraction quality, missing sections, or ambiguous content"
+}}
+
+Respond ONLY with valid JSON. No additional text or markdown formatting.'''
+
+METHODOLOGY_EXTRACTION_USER_PROMPT = '''Analyze the following academic paper and extract structured information.
+
+PAPER METADATA:
+Title: {title}
+Authors: {authors}
+Year: {year}
+Type: {item_type}
+
+PAPER TEXT:
+{text}
+
+Extract the following information and return as JSON:
+
+{{
+  "methodology": {{
+    "approach": "qualitative/quantitative/mixed/theoretical/review",
+    "design": "e.g., case study, experiment, survey, ethnography, systematic review, meta-analysis",
+    "data_sources": ["list of specific data sources used"],
+    "analysis_methods": ["specific analytical methods or techniques"],
+    "sample_size": "sample size or N if applicable (null otherwise)",
+    "time_period": "time period covered if applicable (null otherwise)"
+  }},
+  "key_findings": [
+    {{
+      "finding": "Specific description of finding or result",
+      "evidence_type": "empirical/theoretical/methodological",
+      "significance": "high (novel/groundbreaking) / medium (confirms/extends) / low (minor/incremental)",
+      "page_reference": "page number if identifiable (null otherwise)"
+    }}
+  ],
+  "key_claims": [
+    {{
+      "claim": "The claim or argument statement",
+      "support_type": "data (empirical evidence) / citation (literature support) / logic (reasoning) / example (illustrative case)",
+      "page_reference": "page number if identifiable (null otherwise)"
+    }}
+  ],
+  "limitations": ["List of explicitly acknowledged limitations"],
+  "future_directions": ["Explicitly suggested future research directions"],
+  "extraction_confidence": 0.0-1.0,
+  "extraction_notes": "Notes about extraction quality, missing sections, or ambiguous content"
+}}
+
+Respond ONLY with valid JSON. No additional text or markdown formatting.'''
+
+EXTRACTION_TYPE_FIELDS: dict[str, list[str]] = {
+    "summary": [
+        "thesis_statement",
+        "research_questions",
+        "theoretical_framework",
+        "conclusions",
+        "contribution_summary",
+        "keywords",
+        "discipline_tags",
+    ],
+    "methodology": [
+        "methodology",
+        "key_findings",
+        "key_claims",
+        "limitations",
+        "future_directions",
+    ],
+}
+
 
 def build_extraction_prompt(
     title: str,
@@ -87,6 +178,48 @@ def build_extraction_prompt(
         Formatted prompt string.
     """
     return EXTRACTION_USER_PROMPT.format(
+        title=title,
+        authors=authors,
+        year=year or "Unknown",
+        item_type=item_type,
+        text=text,
+    )
+
+
+def build_extraction_prompt_for_type(
+    extraction_type: str,
+    title: str,
+    authors: str,
+    year: int | str | None,
+    item_type: str,
+    text: str,
+) -> str:
+    """Build an extraction prompt for a specific extraction type.
+
+    Args:
+        extraction_type: Extraction type ("summary", "methodology", or "full").
+        title: Paper title.
+        authors: Author string.
+        year: Publication year.
+        item_type: Type of paper.
+        text: Full text content.
+
+    Returns:
+        Formatted prompt string.
+    """
+    if extraction_type == "summary":
+        template = SUMMARY_EXTRACTION_USER_PROMPT
+    elif extraction_type == "methodology":
+        template = METHODOLOGY_EXTRACTION_USER_PROMPT
+    elif extraction_type == "full":
+        template = EXTRACTION_USER_PROMPT
+    else:
+        raise ValueError(
+            f"Unknown extraction_type '{extraction_type}'. "
+            f"Valid types: {', '.join(EXTRACTION_TYPE_FIELDS.keys())}."
+        )
+
+    return template.format(
         title=title,
         authors=authors,
         year=year or "Unknown",

@@ -63,6 +63,7 @@ class BaseLLMClient(ABC):
         year: int | str | None,
         item_type: str,
         text: str,
+        prompt_override: str | None = None,
     ) -> ExtractionResult:
         """Extract structured information from paper text.
 
@@ -73,6 +74,7 @@ class BaseLLMClient(ABC):
             year: Publication year.
             item_type: Type of paper.
             text: Full text content.
+            prompt_override: Optional pre-built prompt to use instead of default.
 
         Returns:
             ExtractionResult with extraction or error.
