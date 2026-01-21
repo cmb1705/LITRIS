@@ -17,3 +17,6 @@ mypy>=1.0
 
 # Security scanning
 pip-audit>=2.10
+
+# Pre-commit hooks
+pre-commit>=3.0
