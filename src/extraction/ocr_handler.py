@@ -12,24 +12,135 @@ logger = get_logger(__name__)
 
 
 def _find_tesseract() -> str | None:
-    """Find tesseract executable in PATH or common locations."""
+    """Find tesseract executable in PATH or common locations.
+
+    Searches standard PATH first, then platform-specific default locations:
+    - Windows: Program Files, Chocolatey, Scoop
+    - macOS: Homebrew (Intel and Apple Silicon), MacPorts
+    - Linux: apt/dpkg, snap, manual /usr/local installs
+    """
     # Check PATH first
     tesseract_path = shutil.which("tesseract")
     if tesseract_path:
         return tesseract_path
 
-    # Check common Windows installation paths
+    common_paths: list[str] = []
+
     if sys.platform == "win32":
+        # Windows installation paths
         common_paths = [
+            # Official installer default
             r"C:\Program Files\Tesseract-OCR\tesseract.exe",
             r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+            # User-local install
             os.path.expandvars(r"%LOCALAPPDATA%\Tesseract-OCR\tesseract.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe"),
+            # Chocolatey
+            r"C:\ProgramData\chocolatey\bin\tesseract.exe",
+            # Scoop
+            os.path.expandvars(r"%USERPROFILE%\scoop\apps\tesseract\current\tesseract.exe"),
+            # winget typical location
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\tesseract-ocr.tesseract_*\tesseract.exe"),
         ]
-        for path in common_paths:
-            if os.path.exists(path):
-                return path
+
+    elif sys.platform == "darwin":
+        # macOS installation paths
+        common_paths = [
+            # Homebrew Apple Silicon (M1/M2/M3)
+            "/opt/homebrew/bin/tesseract",
+            # Homebrew Intel
+            "/usr/local/bin/tesseract",
+            # MacPorts
+            "/opt/local/bin/tesseract",
+            # Manual install
+            "/usr/local/Cellar/tesseract/*/bin/tesseract",  # Homebrew Cellar
+        ]
+
+    else:
+        # Linux installation paths
+        common_paths = [
+            # apt/dpkg (Debian, Ubuntu)
+            "/usr/bin/tesseract",
+            # Manual /usr/local install
+            "/usr/local/bin/tesseract",
+            # Snap
+            "/snap/bin/tesseract",
+            # Flatpak (less common for CLI tools)
+            os.path.expanduser("~/.local/bin/tesseract"),
+            # AppImage extracted
+            "/opt/tesseract/tesseract",
+        ]
+
+    for path in common_paths:
+        # Handle glob patterns (for version-specific paths)
+        if "*" in path:
+            import glob
+            matches = glob.glob(path)
+            for match in matches:
+                if os.path.isfile(match) and os.access(match, os.X_OK):
+                    return match
+        elif os.path.exists(path):
+            return path
 
     return None
+
+
+def _find_poppler() -> str | None:
+    """Find poppler bin directory for pdf2image.
+
+    Poppler is required by pdf2image to convert PDFs to images.
+    On Linux, it's usually installed via apt and found automatically.
+    On Windows/macOS, we need to locate the bin directory.
+    """
+    # Check if pdftoppm (poppler utility) is in PATH
+    if shutil.which("pdftoppm"):
+        # pdf2image can find it, no need to specify path
+        return None
+
+    common_paths: list[str] = []
+
+    if sys.platform == "win32":
+        # Windows poppler paths
+        common_paths = [
+            # Manual download from GitHub releases
+            r"C:\Program Files\poppler\Library\bin",
+            r"C:\Program Files\poppler\bin",
+            r"C:\Program Files (x86)\poppler\Library\bin",
+            # Chocolatey
+            r"C:\ProgramData\chocolatey\lib\poppler\tools\Library\bin",
+            # Scoop
+            os.path.expandvars(r"%USERPROFILE%\scoop\apps\poppler\current\Library\bin"),
+            # Common manual install locations
+            r"C:\poppler\Library\bin",
+            r"C:\poppler\bin",
+            os.path.expandvars(r"%LOCALAPPDATA%\poppler\Library\bin"),
+        ]
+
+    elif sys.platform == "darwin":
+        # macOS poppler paths (usually handled by Homebrew)
+        common_paths = [
+            # Homebrew Apple Silicon
+            "/opt/homebrew/bin",
+            # Homebrew Intel
+            "/usr/local/bin",
+            # MacPorts
+            "/opt/local/bin",
+        ]
+
+    # Linux usually has poppler in PATH via apt, so no need for special paths
+
+    for path in common_paths:
+        pdftoppm = os.path.join(path, "pdftoppm.exe" if sys.platform == "win32" else "pdftoppm")
+        if os.path.exists(pdftoppm):
+            return path
+
+    return None
+
+
+# Auto-discover poppler path
+_poppler_path = _find_poppler()
+if _poppler_path:
+    logger.debug(f"Poppler found at: {_poppler_path}")
 
 
 # Check for optional dependencies
@@ -96,13 +207,14 @@ class OCRHandler:
 
         Args:
             tesseract_cmd: Path to tesseract executable (auto-detected if None).
-            poppler_path: Path to poppler bin directory (Windows only).
+            poppler_path: Path to poppler bin directory (auto-detected if None).
             dpi: DPI for PDF to image conversion.
             lang: Tesseract language code.
         """
         self.dpi = dpi
         self.lang = lang
-        self.poppler_path = poppler_path
+        # Use auto-discovered poppler path if none provided
+        self.poppler_path = poppler_path or _poppler_path
 
         if tesseract_cmd and pytesseract:
             pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
@@ -117,26 +229,27 @@ class OCRHandler:
         return TESSERACT_AVAILABLE and PDF2IMAGE_AVAILABLE
 
     @classmethod
-    def check_dependencies(cls) -> dict[str, bool]:
+    def check_dependencies(cls) -> dict[str, bool | str | None]:
         """Check status of OCR dependencies.
 
         Returns:
-            Dictionary with dependency status.
+            Dictionary with dependency status and discovered paths.
         """
-        deps = {
+        deps: dict[str, bool | str | None] = {
             "pytesseract_installed": pytesseract is not None,
-            "tesseract_in_path": TESSERACT_AVAILABLE,
+            "tesseract_available": TESSERACT_AVAILABLE,
+            "tesseract_path": _tesseract_cmd if TESSERACT_AVAILABLE else None,
             "pdf2image_installed": PDF2IMAGE_AVAILABLE,
             "pillow_installed": Image is not None,
+            "poppler_path": _poppler_path,
         }
 
-        # Check poppler (required by pdf2image on Windows)
+        # Check poppler availability
         if PDF2IMAGE_AVAILABLE:
-            try:
-                # Try a simple conversion to verify poppler
-                deps["poppler_available"] = True
-            except Exception:
-                deps["poppler_available"] = False
+            # Poppler is available if pdftoppm is in PATH or we found a path
+            deps["poppler_available"] = (
+                shutil.which("pdftoppm") is not None or _poppler_path is not None
+            )
         else:
             deps["poppler_available"] = False
 

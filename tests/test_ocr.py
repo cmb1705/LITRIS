@@ -33,9 +33,12 @@ class TestOCRHandler:
         deps = OCRHandler.check_dependencies()
         assert isinstance(deps, dict)
         assert "pytesseract_installed" in deps
-        assert "tesseract_in_path" in deps
+        assert "tesseract_available" in deps
+        assert "tesseract_path" in deps
         assert "pdf2image_installed" in deps
         assert "pillow_installed" in deps
+        assert "poppler_path" in deps
+        assert "poppler_available" in deps
 
     def test_needs_ocr_low_word_count(self):
         """Test OCR detection for low word density."""
