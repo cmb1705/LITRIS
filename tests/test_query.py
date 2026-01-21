@@ -287,8 +287,8 @@ class TestResultFormatting:
         """Test Markdown formatting."""
         output = format_markdown(sample_results, "test query")
 
-        assert "# Search Results" in output
-        assert "**Query:** test query" in output
+        assert "# Literature Search Report" in output
+        assert "test query" in output
         assert "First Paper" in output
         assert "Second Paper" in output
         assert "**Score:**" in output

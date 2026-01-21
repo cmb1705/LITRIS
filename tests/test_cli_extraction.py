@@ -1,6 +1,7 @@
 """Tests for CLI-based LLM extraction."""
 
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -27,28 +28,41 @@ class TestClaudeCliExecutor:
         """Test that API key presence warns about billing when no OAuth available."""
         from src.analysis.cli_executor import ClaudeCliAuthenticator
 
+        # Enable log propagation for test capture (both parent and child loggers)
+        parent_logger = logging.getLogger("lit_review")
+        cli_logger = logging.getLogger("lit_review.analysis.cli_executor")
+        original_parent_propagate = parent_logger.propagate
+        original_cli_propagate = cli_logger.propagate
+        parent_logger.propagate = True
+        cli_logger.propagate = True
+        caplog.set_level(logging.WARNING, logger="lit_review")
+
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
         monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
 
-        with patch("shutil.which") as mock_which:
-            mock_which.return_value = "/usr/bin/claude"
+        try:
+            with patch("shutil.which") as mock_which:
+                mock_which.return_value = "/usr/bin/claude"
 
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=0, stdout="1.0.0")
+                with patch("subprocess.run") as mock_run:
+                    mock_run.return_value = MagicMock(returncode=0, stdout="1.0.0")
 
-                # Mock credentials path to not exist (so API key is the fallback)
-                nonexistent_path = tmp_path / "nonexistent"
-                with patch.object(
-                    ClaudeCliAuthenticator, "_get_credentials_path", return_value=nonexistent_path
-                ):
-                    executor = ClaudeCliExecutor()
-                    result = executor.verify_authentication()
+                    # Mock credentials path to not exist (so API key is the fallback)
+                    nonexistent_path = tmp_path / "nonexistent"
+                    with patch.object(
+                        ClaudeCliAuthenticator, "_get_credentials_path", return_value=nonexistent_path
+                    ):
+                        executor = ClaudeCliExecutor()
+                        result = executor.verify_authentication()
 
-                    # Should succeed but with warning
-                    assert result is True
-                    assert executor.authenticator.get_auth_method() == "api_key"
-                    # Check warning was logged
-                    assert any("API billing" in record.message for record in caplog.records)
+                        # Should succeed but with warning
+                        assert result is True
+                        assert executor.authenticator.get_auth_method() == "api_key"
+                        # Check warning was logged
+                        assert any("API billing" in record.message for record in caplog.records)
+        finally:
+            parent_logger.propagate = original_parent_propagate
+            cli_logger.propagate = original_cli_propagate
 
     def test_verify_auth_no_api_key(self, monkeypatch):
         """Test auth check passes without API key."""

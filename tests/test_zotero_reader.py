@@ -233,6 +233,49 @@ class TestZoteroDatabase:
 
         assert result == linked_pdf
 
+    def test_resolve_pdf_path_blocks_path_traversal_dots(self, tmp_path):
+        """Test that path traversal with .. is blocked."""
+        mock_db_path = tmp_path / "zotero.sqlite"
+        mock_db_path.touch()
+        mock_storage_path = tmp_path / "storage"
+        mock_storage_path.mkdir()
+
+        db = ZoteroDatabase(mock_db_path, mock_storage_path)
+
+        # Attempt path traversal via ..
+        result = db.resolve_pdf_path("KEY", "storage:../../../etc/passwd")
+        assert result is None
+
+    def test_resolve_pdf_path_blocks_absolute_path_in_storage(self, tmp_path):
+        """Test that absolute paths in storage: prefix are blocked."""
+        mock_db_path = tmp_path / "zotero.sqlite"
+        mock_db_path.touch()
+        mock_storage_path = tmp_path / "storage"
+        mock_storage_path.mkdir()
+
+        db = ZoteroDatabase(mock_db_path, mock_storage_path)
+
+        # Attempt absolute path injection
+        result = db.resolve_pdf_path("KEY", "storage:/etc/passwd")
+        assert result is None
+
+    def test_resolve_pdf_path_blocks_traversal_outside_storage(self, tmp_path):
+        """Test that resolved paths outside storage are blocked."""
+        mock_db_path = tmp_path / "zotero.sqlite"
+        mock_db_path.touch()
+        mock_storage_path = tmp_path / "storage"
+        mock_storage_path.mkdir()
+
+        # Create a file outside storage to attempt access
+        outside_file = tmp_path / "secret.txt"
+        outside_file.write_text("secret data")
+
+        db = ZoteroDatabase(mock_db_path, mock_storage_path)
+
+        # Even if the filename looks innocent, verify resolution check
+        result = db.resolve_pdf_path("KEY", "storage:..\\secret.txt")
+        assert result is None
+
     def test_field_mapping_completeness(self):
         """Test that field mapping covers expected Zotero fields."""
         expected_fields = {
@@ -284,9 +327,16 @@ class TestZoteroDatabaseIntegration:
     @pytest.mark.integration
     def test_get_paper_count(self, real_config):
         """Test counting papers in database."""
+        import sqlite3
+
         db = ZoteroDatabase(
             real_config.get_zotero_db_path(),
             real_config.get_storage_path(),
         )
-        count = db.get_paper_count()
-        assert count > 0
+        try:
+            count = db.get_paper_count()
+            assert count > 0
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e):
+                pytest.skip("Zotero database is locked (Zotero may be open)")
+            raise

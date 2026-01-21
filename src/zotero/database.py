@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from pydantic import ValidationError
+
 from src.utils.logging_config import get_logger
 from src.zotero.models import Author, Collection, PaperMetadata
 
@@ -278,6 +280,10 @@ class ZoteroDatabase:
 
         Returns:
             Full Path to PDF or None if not found.
+
+        Note:
+            Includes path traversal protection to prevent accessing files
+            outside the Zotero storage directory for storage: paths.
         """
         if not attachment_path:
             return None
@@ -290,13 +296,37 @@ class ZoteroDatabase:
         # Handle stored files (storage:{filename})
         if attachment_path.startswith("storage:"):
             filename = attachment_path[8:]  # Remove "storage:" prefix
+
+            # Security: Validate filename doesn't contain path traversal
+            if ".." in filename or filename.startswith("/") or filename.startswith("\\"):
+                logger.warning(
+                    f"Potential path traversal detected in attachment path: {filename}"
+                )
+                return None
+
             pdf_path = self.storage_path / attachment_key / filename
+
+            # Security: Verify resolved path is within storage directory
+            try:
+                resolved_path = pdf_path.resolve()
+                storage_resolved = self.storage_path.resolve()
+                if not str(resolved_path).startswith(str(storage_resolved)):
+                    logger.warning(
+                        f"Path traversal attempt blocked: {pdf_path} resolves outside storage"
+                    )
+                    return None
+            except (OSError, ValueError) as e:
+                logger.warning(f"Failed to resolve path {pdf_path}: {e}")
+                return None
+
             if pdf_path.exists():
                 return pdf_path
             logger.debug(f"PDF not found at expected path: {pdf_path}")
             return None
 
         # Handle linked files (full path)
+        # Note: Linked files are intentionally allowed outside storage
+        # as Zotero supports linking to files anywhere on the filesystem
         linked_path = Path(attachment_path)
         if linked_path.exists():
             return linked_path
@@ -379,9 +409,17 @@ class ZoteroDatabase:
                     if progress_callback:
                         progress_callback(i + 1, total)
                     yield paper
-                except Exception as e:
+                except (sqlite3.Error, KeyError, ValueError) as e:
+                    # Expected errors: DB issues, missing fields, date parsing
                     logger.warning(
-                        f"Failed to process item {item_info['item_id']}: {e}"
+                        f"Failed to process item {item_info.get('item_id', 'unknown')}: "
+                        f"{type(e).__name__}: {e}"
+                    )
+                    continue
+                except ValidationError as e:
+                    # Pydantic validation failed - data doesn't match schema
+                    logger.warning(
+                        f"Invalid data for item {item_info.get('item_id', 'unknown')}: {e}"
                     )
                     continue
 

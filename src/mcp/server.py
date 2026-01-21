@@ -294,13 +294,44 @@ async def run_server_async():
 
     # Set up signal handlers for graceful shutdown
     loop = asyncio.get_event_loop()
+    shutdown_event = asyncio.Event()
 
-    def handle_shutdown(sig):
-        logger.info(f"Received signal {sig}, shutting down...")
-        loop.stop()
+    def handle_shutdown(sig=None):
+        sig_name = sig.name if sig else "CTRL"
+        logger.info(f"Received {sig_name} signal, initiating graceful shutdown...")
+        shutdown_event.set()
 
-    # Register signal handlers (Unix only)
-    if sys.platform != "win32":
+    # Register signal handlers based on platform
+    if sys.platform == "win32":
+        # Windows: Use SetConsoleCtrlHandler for graceful shutdown
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            # Windows console control handler
+            CTRL_C_EVENT = 0
+            CTRL_BREAK_EVENT = 1
+            CTRL_CLOSE_EVENT = 2
+
+            @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
+            def console_ctrl_handler(ctrl_type):
+                if ctrl_type in (CTRL_C_EVENT, CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT):
+                    logger.info(f"Received Windows control event {ctrl_type}")
+                    # Schedule shutdown on the event loop
+                    loop.call_soon_threadsafe(shutdown_event.set)
+                    return True  # Signal handled
+                return False
+
+            kernel32 = ctypes.windll.kernel32
+            if not kernel32.SetConsoleCtrlHandler(console_ctrl_handler, True):
+                logger.warning("Failed to set Windows console control handler")
+            else:
+                logger.debug("Windows console control handler registered")
+
+        except (ImportError, AttributeError, OSError) as e:
+            logger.warning(f"Could not set up Windows signal handler: {e}")
+    else:
+        # Unix: Use standard signal handlers
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, lambda s=sig: handle_shutdown(s))
 

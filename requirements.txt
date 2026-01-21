@@ -1,37 +1,39 @@
 # Core dependencies for Literature Review Index System
+# For exact versions, see requirements.lock
 
 # Claude API client
-anthropic>=0.18
+anthropic>=0.18,<1.0
 
 # PDF text extraction
-pymupdf>=1.23
+pymupdf>=1.23,<2.0
 
 # Data validation
-pydantic>=2.0
+pydantic>=2.0,<3.0
 
 # Configuration
-pyyaml>=6.0
-python-dotenv>=1.0
+pyyaml>=6.0,<7.0
+python-dotenv>=1.0,<2.0
 
 # Progress bars
-tqdm>=4.65
+tqdm>=4.65,<5.0
 
 # Vector store
-chromadb>=0.4
+chromadb>=0.4,<2.0
 
 # Embeddings
-sentence-transformers>=2.2
-
-# OCR support (optional - requires Tesseract installation)
-pytesseract>=0.3.10
-pdf2image>=1.16
-Pillow>=10.0
+sentence-transformers>=2.2,<6.0
 
 # MCP (Model Context Protocol) server
-mcp>=1.0
+mcp>=1.0,<2.0
 
 # Secure credential storage (uses OS keyring, e.g., Windows Credential Manager)
-keyring>=24.3
+keyring>=24.3,<26.0
 
 # Markdown to HTML conversion (for PDF export)
-markdown>=3.4
+markdown>=3.4,<4.0
+
+# OCR support (optional - requires Tesseract installation)
+# Install with: pip install litris[ocr]
+pytesseract>=0.3.10,<1.0
+pdf2image>=1.16,<2.0
+Pillow>=10.0,<13.0

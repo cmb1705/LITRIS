@@ -4,9 +4,10 @@ import json
 import time
 from typing import Literal
 
-from anthropic import Anthropic
+from anthropic import Anthropic, APIError, APIConnectionError, RateLimitError
+from pydantic import ValidationError
 
-from src.analysis.cli_executor import ClaudeCliExecutor
+from src.analysis.cli_executor import ClaudeCliExecutor, CliExecutionError
 from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
 from src.analysis.schemas import ExtractionResult, PaperExtraction
 from src.utils.secrets import get_anthropic_api_key
@@ -116,13 +117,53 @@ class LLMClient:
                 output_tokens=output_tokens,
             )
 
-        except Exception as e:
+        except RateLimitError as e:
             duration = time.time() - start_time
-            logger.error(f"Extraction failed for paper {paper_id}: {e}")
+            logger.warning(f"Rate limit hit for paper {paper_id}: {e}")
             return ExtractionResult(
                 paper_id=paper_id,
                 success=False,
-                error=str(e),
+                error=f"Rate limit exceeded: {e}",
+                duration_seconds=duration,
+                model_used=self.model,
+            )
+        except APIConnectionError as e:
+            duration = time.time() - start_time
+            logger.error(f"API connection failed for paper {paper_id}: {e}")
+            return ExtractionResult(
+                paper_id=paper_id,
+                success=False,
+                error=f"API connection error: {e}",
+                duration_seconds=duration,
+                model_used=self.model,
+            )
+        except APIError as e:
+            duration = time.time() - start_time
+            logger.error(f"API error for paper {paper_id}: {e}")
+            return ExtractionResult(
+                paper_id=paper_id,
+                success=False,
+                error=f"API error: {e}",
+                duration_seconds=duration,
+                model_used=self.model,
+            )
+        except CliExecutionError as e:
+            duration = time.time() - start_time
+            logger.error(f"CLI execution failed for paper {paper_id}: {e}")
+            return ExtractionResult(
+                paper_id=paper_id,
+                success=False,
+                error=f"CLI error: {e}",
+                duration_seconds=duration,
+                model_used=self.model,
+            )
+        except (json.JSONDecodeError, ValidationError) as e:
+            duration = time.time() - start_time
+            logger.error(f"Response parsing failed for paper {paper_id}: {e}")
+            return ExtractionResult(
+                paper_id=paper_id,
+                success=False,
+                error=f"Parse error: {e}",
                 duration_seconds=duration,
                 model_used=self.model,
             )

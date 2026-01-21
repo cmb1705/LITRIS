@@ -14,3 +14,6 @@ ruff>=0.1.0
 
 # Type checking
 mypy>=1.0
+
+# Security scanning
+pip-audit>=2.10
