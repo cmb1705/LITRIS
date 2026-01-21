@@ -27,6 +27,14 @@ class AnthropicLLMClient(BaseLLMClient):
         "claude-3-opus-20240229": "Claude 3 Opus (Legacy)",
     }
 
+    # Model pricing per million tokens (input, output) in USD
+    MODEL_PRICING = {
+        "claude-opus-4-5-20251101": (15.0, 75.0),
+        "claude-sonnet-4-20250514": (3.0, 15.0),
+        "claude-3-5-sonnet-20241022": (3.0, 15.0),
+        "claude-3-opus-20240229": (15.0, 75.0),
+    }
+
     def __init__(
         self,
         mode: ExtractionMode = "api",
@@ -290,9 +298,9 @@ class AnthropicLLMClient(BaseLLMClient):
         input_tokens = text_length // 4 + 500  # Add prompt overhead
         output_tokens = 2000  # Typical extraction output
 
-        # Claude Opus 4.5 pricing (as of 2025)
-        input_cost_per_million = 15.0
-        output_cost_per_million = 75.0
+        # Get pricing for model (default to Opus pricing)
+        pricing = self.MODEL_PRICING.get(self.model, (15.0, 75.0))
+        input_cost_per_million, output_cost_per_million = pricing
 
         input_cost = (input_tokens / 1_000_000) * input_cost_per_million
         output_cost = (output_tokens / 1_000_000) * output_cost_per_million

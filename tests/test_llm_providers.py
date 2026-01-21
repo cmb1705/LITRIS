@@ -119,6 +119,43 @@ class TestAnthropicClient:
         assert isinstance(models, dict)
         assert "claude-opus-4-5-20251101" in models
 
+    def test_model_pricing(self):
+        """Should have pricing for all listed models."""
+        from src.analysis.anthropic_client import AnthropicLLMClient
+
+        for model in AnthropicLLMClient.MODELS.keys():
+            assert model in AnthropicLLMClient.MODEL_PRICING
+
+
+class TestAnthropicClientEstimateCost:
+    """Tests for Anthropic cost estimation."""
+
+    def test_estimate_cost_opus(self):
+        """Should estimate cost for Claude Opus."""
+        from src.analysis.anthropic_client import AnthropicLLMClient
+
+        client = AnthropicLLMClient.__new__(AnthropicLLMClient)
+        client.model = "claude-opus-4-5-20251101"
+
+        cost = client.estimate_cost(10000)  # 10k chars
+        assert cost > 0
+        assert isinstance(cost, float)
+
+    def test_estimate_cost_sonnet_cheaper_than_opus(self):
+        """Sonnet should be cheaper than Opus."""
+        from src.analysis.anthropic_client import AnthropicLLMClient
+
+        client_opus = AnthropicLLMClient.__new__(AnthropicLLMClient)
+        client_opus.model = "claude-opus-4-5-20251101"
+
+        client_sonnet = AnthropicLLMClient.__new__(AnthropicLLMClient)
+        client_sonnet.model = "claude-sonnet-4-20250514"
+
+        cost_opus = client_opus.estimate_cost(10000)
+        cost_sonnet = client_sonnet.estimate_cost(10000)
+
+        assert cost_sonnet < cost_opus
+
 
 class TestOpenAIClient:
     """Tests for OpenAILLMClient."""
