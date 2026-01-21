@@ -27,12 +27,23 @@ class ZoteroConfig(BaseModel):
 class ExtractionConfig(BaseModel):
     """LLM extraction configuration."""
 
+    provider: str = "anthropic"
     mode: str = "cli"
-    model: str = "claude-opus-4-5-20251101"
+    model: str | None = None  # None means use provider's default
     max_tokens: int = 100000
     timeout: int = 120
     use_cache: bool = True
     parallel_workers: int = 1
+    reasoning_effort: str | None = None  # For OpenAI GPT-5.2: none/low/medium/high/xhigh
+
+    @field_validator("provider")
+    @classmethod
+    def validate_provider(cls, v: str) -> str:
+        """Validate LLM provider."""
+        valid_providers = {"anthropic", "openai"}
+        if v not in valid_providers:
+            raise ValueError(f"provider must be one of {valid_providers}, got '{v}'")
+        return v
 
     @field_validator("mode")
     @classmethod
@@ -41,6 +52,17 @@ class ExtractionConfig(BaseModel):
         valid_modes = {"api", "cli", "batch_api"}
         if v not in valid_modes:
             raise ValueError(f"mode must be one of {valid_modes}, got '{v}'")
+        return v
+
+    @field_validator("reasoning_effort")
+    @classmethod
+    def validate_reasoning_effort(cls, v: str | None) -> str | None:
+        """Validate reasoning effort for OpenAI models."""
+        if v is None:
+            return v
+        valid_efforts = {"none", "low", "medium", "high", "xhigh"}
+        if v not in valid_efforts:
+            raise ValueError(f"reasoning_effort must be one of {valid_efforts}, got '{v}'")
         return v
 
     @field_validator("parallel_workers")
@@ -52,6 +74,17 @@ class ExtractionConfig(BaseModel):
         if v > 10:
             raise ValueError("parallel_workers should not exceed 10")
         return v
+
+    def get_model_or_default(self) -> str:
+        """Get model name, using provider default if not specified."""
+        if self.model:
+            return self.model
+        # Return provider defaults
+        defaults = {
+            "anthropic": "claude-opus-4-5-20251101",
+            "openai": "gpt-5.2",
+        }
+        return defaults.get(self.provider, "claude-opus-4-5-20251101")
 
 
 class EmbeddingsConfig(BaseModel):
@@ -167,9 +200,13 @@ class Config(BaseModel):
         if zotero_storage := os.getenv("ZOTERO_STORAGE_PATH"):
             config.setdefault("zotero", {})["storage_path"] = zotero_storage
 
-        # Extraction mode override
+        # Extraction overrides
+        if extraction_provider := os.getenv("EXTRACTION_PROVIDER"):
+            config.setdefault("extraction", {})["provider"] = extraction_provider
         if extraction_mode := os.getenv("EXTRACTION_MODE"):
             config.setdefault("extraction", {})["mode"] = extraction_mode
+        if extraction_model := os.getenv("EXTRACTION_MODEL"):
+            config.setdefault("extraction", {})["model"] = extraction_model
 
         return config
 

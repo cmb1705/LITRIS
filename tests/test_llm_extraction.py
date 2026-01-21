@@ -241,13 +241,18 @@ class TestSectionExtractorConfig:
                 captured["ocr_config"] = ocr_config
 
         class DummyLLMClient:
-            def __init__(self, mode=None, model=None, max_tokens=None):
+            def __init__(self, mode=None, model=None, max_tokens=None, **kwargs):
                 pass
 
+            @property
+            def model(self):
+                return "test-model"
+
+        def dummy_create_llm_client(**kwargs):
+            return DummyLLMClient()
+
         monkeypatch.setattr(se_module, "PDFExtractor", DummyPDFExtractor)
-        monkeypatch.setattr(se_module, "LLMClient", DummyLLMClient)
-        # Defensive: ensure module global is swapped even if monkeypatch helper fails
-        se_module.LLMClient = DummyLLMClient
+        monkeypatch.setattr(se_module, "create_llm_client", dummy_create_llm_client)
 
         se_module.SectionExtractor(
             cache_dir=tmp_path,

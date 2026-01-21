@@ -51,10 +51,22 @@ def parse_args():
         help="Limit number of papers to process",
     )
     parser.add_argument(
+        "--provider",
+        choices=["anthropic", "openai"],
+        default=None,
+        help="LLM provider: anthropic (Claude), openai (GPT-5.2)",
+    )
+    parser.add_argument(
         "--mode",
         choices=["api", "cli", "batch_api"],
         default=None,
-        help="Extraction mode: api (Anthropic API), cli (Claude CLI), batch_api (use batch_extract.py)",
+        help="Extraction mode: api (direct API), cli (Claude CLI or Codex CLI), batch_api (Anthropic batch)",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Model to use (e.g., gpt-5.2, claude-opus-4-5-20251101)",
     )
     parser.add_argument(
         "--resume",
@@ -701,18 +713,42 @@ def main():
             print("\nNo new papers to extract.")
         return 0
 
-    # Initialize extractor
+    # Initialize extractor settings
+    provider = args.provider or config.extraction.provider
     mode = args.mode or config.extraction.mode
+    model = args.model or config.extraction.model
 
-    # Handle --use-subscription flag
-    if args.use_subscription and mode == "cli":
+    # Override config with CLI args
+    if args.provider:
+        config.extraction.provider = args.provider
+    if args.model:
+        config.extraction.model = args.model
+
+    logger.info(f"Using LLM provider: {provider}")
+
+    # Handle --use-subscription flag (Anthropic only)
+    if args.use_subscription and mode == "cli" and provider == "anthropic":
         if os.environ.get("ANTHROPIC_API_KEY"):
             logger.info("--use-subscription: Temporarily unsetting ANTHROPIC_API_KEY")
             os.environ.pop("ANTHROPIC_API_KEY", None)
 
     # Verify CLI authentication if using CLI mode
     if mode == "cli" and not args.skip_extraction:
-        verify_cli_authentication()
+        if provider == "anthropic":
+            verify_cli_authentication()
+        elif provider == "openai":
+            # OpenAI uses Codex CLI - verify it's available
+            import shutil
+            if not shutil.which("codex"):
+                print("\n" + "=" * 60)
+                print("Codex CLI Required")
+                print("=" * 60)
+                print("\nFor OpenAI CLI mode, install Codex CLI:")
+                print("  npm i -g @openai/codex")
+                print("  -- or --")
+                print("  brew install --cask codex")
+                print("\nThen authenticate: codex login")
+                return 1
 
     # batch_api mode uses separate script
     if mode == "batch_api" and not args.skip_extraction:
@@ -742,6 +778,7 @@ def main():
     if args.estimate_cost:
         extractor = SectionExtractor(
             cache_dir=cache_dir,
+            provider=config.extraction.provider,
             mode=mode,
             model=config.extraction.model,
             max_tokens=config.extraction.max_tokens,
@@ -750,6 +787,7 @@ def main():
             ocr_config=config.processing.ocr_config,
             use_cache=use_cache,
             parallel_workers=parallel_workers,
+            reasoning_effort=config.extraction.reasoning_effort,
         )
         print("\nEstimating extraction cost...")
         estimate = extractor.estimate_batch_cost(papers_to_extract)
@@ -800,6 +838,7 @@ def main():
 
         extractor = SectionExtractor(
             cache_dir=cache_dir,
+            provider=config.extraction.provider,
             mode=mode,
             model=config.extraction.model,
             max_tokens=config.extraction.max_tokens,
@@ -808,6 +847,7 @@ def main():
             ocr_config=config.processing.ocr_config,
             use_cache=use_cache,
             parallel_workers=parallel_workers,
+            reasoning_effort=config.extraction.reasoning_effort,
         )
 
         # Clear cache if requested

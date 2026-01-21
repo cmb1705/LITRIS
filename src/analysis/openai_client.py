@@ -1,0 +1,501 @@
+"""OpenAI LLM client for paper extraction.
+
+Supports GPT-5.2 models including GPT-5.2-Codex for agentic coding tasks.
+Also supports Codex CLI for subscription-based usage.
+
+References:
+- https://platform.openai.com/docs/models/gpt-5.2
+- https://developers.openai.com/codex/cli/
+"""
+
+import json
+import os
+import shutil
+import subprocess
+import tempfile
+import time
+from pathlib import Path
+
+from pydantic import ValidationError
+
+from src.analysis.base_llm import BaseLLMClient, ExtractionMode, LLMProvider
+from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
+from src.analysis.schemas import ExtractionResult, PaperExtraction
+from src.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+
+class OpenAILLMClient(BaseLLMClient):
+    """Client for OpenAI GPT-based paper extraction.
+
+    Supports both API mode (direct OpenAI API) and CLI mode (Codex CLI).
+    """
+
+    # Available GPT models with descriptions
+    MODELS = {
+        # GPT-5.2 family (latest)
+        "gpt-5.2": "GPT-5.2 (Latest flagship model)",
+        "gpt-5.2-instant": "GPT-5.2 Instant (Fast, everyday tasks)",
+        "gpt-5.2-pro": "GPT-5.2 Pro (Highest quality, complex tasks)",
+        "gpt-5.2-codex": "GPT-5.2-Codex (Optimized for agentic coding)",
+        # GPT-5 family
+        "gpt-5": "GPT-5 (Previous generation flagship)",
+        # GPT-4 family (legacy but widely used)
+        "gpt-4o": "GPT-4o (Multimodal, fast)",
+        "gpt-4o-mini": "GPT-4o Mini (Cost-effective)",
+        "gpt-4-turbo": "GPT-4 Turbo (Legacy)",
+    }
+
+    # Model pricing per million tokens (input, output) in USD
+    MODEL_PRICING = {
+        "gpt-5.2": (10.0, 30.0),
+        "gpt-5.2-instant": (2.5, 10.0),
+        "gpt-5.2-pro": (20.0, 60.0),
+        "gpt-5.2-codex": (10.0, 30.0),
+        "gpt-5": (10.0, 30.0),
+        "gpt-4o": (2.5, 10.0),
+        "gpt-4o-mini": (0.15, 0.6),
+        "gpt-4-turbo": (10.0, 30.0),
+    }
+
+    def __init__(
+        self,
+        mode: ExtractionMode = "api",
+        model: str | None = None,
+        max_tokens: int = 8192,
+        timeout: int = 120,
+        reasoning_effort: str | None = None,
+    ):
+        """Initialize OpenAI LLM client.
+
+        Args:
+            mode: Extraction mode ('api' for OpenAI API, 'cli' for Codex CLI).
+            model: Model to use for extraction. Defaults to gpt-5.2.
+            max_tokens: Maximum tokens for response.
+            timeout: Request timeout in seconds.
+            reasoning_effort: Reasoning effort level for GPT-5.2 models.
+                Options: 'none', 'low', 'medium', 'high', 'xhigh'.
+                Only applies to GPT-5.2 family models.
+        """
+        super().__init__(mode=mode, model=model, max_tokens=max_tokens, timeout=timeout)
+        self.reasoning_effort = reasoning_effort
+        self.client = None
+
+        self.validate_mode()
+
+        if mode == "api":
+            api_key = self._get_api_key()
+            if not api_key:
+                raise ValueError(
+                    "OpenAI API key required for API mode. "
+                    "Set OPENAI_API_KEY environment variable."
+                )
+            # Lazy import to avoid requiring openai package if not used
+            try:
+                from openai import OpenAI
+                self.client = OpenAI(api_key=api_key)
+            except ImportError:
+                raise ImportError(
+                    "OpenAI package not installed. Install with: pip install openai"
+                )
+        elif mode == "cli":
+            self._verify_codex_cli()
+
+    @property
+    def provider(self) -> LLMProvider:
+        """Return the provider identifier."""
+        return "openai"
+
+    @property
+    def default_model(self) -> str:
+        """Return the default model for OpenAI."""
+        return "gpt-5.2"
+
+    @property
+    def supported_modes(self) -> list[ExtractionMode]:
+        """Return list of supported extraction modes."""
+        return ["api", "cli"]
+
+    @classmethod
+    def list_models(cls) -> dict[str, str]:
+        """Return available models with descriptions."""
+        return cls.MODELS.copy()
+
+    def _get_api_key(self) -> str | None:
+        """Get OpenAI API key from environment."""
+        return os.environ.get("OPENAI_API_KEY")
+
+    def _verify_codex_cli(self) -> None:
+        """Verify Codex CLI is installed and authenticated.
+
+        Raises:
+            ValueError: If Codex CLI is not available or not authenticated.
+        """
+        codex_path = shutil.which("codex")
+        if not codex_path:
+            raise ValueError(
+                "Codex CLI not found. Install with:\n"
+                "  npm i -g @openai/codex\n"
+                "  -- or --\n"
+                "  brew install --cask codex\n"
+                "Then authenticate with: codex login"
+            )
+
+        # Check authentication status
+        try:
+            result = subprocess.run(
+                ["codex", "auth", "status"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    "Codex CLI may not be authenticated. "
+                    "Run 'codex login' to authenticate."
+                )
+        except subprocess.TimeoutExpired:
+            logger.warning("Timeout checking Codex CLI auth status")
+        except FileNotFoundError:
+            raise ValueError("Codex CLI not found in PATH")
+
+    def extract(
+        self,
+        paper_id: str,
+        title: str,
+        authors: str,
+        year: int | str | None,
+        item_type: str,
+        text: str,
+    ) -> ExtractionResult:
+        """Extract structured information from paper text.
+
+        Args:
+            paper_id: Unique paper identifier.
+            title: Paper title.
+            authors: Author string.
+            year: Publication year.
+            item_type: Type of paper.
+            text: Full text content.
+
+        Returns:
+            ExtractionResult with extraction or error.
+        """
+        start_time = time.time()
+
+        try:
+            prompt = build_extraction_prompt(
+                title=title,
+                authors=authors,
+                year=year,
+                item_type=item_type,
+                text=text,
+            )
+
+            if self.mode == "api":
+                response_text, input_tokens, output_tokens = self._call_api(prompt)
+            else:
+                response_text, input_tokens, output_tokens = self._call_cli(prompt)
+
+            # Parse JSON response
+            extraction = self._parse_response(response_text)
+
+            duration = time.time() - start_time
+            logger.info(
+                f"Extracted paper {paper_id} in {duration:.1f}s "
+                f"(confidence: {extraction.extraction_confidence:.2f})"
+            )
+
+            return ExtractionResult(
+                paper_id=paper_id,
+                success=True,
+                extraction=extraction,
+                duration_seconds=duration,
+                model_used=self.model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+
+        except ImportError as e:
+            duration = time.time() - start_time
+            logger.error(f"Import error for paper {paper_id}: {e}")
+            return ExtractionResult(
+                paper_id=paper_id,
+                success=False,
+                error=f"Missing dependency: {e}",
+                duration_seconds=duration,
+                model_used=self.model,
+            )
+        except (json.JSONDecodeError, ValidationError) as e:
+            duration = time.time() - start_time
+            logger.error(f"Response parsing failed for paper {paper_id}: {e}")
+            return ExtractionResult(
+                paper_id=paper_id,
+                success=False,
+                error=f"Parse error: {e}",
+                duration_seconds=duration,
+                model_used=self.model,
+            )
+        except Exception as e:
+            duration = time.time() - start_time
+            error_type = type(e).__name__
+            logger.error(f"{error_type} for paper {paper_id}: {e}")
+            return ExtractionResult(
+                paper_id=paper_id,
+                success=False,
+                error=f"{error_type}: {e}",
+                duration_seconds=duration,
+                model_used=self.model,
+            )
+
+    def _call_api(self, prompt: str) -> tuple[str, int, int]:
+        """Call OpenAI API.
+
+        Args:
+            prompt: User prompt.
+
+        Returns:
+            Tuple of (response_text, input_tokens, output_tokens).
+        """
+        # Build messages
+        messages = [
+            {"role": "developer", "content": EXTRACTION_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+
+        # Build request kwargs
+        kwargs = {
+            "model": self.model,
+            "messages": messages,
+            "max_completion_tokens": self.max_tokens,
+        }
+
+        # Add reasoning effort for GPT-5.2 models
+        if self.reasoning_effort and self.model.startswith("gpt-5"):
+            kwargs["reasoning"] = {"effort": self.reasoning_effort}
+
+        # Make API call
+        response = self.client.chat.completions.create(**kwargs)
+
+        response_text = response.choices[0].message.content
+        input_tokens = response.usage.prompt_tokens
+        output_tokens = response.usage.completion_tokens
+
+        return response_text, input_tokens, output_tokens
+
+    def _call_cli(self, prompt: str) -> tuple[str, int, int]:
+        """Call Codex CLI.
+
+        Uses Codex CLI to process the prompt. The CLI uses ChatGPT
+        subscription for billing (free with Plus/Pro plans).
+
+        Args:
+            prompt: User prompt.
+
+        Returns:
+            Tuple of (response_text, input_tokens, output_tokens).
+            Note: CLI mode does not provide token counts.
+        """
+        # Write prompt to temp file (Codex reads from file for long prompts)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".txt",
+            delete=False,
+            encoding="utf-8",
+        ) as f:
+            # Combine system prompt and user prompt
+            full_prompt = f"{EXTRACTION_SYSTEM_PROMPT}\n\n---\n\n{prompt}"
+            f.write(full_prompt)
+            prompt_file = f.name
+
+        try:
+            # Run Codex CLI
+            cmd = [
+                "codex",
+                "--model", self.model,
+                "--quiet",  # Suppress progress output
+                "--input", prompt_file,
+            ]
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+            )
+
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"Codex CLI failed (exit {result.returncode}): {result.stderr}"
+                )
+
+            response_text = result.stdout.strip()
+            return response_text, 0, 0
+
+        finally:
+            # Clean up temp file
+            Path(prompt_file).unlink(missing_ok=True)
+
+    def _parse_response(self, response_text: str) -> PaperExtraction:
+        """Parse JSON response into PaperExtraction.
+
+        Args:
+            response_text: Raw response text.
+
+        Returns:
+            Parsed PaperExtraction.
+        """
+        # Clean response - remove any markdown formatting
+        text = response_text.strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+
+        # Guard against empty response
+        if not text:
+            raise ValueError("Cannot parse empty response from LLM")
+
+        # Parse JSON
+        data = json.loads(text)
+
+        # Handle nested methodology
+        if "methodology" in data and isinstance(data["methodology"], dict):
+            from src.analysis.schemas import Methodology
+            data["methodology"] = Methodology(**data["methodology"])
+
+        # Handle nested key_findings
+        if "key_findings" in data and isinstance(data["key_findings"], list):
+            from src.analysis.schemas import KeyFinding
+            data["key_findings"] = [
+                KeyFinding(**f) if isinstance(f, dict) else f
+                for f in data["key_findings"]
+            ]
+
+        # Handle nested key_claims
+        if "key_claims" in data and isinstance(data["key_claims"], list):
+            from src.analysis.schemas import KeyClaim
+            data["key_claims"] = [
+                KeyClaim(**c) if isinstance(c, dict) else c
+                for c in data["key_claims"]
+            ]
+
+        return PaperExtraction(**data)
+
+    def estimate_cost(self, text_length: int) -> float:
+        """Estimate cost for extraction.
+
+        Args:
+            text_length: Length of input text.
+
+        Returns:
+            Estimated cost in USD.
+        """
+        # Rough estimate: 4 chars per token
+        input_tokens = text_length // 4 + 500  # Add prompt overhead
+        output_tokens = 2000  # Typical extraction output
+
+        # Get pricing for model (default to gpt-5.2 pricing)
+        pricing = self.MODEL_PRICING.get(self.model, (10.0, 30.0))
+        input_cost_per_million, output_cost_per_million = pricing
+
+        input_cost = (input_tokens / 1_000_000) * input_cost_per_million
+        output_cost = (output_tokens / 1_000_000) * output_cost_per_million
+
+        return input_cost + output_cost
+
+
+class CodexCliExecutor:
+    """Executor for OpenAI Codex CLI commands.
+
+    Provides a higher-level interface for Codex CLI operations,
+    similar to ClaudeCliExecutor for Anthropic.
+    """
+
+    def __init__(self, timeout: int = 120):
+        """Initialize Codex CLI executor.
+
+        Args:
+            timeout: Default timeout for CLI commands in seconds.
+        """
+        self.timeout = timeout
+        self._verify_installation()
+
+    def _verify_installation(self) -> None:
+        """Verify Codex CLI is installed."""
+        if not shutil.which("codex"):
+            raise RuntimeError(
+                "Codex CLI not installed. Install with:\n"
+                "  npm i -g @openai/codex\n"
+                "  brew install --cask codex"
+            )
+
+    def is_authenticated(self) -> tuple[bool, str]:
+        """Check if Codex CLI is authenticated.
+
+        Returns:
+            Tuple of (is_authenticated, status_message).
+        """
+        try:
+            result = subprocess.run(
+                ["codex", "auth", "status"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                return True, "Authenticated via ChatGPT"
+            return False, result.stderr.strip() or "Not authenticated"
+        except subprocess.TimeoutExpired:
+            return False, "Timeout checking auth status"
+        except FileNotFoundError:
+            return False, "Codex CLI not found"
+
+    def login(self, method: str = "oauth") -> bool:
+        """Trigger Codex login.
+
+        Args:
+            method: Login method ('oauth', 'device', or 'api-key').
+
+        Returns:
+            True if login was initiated.
+        """
+        cmd = ["codex", "login"]
+        if method == "device":
+            cmd.append("--device-auth")
+
+        try:
+            subprocess.Popen(cmd)
+            return True
+        except FileNotFoundError:
+            return False
+
+    def get_setup_instructions(self) -> str:
+        """Get instructions for setting up Codex CLI."""
+        return """
+Codex CLI Setup Instructions
+============================
+
+1. Install Codex CLI:
+   npm i -g @openai/codex
+   -- or --
+   brew install --cask codex
+
+2. Authenticate:
+   codex login
+
+   This opens a browser for ChatGPT OAuth authentication.
+   Your ChatGPT Plus/Pro subscription covers Codex usage.
+
+3. For headless environments, use device auth:
+   codex login --device-auth
+
+4. Verify authentication:
+   codex auth status
+
+For more information: https://developers.openai.com/codex/cli/
+"""

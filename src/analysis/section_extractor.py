@@ -10,7 +10,8 @@ from pathlib import Path
 from threading import Lock
 from typing import Callable
 
-from src.analysis.llm_client import ExtractionMode, LLMClient
+from src.analysis.base_llm import BaseLLMClient, ExtractionMode
+from src.analysis.llm_factory import create_llm_client
 from src.analysis.schemas import ExtractionResult, PaperExtraction
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
@@ -197,27 +198,31 @@ class SectionExtractor:
     def __init__(
         self,
         cache_dir: Path | None = None,
+        provider: str = "anthropic",
         mode: ExtractionMode = "api",
-        model: str = "claude-opus-4-5-20251101",
+        model: str | None = None,
         max_tokens: int = 8192,
         min_text_length: int = 100,
         ocr_enabled: bool = False,
         ocr_config: dict | None = None,
         use_cache: bool = True,
         parallel_workers: int = 1,
+        reasoning_effort: str | None = None,
     ):
         """Initialize section extractor.
 
         Args:
             cache_dir: Directory for PDF text cache.
+            provider: LLM provider ('anthropic' or 'openai').
             mode: LLM extraction mode.
-            model: Model to use.
+            model: Model to use (None uses provider default).
             max_tokens: Maximum response tokens.
             min_text_length: Minimum text length to attempt extraction.
             ocr_enabled: Enable OCR fallback for scanned PDFs.
             ocr_config: Optional OCR handler config (tesseract_cmd, poppler_path, dpi, lang).
             use_cache: Enable extraction caching to skip unchanged papers.
             parallel_workers: Number of parallel workers for CLI mode (1 = sequential).
+            reasoning_effort: For OpenAI GPT-5.2: none/low/medium/high/xhigh.
         """
         self.pdf_extractor = PDFExtractor(
             cache_dir=cache_dir,
@@ -225,10 +230,19 @@ class SectionExtractor:
             ocr_config=ocr_config,
         )
         self.text_cleaner = TextCleaner()
-        self.llm_client = LLMClient(mode=mode, model=model, max_tokens=max_tokens)
+
+        # Create LLM client using factory
+        self.llm_client: BaseLLMClient = create_llm_client(
+            provider=provider,
+            mode=mode,
+            model=model,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+        )
         self.min_text_length = min_text_length
-        self.model = model
+        self.model = self.llm_client.model  # Use resolved model from client
         self.mode = mode
+        self.provider = provider
         self.parallel_workers = parallel_workers
         self.use_cache = use_cache
 

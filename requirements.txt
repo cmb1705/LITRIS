@@ -1,8 +1,9 @@
 # Core dependencies for Literature Review Index System
 # For exact versions, see requirements.lock
 
-# Claude API client
+# LLM API clients
 anthropic>=0.18,<1.0
+openai>=1.0,<3.0  # Optional: for GPT-5.2 support
 
 # PDF text extraction
 pymupdf>=1.23,<2.0
