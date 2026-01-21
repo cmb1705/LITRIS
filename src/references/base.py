@@ -7,7 +7,7 @@ from typing import Callable, Literal
 
 from src.zotero.models import Author, PaperMetadata
 
-ReferenceProvider = Literal["zotero", "bibtex"]
+ReferenceProvider = Literal["zotero", "bibtex", "pdffolder"]
 
 
 class BaseReferenceDB(ABC):
@@ -137,7 +137,7 @@ class BaseReferenceDB(ABC):
     @staticmethod
     def get_available_providers() -> list[str]:
         """Return list of available reference providers."""
-        return ["zotero", "bibtex"]
+        return ["zotero", "bibtex", "pdffolder"]
 
     @staticmethod
     def create_author(

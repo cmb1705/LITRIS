@@ -4,6 +4,7 @@
 # LLM API clients
 anthropic>=0.18,<1.0
 openai>=1.0,<3.0  # Optional: for GPT-5.2 support
+google-genai>=1.0,<2.0  # Optional: for Gemini support
 
 # PDF text extraction
 pymupdf>=1.23,<2.0

@@ -13,7 +13,7 @@ def create_reference_db(
     """Create a reference database instance for the specified provider.
 
     Args:
-        provider: Reference manager provider ('zotero' or 'bibtex').
+        provider: Reference manager provider ('zotero', 'bibtex', or 'pdffolder').
         **kwargs: Provider-specific configuration.
 
     For Zotero:
@@ -23,6 +23,11 @@ def create_reference_db(
     For BibTeX:
         bibtex_path: Path to .bib file.
         pdf_dir: Optional path to directory containing PDFs.
+
+    For PDF Folder:
+        folder_path: Path to folder containing PDF files.
+        recursive: If True (default), scan subfolders recursively.
+        extract_pdf_metadata: If True (default), extract metadata from PDFs.
 
     Returns:
         Configured reference database instance.
@@ -43,6 +48,13 @@ def create_reference_db(
             provider="bibtex",
             bibtex_path=Path("references.bib"),
             pdf_dir=Path("papers/"),
+        )
+
+        # Create PDF folder reference database
+        db = create_reference_db(
+            provider="pdffolder",
+            folder_path=Path("papers/"),
+            recursive=True,
         )
     """
     if provider == "zotero":
@@ -75,6 +87,22 @@ def create_reference_db(
             pdf_dir=Path(pdf_dir) if pdf_dir else None,
         )
 
+    elif provider == "pdffolder":
+        from src.references.pdffolder_adapter import PDFFolderReferenceDB
+
+        folder_path = kwargs.get("folder_path")
+        recursive = kwargs.get("recursive", True)
+        extract_pdf_metadata = kwargs.get("extract_pdf_metadata", True)
+
+        if not folder_path:
+            raise ValueError("folder_path is required for PDF folder provider")
+
+        return PDFFolderReferenceDB(
+            folder_path=Path(folder_path),
+            recursive=recursive,
+            extract_pdf_metadata=extract_pdf_metadata,
+        )
+
     else:
         raise ValueError(
             f"Unsupported reference provider: {provider}. "
@@ -84,4 +112,4 @@ def create_reference_db(
 
 def get_available_providers() -> list[str]:
     """Return list of available reference providers."""
-    return ["zotero", "bibtex"]
+    return ["zotero", "bibtex", "pdffolder"]

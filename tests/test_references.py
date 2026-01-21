@@ -332,3 +332,204 @@ class TestBibTeXLaTeXCleaning:
         """Should handle multiple LaTeX commands."""
         result = bibtex_db._clean_latex("\\textit{italic} and \\textbf{bold}")
         assert result == "italic and bold"
+
+
+class TestPDFFolderAdapter:
+    """Tests for PDF folder reference adapter."""
+
+    @pytest.fixture
+    def sample_pdf_folder(self, tmp_path):
+        """Create a sample folder with PDF files."""
+        # Create test PDFs (minimal valid PDF-like files)
+        (tmp_path / "Smith - 2020 - Deep Learning.pdf").write_bytes(b"%PDF-1.4\n%test1\n")
+        (tmp_path / "Doe_2021_Neural_Networks.pdf").write_bytes(b"%PDF-1.4\n%test2\n")
+
+        # Create subfolder with PDF
+        subfolder = tmp_path / "conference"
+        subfolder.mkdir()
+        (subfolder / "2022 - Brown - Transformers.pdf").write_bytes(b"%PDF-1.4\n%test3\n")
+
+        return tmp_path
+
+    def test_provider_property(self, sample_pdf_folder):
+        """Should return 'pdffolder' as provider."""
+        from src.references.pdffolder_adapter import PDFFolderReferenceDB
+
+        db = PDFFolderReferenceDB(sample_pdf_folder)
+        assert db.provider == "pdffolder"
+
+    def test_source_path_property(self, sample_pdf_folder):
+        """Should return folder path."""
+        from src.references.pdffolder_adapter import PDFFolderReferenceDB
+
+        db = PDFFolderReferenceDB(sample_pdf_folder)
+        assert db.source_path == sample_pdf_folder
+
+    def test_get_paper_count_recursive(self, sample_pdf_folder):
+        """Should count PDFs recursively."""
+        from src.references.pdffolder_adapter import PDFFolderReferenceDB
+
+        db = PDFFolderReferenceDB(sample_pdf_folder, recursive=True)
+        assert db.get_paper_count() == 3
+
+    def test_get_paper_count_non_recursive(self, sample_pdf_folder):
+        """Should count only top-level PDFs."""
+        from src.references.pdffolder_adapter import PDFFolderReferenceDB
+
+        db = PDFFolderReferenceDB(sample_pdf_folder, recursive=False)
+        assert db.get_paper_count() == 2
+
+    def test_get_all_papers(self, sample_pdf_folder):
+        """Should yield all papers."""
+        from src.references.pdffolder_adapter import PDFFolderReferenceDB
+
+        db = PDFFolderReferenceDB(sample_pdf_folder)
+        papers = list(db.get_all_papers())
+        assert len(papers) == 3
+
+    def test_paper_metadata_from_filename(self, sample_pdf_folder):
+        """Should parse metadata from filename."""
+        from src.references.pdffolder_adapter import PDFFolderReferenceDB
+
+        db = PDFFolderReferenceDB(sample_pdf_folder, extract_pdf_metadata=False)
+        paper = db.get_paper_by_key("Smith - 2020 - Deep Learning")
+
+        assert paper is not None
+        assert paper.title == "Deep Learning"
+        assert paper.publication_year == 2020
+        assert len(paper.authors) == 1
+        assert paper.authors[0].last_name == "Smith"
+
+    def test_subfolder_as_collection(self, sample_pdf_folder):
+        """Should use subfolder name as collection."""
+        from src.references.pdffolder_adapter import PDFFolderReferenceDB
+
+        db = PDFFolderReferenceDB(sample_pdf_folder)
+        papers = list(db.get_all_papers())
+
+        # Find paper in subfolder
+        subfolder_papers = [p for p in papers if p.collections]
+        assert len(subfolder_papers) == 1
+        assert "conference" in subfolder_papers[0].collections[0]
+
+    def test_get_paper_by_key_not_found(self, sample_pdf_folder):
+        """Should return None for unknown key."""
+        from src.references.pdffolder_adapter import PDFFolderReferenceDB
+
+        db = PDFFolderReferenceDB(sample_pdf_folder)
+        paper = db.get_paper_by_key("nonexistent")
+        assert paper is None
+
+    def test_folder_not_found(self, tmp_path):
+        """Should raise error for missing folder."""
+        from src.references.pdffolder_adapter import PDFFolderReferenceDB
+
+        db = PDFFolderReferenceDB(tmp_path / "nonexistent")
+        with pytest.raises(FileNotFoundError):
+            db.get_paper_count()
+
+
+class TestPDFFolderFilenameParsing:
+    """Tests for PDF folder filename parsing."""
+
+    @pytest.fixture
+    def pdffolder_db(self, tmp_path):
+        """Create minimal PDF folder database for testing."""
+        from src.references.pdffolder_adapter import PDFFolderReferenceDB
+        return PDFFolderReferenceDB(tmp_path)
+
+    def test_author_dash_year_dash_title(self, pdffolder_db):
+        """Parse 'Author - Year - Title.pdf' format."""
+        result = pdffolder_db._parse_filename(Path("Smith - 2020 - Machine Learning.pdf"))
+        assert result["authors"] == "Smith"
+        assert result["year"] == "2020"
+        assert result["title"] == "Machine Learning"
+
+    def test_author_underscore_year_underscore_title(self, pdffolder_db):
+        """Parse 'Author_Year_Title.pdf' format."""
+        result = pdffolder_db._parse_filename(Path("Smith_2020_Machine_Learning.pdf"))
+        assert result["authors"] == "Smith"
+        assert result["year"] == "2020"
+        assert result["title"] == "Machine Learning"
+
+    def test_year_underscore_author_underscore_title(self, pdffolder_db):
+        """Parse 'Year_Author_Title.pdf' format."""
+        result = pdffolder_db._parse_filename(Path("2020_Smith_Machine_Learning.pdf"))
+        assert result["authors"] == "Smith"
+        assert result["year"] == "2020"
+        assert result["title"] == "Machine Learning"
+
+    def test_title_only_fallback(self, pdffolder_db):
+        """Parse filename with just title."""
+        result = pdffolder_db._parse_filename(Path("Just A Title.pdf"))
+        assert result["title"] == "Just A Title"
+        assert result["authors"] is None
+        assert result["year"] is None
+
+
+class TestPDFFolderAuthorParsing:
+    """Tests for PDF folder author string parsing."""
+
+    @pytest.fixture
+    def pdffolder_db(self, tmp_path):
+        """Create minimal PDF folder database for testing."""
+        from src.references.pdffolder_adapter import PDFFolderReferenceDB
+        return PDFFolderReferenceDB(tmp_path)
+
+    def test_last_comma_first(self, pdffolder_db):
+        """Parse 'Last, First' format."""
+        authors = pdffolder_db._parse_authors("Smith, John")
+        assert len(authors) == 1
+        assert authors[0].last_name == "Smith"
+        assert authors[0].first_name == "John"
+
+    def test_first_last(self, pdffolder_db):
+        """Parse 'First Last' format."""
+        authors = pdffolder_db._parse_authors("John Smith")
+        assert len(authors) == 1
+        assert authors[0].last_name == "Smith"
+        assert authors[0].first_name == "John"
+
+    def test_multiple_authors_and(self, pdffolder_db):
+        """Parse multiple authors with 'and'."""
+        authors = pdffolder_db._parse_authors("Smith, John and Doe, Jane")
+        assert len(authors) == 2
+        assert authors[0].last_name == "Smith"
+        assert authors[1].last_name == "Doe"
+
+    def test_multiple_authors_semicolon(self, pdffolder_db):
+        """Parse multiple authors with semicolon."""
+        authors = pdffolder_db._parse_authors("John Smith; Jane Doe")
+        assert len(authors) == 2
+
+    def test_et_al_removal(self, pdffolder_db):
+        """Should remove 'et al.' from author string."""
+        authors = pdffolder_db._parse_authors("Smith et al.")
+        assert len(authors) == 1
+        assert authors[0].last_name == "Smith"
+
+
+class TestReferenceFactoryPDFFolder:
+    """Tests for reference factory with PDF folder provider."""
+
+    def test_get_available_providers_includes_pdffolder(self):
+        """Should include pdffolder in providers."""
+        providers = get_available_providers()
+        assert "pdffolder" in providers
+
+    def test_create_pdffolder_missing_path(self):
+        """Should raise error when folder_path missing."""
+        with pytest.raises(ValueError, match="folder_path is required"):
+            create_reference_db(provider="pdffolder")
+
+    def test_create_pdffolder_success(self, tmp_path):
+        """Should create PDF folder database."""
+        (tmp_path / "test.pdf").write_bytes(b"%PDF-1.4\n")
+
+        db = create_reference_db(
+            provider="pdffolder",
+            folder_path=tmp_path,
+            recursive=False,
+        )
+        assert db.provider == "pdffolder"
+        assert db.get_paper_count() == 1
