@@ -13,7 +13,7 @@ def create_reference_db(
     """Create a reference database instance for the specified provider.
 
     Args:
-        provider: Reference manager provider ('zotero', 'bibtex', or 'pdffolder').
+        provider: Reference manager provider ('zotero', 'bibtex', 'pdffolder', or 'mendeley').
         **kwargs: Provider-specific configuration.
 
     For Zotero:
@@ -28,6 +28,10 @@ def create_reference_db(
         folder_path: Path to folder containing PDF files.
         recursive: If True (default), scan subfolders recursively.
         extract_pdf_metadata: If True (default), extract metadata from PDFs.
+
+    For Mendeley:
+        db_path: Path to Mendeley SQLite database.
+        storage_path: Optional root path for resolving relative file paths.
 
     Returns:
         Configured reference database instance.
@@ -55,6 +59,12 @@ def create_reference_db(
             provider="pdffolder",
             folder_path=Path("papers/"),
             recursive=True,
+        )
+
+        # Create Mendeley reference database
+        db = create_reference_db(
+            provider="mendeley",
+            db_path=Path("~/Mendeley Desktop/mendeley.sqlite"),
         )
     """
     if provider == "zotero":
@@ -103,6 +113,20 @@ def create_reference_db(
             extract_pdf_metadata=extract_pdf_metadata,
         )
 
+    elif provider == "mendeley":
+        from src.references.mendeley_adapter import MendeleyReferenceDB
+
+        db_path = kwargs.get("db_path")
+        storage_path = kwargs.get("storage_path")
+
+        if not db_path:
+            raise ValueError("db_path is required for Mendeley provider")
+
+        return MendeleyReferenceDB(
+            db_path=Path(db_path),
+            storage_path=Path(storage_path) if storage_path else None,
+        )
+
     else:
         raise ValueError(
             f"Unsupported reference provider: {provider}. "
@@ -112,4 +136,4 @@ def create_reference_db(
 
 def get_available_providers() -> list[str]:
     """Return list of available reference providers."""
-    return ["zotero", "bibtex", "pdffolder"]
+    return ["zotero", "bibtex", "pdffolder", "mendeley"]
