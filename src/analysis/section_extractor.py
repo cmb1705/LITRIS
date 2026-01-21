@@ -243,7 +243,7 @@ class SectionExtractor:
             reasoning_effort=reasoning_effort,
         )
         self.max_tokens = max_tokens
-        self.timeout = self.llm_client.timeout
+        self.timeout = getattr(self.llm_client, "timeout", 120)
         self.reasoning_effort = reasoning_effort
         self.min_text_length = min_text_length
         self.model = self.llm_client.model  # Use resolved model from client
