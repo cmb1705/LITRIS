@@ -16,13 +16,24 @@ def project_root() -> Path:
     return Path(__file__).parent.parent
 
 
-@pytest.fixture(scope="session")
-def sample_config_dict() -> dict:
-    """Provide a sample configuration dictionary for testing."""
+@pytest.fixture
+def sample_config_dict(tmp_path: Path) -> dict:
+    """Provide a sample configuration dictionary for testing.
+
+    Uses tmp_path for platform-agnostic paths that work on Windows, Mac, and Linux.
+    """
+    # Create mock Zotero structure in temp directory
+    zotero_dir = tmp_path / "zotero"
+    zotero_dir.mkdir(parents=True, exist_ok=True)
+    db_path = zotero_dir / "zotero.sqlite"
+    db_path.touch()
+    storage_path = zotero_dir / "storage"
+    storage_path.mkdir(parents=True, exist_ok=True)
+
     return {
         "zotero": {
-            "database_path": "D:/Zotero/zotero.sqlite",
-            "storage_path": "D:/Zotero/storage",
+            "database_path": str(db_path),
+            "storage_path": str(storage_path),
         },
         "extraction": {
             "mode": "cli",
@@ -35,9 +46,9 @@ def sample_config_dict() -> dict:
             "dimension": 384,
         },
         "storage": {
-            "chroma_path": "data/chroma",
-            "cache_path": "data/cache",
-            "collection_name": "literature_review",
+            "chroma_path": str(tmp_path / "data" / "chroma"),
+            "cache_path": str(tmp_path / "data" / "cache"),
+            "collection_name": "literature_review_test",
         },
         "processing": {
             "batch_size": 10,

@@ -195,6 +195,16 @@ def save_checkpoint(
     safe_write_json(index_dir / "metadata.json", metadata)
 
 
+def get_platform_unset_command() -> str:
+    """Get platform-appropriate command to unset ANTHROPIC_API_KEY."""
+    if sys.platform == "win32":
+        return (
+            "     PowerShell: $env:ANTHROPIC_API_KEY = $null\n"
+            "     CMD:        set ANTHROPIC_API_KEY="
+        )
+    return "     export ANTHROPIC_API_KEY="
+
+
 def verify_cli_authentication() -> bool:
     """Verify CLI authentication is set up for CLI mode extraction.
 
@@ -218,7 +228,7 @@ def verify_cli_authentication() -> bool:
             print("This is NOT using your Claude Max/Pro subscription.")
             print("\nTo use your subscription (free with plan):")
             print("  1. Unset ANTHROPIC_API_KEY before running:")
-            print("     $env:ANTHROPIC_API_KEY = $null  # PowerShell")
+            print(get_platform_unset_command())
             print("  2. Or set CLAUDE_CODE_OAUTH_TOKEN from 'claude' login")
             print("")
             try:
