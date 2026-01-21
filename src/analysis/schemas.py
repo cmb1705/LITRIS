@@ -71,11 +71,11 @@ class KeyFinding(BaseModel):
     """A key finding from the research."""
 
     finding: str = Field(description="The finding statement")
-    evidence_type: EvidenceType = Field(
+    evidence_type: EvidenceType | None = Field(
         default=EvidenceType.EMPIRICAL,
         description="Type of evidence supporting this finding",
     )
-    significance: SignificanceLevel = Field(
+    significance: SignificanceLevel | None = Field(
         default=SignificanceLevel.MEDIUM,
         description="Significance level of this finding",
     )
@@ -89,7 +89,7 @@ class KeyClaim(BaseModel):
     """A key claim made in the paper."""
 
     claim: str = Field(description="The claim statement")
-    support_type: SupportType = Field(
+    support_type: SupportType | None = Field(
         default=SupportType.LOGIC,
         description="How this claim is supported",
     )
@@ -97,7 +97,7 @@ class KeyClaim(BaseModel):
         default=None,
         description="Page reference in the source document",
     )
-    strength: SignificanceLevel = Field(
+    strength: SignificanceLevel | None = Field(
         default=SignificanceLevel.MEDIUM,
         description="Strength of the claim and its support",
     )

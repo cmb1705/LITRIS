@@ -32,32 +32,44 @@ class OpenAILLMClient(BaseLLMClient):
     Supports both API mode (direct OpenAI API) and CLI mode (Codex CLI).
     """
 
-    # Available GPT models with descriptions
+    # Available models with descriptions
     MODELS = {
-        # GPT-5.2 family (latest)
+        # o3 family (recommended for Codex CLI with ChatGPT)
+        "o3": "o3 (High intelligence, complex tasks)",
+        "o3-mini": "o3-mini (Fast, cost-effective reasoning)",
+        # GPT-5.2 family (latest API models)
         "gpt-5.2": "GPT-5.2 (Latest flagship model)",
         "gpt-5.2-instant": "GPT-5.2 Instant (Fast, everyday tasks)",
         "gpt-5.2-pro": "GPT-5.2 Pro (Highest quality, complex tasks)",
         "gpt-5.2-codex": "GPT-5.2-Codex (Optimized for agentic coding)",
         # GPT-5 family
         "gpt-5": "GPT-5 (Previous generation flagship)",
-        # GPT-4 family (legacy but widely used)
-        "gpt-4o": "GPT-4o (Multimodal, fast)",
-        "gpt-4o-mini": "GPT-4o Mini (Cost-effective)",
-        "gpt-4-turbo": "GPT-4 Turbo (Legacy)",
+        # GPT-4 family (API mode only)
+        "gpt-4o": "GPT-4o (Multimodal, fast) - API mode only",
+        "gpt-4o-mini": "GPT-4o Mini (Cost-effective) - API mode only",
+        "gpt-4-turbo": "GPT-4 Turbo (Legacy) - API mode only",
     }
 
     # Model pricing per million tokens (input, output) in USD
     MODEL_PRICING = {
+        # o3 family
+        "o3": (10.0, 40.0),
+        "o3-mini": (1.1, 4.4),
+        # GPT-5.2 family
         "gpt-5.2": (10.0, 30.0),
         "gpt-5.2-instant": (2.5, 10.0),
         "gpt-5.2-pro": (20.0, 60.0),
         "gpt-5.2-codex": (10.0, 30.0),
         "gpt-5": (10.0, 30.0),
+        # GPT-4 family
         "gpt-4o": (2.5, 10.0),
         "gpt-4o-mini": (0.15, 0.6),
         "gpt-4-turbo": (10.0, 30.0),
     }
+
+    # Models supported by Codex CLI with ChatGPT authentication
+    # Default is gpt-5.2 for ChatGPT Plus/Pro subscribers
+    CLI_SUPPORTED_MODELS = {"gpt-5.2"}
 
     def __init__(
         self,
@@ -101,6 +113,14 @@ class OpenAILLMClient(BaseLLMClient):
                 )
         elif mode == "cli":
             self._verify_codex_cli()
+            # Check if model is supported by CLI mode with ChatGPT auth
+            if self.model not in self.CLI_SUPPORTED_MODELS:
+                logger.warning(
+                    f"Model '{self.model}' may not be supported by Codex CLI with ChatGPT auth. "
+                    f"Supported models: {', '.join(self.CLI_SUPPORTED_MODELS)}. "
+                    f"Using default 'gpt-5.2'."
+                )
+                self.model = "gpt-5.2"
 
     @property
     def provider(self) -> LLMProvider:
@@ -126,14 +146,65 @@ class OpenAILLMClient(BaseLLMClient):
         """Get OpenAI API key from environment."""
         return os.environ.get("OPENAI_API_KEY")
 
+    def _find_codex_path(self) -> str | None:
+        """Find the Codex CLI executable path.
+
+        Searches standard PATH plus common npm global bin locations.
+
+        Returns:
+            Path to codex executable or None.
+        """
+        # Try standard PATH first
+        codex_path = shutil.which("codex")
+        if codex_path:
+            return codex_path
+
+        # Check common npm global bin locations
+        import platform
+        npm_paths = []
+
+        if platform.system() == "Windows":
+            # Windows npm global locations
+            appdata = os.environ.get("APPDATA", "")
+            if appdata:
+                npm_paths.append(os.path.join(appdata, "npm", "codex.cmd"))
+                npm_paths.append(os.path.join(appdata, "npm", "codex"))
+            # Also check user profile
+            userprofile = os.environ.get("USERPROFILE", "")
+            if userprofile:
+                npm_paths.append(os.path.join(userprofile, "AppData", "Roaming", "npm", "codex.cmd"))
+        else:
+            # Unix-like systems
+            home = os.environ.get("HOME", "")
+            if home:
+                npm_paths.extend([
+                    os.path.join(home, ".npm-global", "bin", "codex"),
+                    os.path.join(home, ".nvm", "versions", "node", "*", "bin", "codex"),
+                    "/usr/local/bin/codex",
+                    "/opt/homebrew/bin/codex",
+                ])
+
+        for path in npm_paths:
+            if "*" in path:
+                # Handle glob patterns (for nvm)
+                import glob
+                matches = glob.glob(path)
+                for match in matches:
+                    if os.path.isfile(match) and os.access(match, os.X_OK):
+                        return match
+            elif os.path.isfile(path):
+                return path
+
+        return None
+
     def _verify_codex_cli(self) -> None:
         """Verify Codex CLI is installed and authenticated.
 
         Raises:
             ValueError: If Codex CLI is not available or not authenticated.
         """
-        codex_path = shutil.which("codex")
-        if not codex_path:
+        self._codex_path = self._find_codex_path()
+        if not self._codex_path:
             raise ValueError(
                 "Codex CLI not found. Install with:\n"
                 "  npm i -g @openai/codex\n"
@@ -142,10 +213,12 @@ class OpenAILLMClient(BaseLLMClient):
                 "Then authenticate with: codex login"
             )
 
-        # Check authentication status
+        logger.debug(f"Found Codex CLI at: {self._codex_path}")
+
+        # Check authentication status using 'codex login status'
         try:
             result = subprocess.run(
-                ["codex", "auth", "status"],
+                [self._codex_path, "login", "status"],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -155,10 +228,12 @@ class OpenAILLMClient(BaseLLMClient):
                     "Codex CLI may not be authenticated. "
                     "Run 'codex login' to authenticate."
                 )
+            else:
+                logger.debug(f"Codex auth: {result.stdout.strip()}")
         except subprocess.TimeoutExpired:
             logger.warning("Timeout checking Codex CLI auth status")
         except FileNotFoundError:
-            raise ValueError("Codex CLI not found in PATH")
+            raise ValueError(f"Codex CLI not found at {self._codex_path}")
 
     def extract(
         self,
@@ -297,29 +372,34 @@ class OpenAILLMClient(BaseLLMClient):
             Tuple of (response_text, input_tokens, output_tokens).
             Note: CLI mode does not provide token counts.
         """
-        # Write prompt to temp file (Codex reads from file for long prompts)
-        with tempfile.NamedTemporaryFile(
+        # Create temp file for output
+        output_file = tempfile.NamedTemporaryFile(
             mode="w",
             suffix=".txt",
             delete=False,
             encoding="utf-8",
-        ) as f:
-            # Combine system prompt and user prompt
-            full_prompt = f"{EXTRACTION_SYSTEM_PROMPT}\n\n---\n\n{prompt}"
-            f.write(full_prompt)
-            prompt_file = f.name
+        )
+        output_file.close()
+        output_path = output_file.name
 
         try:
-            # Run Codex CLI
+            # Combine system prompt and user prompt
+            full_prompt = f"{EXTRACTION_SYSTEM_PROMPT}\n\n---\n\n{prompt}"
+
+            # Run Codex CLI exec command with prompt via stdin
+            codex_cmd = getattr(self, "_codex_path", None) or "codex"
             cmd = [
-                "codex",
-                "--model", self.model,
-                "--quiet",  # Suppress progress output
-                "--input", prompt_file,
+                codex_cmd,
+                "exec",  # Non-interactive mode
+                "-m", self.model,  # Model selection
+                "-o", output_path,  # Output file for response
+                "--skip-git-repo-check",  # Allow running outside git repo
+                "-",  # Read prompt from stdin
             ]
 
             result = subprocess.run(
                 cmd,
+                input=full_prompt,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
@@ -330,12 +410,13 @@ class OpenAILLMClient(BaseLLMClient):
                     f"Codex CLI failed (exit {result.returncode}): {result.stderr}"
                 )
 
-            response_text = result.stdout.strip()
+            # Read response from output file
+            response_text = Path(output_path).read_text(encoding="utf-8").strip()
             return response_text, 0, 0
 
         finally:
             # Clean up temp file
-            Path(prompt_file).unlink(missing_ok=True)
+            Path(output_path).unlink(missing_ok=True)
 
     def _parse_response(self, response_text: str) -> PaperExtraction:
         """Parse JSON response into PaperExtraction.
@@ -423,16 +504,47 @@ class CodexCliExecutor:
             timeout: Default timeout for CLI commands in seconds.
         """
         self.timeout = timeout
-        self._verify_installation()
-
-    def _verify_installation(self) -> None:
-        """Verify Codex CLI is installed."""
-        if not shutil.which("codex"):
+        self._codex_path = self._find_codex_path()
+        if not self._codex_path:
             raise RuntimeError(
                 "Codex CLI not installed. Install with:\n"
                 "  npm i -g @openai/codex\n"
                 "  brew install --cask codex"
             )
+
+    def _find_codex_path(self) -> str | None:
+        """Find the Codex CLI executable path."""
+        # Try standard PATH first
+        codex_path = shutil.which("codex")
+        if codex_path:
+            return codex_path
+
+        # Check common npm global bin locations
+        import platform
+        npm_paths = []
+
+        if platform.system() == "Windows":
+            appdata = os.environ.get("APPDATA", "")
+            if appdata:
+                npm_paths.append(os.path.join(appdata, "npm", "codex.cmd"))
+                npm_paths.append(os.path.join(appdata, "npm", "codex"))
+            userprofile = os.environ.get("USERPROFILE", "")
+            if userprofile:
+                npm_paths.append(os.path.join(userprofile, "AppData", "Roaming", "npm", "codex.cmd"))
+        else:
+            home = os.environ.get("HOME", "")
+            if home:
+                npm_paths.extend([
+                    os.path.join(home, ".npm-global", "bin", "codex"),
+                    "/usr/local/bin/codex",
+                    "/opt/homebrew/bin/codex",
+                ])
+
+        for path in npm_paths:
+            if os.path.isfile(path):
+                return path
+
+        return None
 
     def is_authenticated(self) -> tuple[bool, str]:
         """Check if Codex CLI is authenticated.
@@ -442,13 +554,13 @@ class CodexCliExecutor:
         """
         try:
             result = subprocess.run(
-                ["codex", "auth", "status"],
+                [self._codex_path, "login", "status"],
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
             if result.returncode == 0:
-                return True, "Authenticated via ChatGPT"
+                return True, result.stdout.strip() or "Authenticated via ChatGPT"
             return False, result.stderr.strip() or "Not authenticated"
         except subprocess.TimeoutExpired:
             return False, "Timeout checking auth status"
@@ -464,7 +576,7 @@ class CodexCliExecutor:
         Returns:
             True if login was initiated.
         """
-        cmd = ["codex", "login"]
+        cmd = [self._codex_path, "login"]
         if method == "device":
             cmd.append("--device-auth")
 
