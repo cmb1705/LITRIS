@@ -10,6 +10,7 @@ LITRIS extracts structured insights from academic papers in a Zotero library usi
 - **Citation support** - Retrieve metadata and key claims for academic writing
 - **Research front mapping** - Understand the current state of a discipline
 - **Gap analysis** - Identify underexplored areas and future directions
+- **AI-assisted synthesis** - Complex multi-part queries via Claude Code integration
 
 ## Architecture
 
@@ -234,7 +235,38 @@ python scripts/query_index.py --similar "PAPER_ID"
 
 # Index statistics
 python scripts/query_index.py --summary
+
 ```
+
+### AI-Assisted Literature Queries
+
+Beyond basic search, LITRIS enables complex multi-part research queries when paired with Claude Code. The AI can:
+
+- Search the index semantically across multiple dimensions
+- Synthesize findings across papers
+- Compare your library to external literature via web search
+- Generate structured reports with citations and recommendations
+
+### Example: GNN vs LSTM for Citation Forecasting
+
+**Query:**
+> Part 1: Help me understand how Graph Neural Networks (GNNs) can be used to forecast growth in citation networks for particular research fronts.
+>
+> Part 2: How does this compare to current research that forecasts that growth using LSTM-based RNNs?
+>
+> Part 3: After answering the questions, provide a top-10 list of papers to review that cover these topics with a relevance score for each.
+>
+> Part 4: Compare the works in LITRIS to other relevant web searches of scientometric and infometric academic journals and provide a list of 5 additional papers to read on the topic.
+
+**Output:** [GNN vs LSTM Citation Forecasting Report](data/query_results/2025-12-06_gnn-lstm-citation-forecasting.md)
+
+The generated report includes:
+
+- Comparative analysis of GNN and LSTM approaches
+- Top-10 ranked papers from the index with relevance scores
+- Gap analysis comparing local library to external literature
+- Five additional recommended papers from web search
+- Raw search results for transparency
 
 ### Build Options
 
