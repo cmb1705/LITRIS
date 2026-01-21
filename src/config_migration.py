@@ -16,7 +16,7 @@ from src.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 # Current config schema version
-CURRENT_VERSION = "1.1.0"
+CURRENT_VERSION = "1.2.0"
 
 # Minimum supported version for migration
 MIN_SUPPORTED_VERSION = "1.0.0"
@@ -293,16 +293,18 @@ def migrate_to_1_1_0(config: dict[str, Any]) -> dict[str, Any]:
     return config
 
 
-# Example of future migration (commented out):
-#
-# @register_migration("1.2.0")
-# def migrate_to_1_2_0(config: dict[str, Any]) -> dict[str, Any]:
-#     """Migration from 1.1.0 to 1.2.0.
-#
-#     Changes:
-#     - Rename storage.chroma_path to storage.vector_db_path
-#     """
-#     storage = config.get("storage", {})
-#     if "chroma_path" in storage and "vector_db_path" not in storage:
-#         storage["vector_db_path"] = storage.pop("chroma_path")
-#     return config
+@register_migration("1.2.0")
+def migrate_to_1_2_0(config: dict[str, Any]) -> dict[str, Any]:
+    """Migration from 1.1.0 to 1.2.0.
+
+    Changes:
+    - Add extraction.model_overrides field (default: None)
+      This enables per-item-type model selection.
+    """
+    extraction = config.setdefault("extraction", {})
+
+    # Add model_overrides if not present (optional, defaults to None)
+    if "model_overrides" not in extraction:
+        extraction["model_overrides"] = None
+
+    return config

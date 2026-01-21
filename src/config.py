@@ -32,6 +32,24 @@ class ZoteroConfig(BaseModel):
         return Path(v) if isinstance(v, str) else v
 
 
+class ModelOverrides(BaseModel):
+    """Model overrides for specific item types or extraction sections."""
+
+    # Item type overrides - use specific model for certain document types
+    journal_article: str | None = None
+    book: str | None = None
+    book_section: str | None = None
+    thesis: str | None = None
+    conference_paper: str | None = None
+    report: str | None = None
+    preprint: str | None = None
+
+    # Section overrides for multi-pass extraction (future feature)
+    # methodology: str | None = None
+    # findings: str | None = None
+    # summary: str | None = None
+
+
 class ExtractionConfig(BaseModel):
     """LLM extraction configuration."""
 
@@ -43,6 +61,7 @@ class ExtractionConfig(BaseModel):
     use_cache: bool = True
     parallel_workers: int = 1
     reasoning_effort: str | None = None  # For OpenAI GPT-5.2: none/low/medium/high/xhigh
+    model_overrides: ModelOverrides | None = None  # Per-item-type model selection
 
     @field_validator("provider")
     @classmethod
@@ -83,10 +102,27 @@ class ExtractionConfig(BaseModel):
             raise ValueError("parallel_workers should not exceed 10")
         return v
 
-    def get_model_or_default(self) -> str:
-        """Get model name, using provider default if not specified."""
+    def get_model_or_default(self, item_type: str | None = None) -> str:
+        """Get model name, using provider default if not specified.
+
+        Args:
+            item_type: Optional item type for model override lookup.
+                       Supported types: journalArticle, book, bookSection,
+                       thesis, conferencePaper, report, preprint.
+
+        Returns:
+            Model name to use for extraction.
+        """
+        # Check for item type override
+        if item_type and self.model_overrides:
+            override = self._get_item_type_override(item_type)
+            if override:
+                return override
+
+        # Use explicit model if set
         if self.model:
             return self.model
+
         # Return provider defaults
         defaults = {
             "anthropic": "claude-opus-4-5-20251101",
@@ -94,6 +130,31 @@ class ExtractionConfig(BaseModel):
             "google": "gemini-3-pro",
         }
         return defaults.get(self.provider, "claude-opus-4-5-20251101")
+
+    def _get_item_type_override(self, item_type: str) -> str | None:
+        """Get model override for a specific item type.
+
+        Args:
+            item_type: Zotero item type (journalArticle, book, etc.)
+
+        Returns:
+            Override model name or None.
+        """
+        if not self.model_overrides:
+            return None
+
+        # Map Zotero item types to override fields
+        type_mapping = {
+            "journalArticle": self.model_overrides.journal_article,
+            "book": self.model_overrides.book,
+            "bookSection": self.model_overrides.book_section,
+            "thesis": self.model_overrides.thesis,
+            "conferencePaper": self.model_overrides.conference_paper,
+            "report": self.model_overrides.report,
+            "preprint": self.model_overrides.preprint,
+        }
+
+        return type_mapping.get(item_type)
 
 
 class EmbeddingsConfig(BaseModel):

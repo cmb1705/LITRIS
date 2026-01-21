@@ -384,6 +384,103 @@ class TestConfigExtraction:
         assert model == "gpt-4o-mini"
 
 
+class TestModelOverrides:
+    """Tests for per-item-type model selection."""
+
+    def test_model_overrides_none_by_default(self):
+        """Model overrides should be None by default."""
+        from src.config import ExtractionConfig
+
+        config = ExtractionConfig()
+        assert config.model_overrides is None
+
+    def test_model_overrides_journal_article(self):
+        """Should use override for journal articles."""
+        from src.config import ExtractionConfig, ModelOverrides
+
+        overrides = ModelOverrides(journal_article="claude-sonnet-4-20250514")
+        config = ExtractionConfig(model_overrides=overrides)
+
+        model = config.get_model_or_default(item_type="journalArticle")
+        assert model == "claude-sonnet-4-20250514"
+
+    def test_model_overrides_book(self):
+        """Should use override for books."""
+        from src.config import ExtractionConfig, ModelOverrides
+
+        overrides = ModelOverrides(book="claude-opus-4-5-20251101")
+        config = ExtractionConfig(model_overrides=overrides)
+
+        model = config.get_model_or_default(item_type="book")
+        assert model == "claude-opus-4-5-20251101"
+
+    def test_model_overrides_conference_paper(self):
+        """Should use override for conference papers."""
+        from src.config import ExtractionConfig, ModelOverrides
+
+        overrides = ModelOverrides(conference_paper="gemini-2.5-flash")
+        config = ExtractionConfig(model_overrides=overrides)
+
+        model = config.get_model_or_default(item_type="conferencePaper")
+        assert model == "gemini-2.5-flash"
+
+    def test_model_overrides_fallback_to_explicit(self):
+        """Should fall back to explicit model when no override."""
+        from src.config import ExtractionConfig, ModelOverrides
+
+        overrides = ModelOverrides(journal_article="claude-sonnet-4-20250514")
+        config = ExtractionConfig(model="gpt-5.2", model_overrides=overrides)
+
+        # No override for thesis, should use explicit model
+        model = config.get_model_or_default(item_type="thesis")
+        assert model == "gpt-5.2"
+
+    def test_model_overrides_fallback_to_default(self):
+        """Should fall back to provider default when no override or explicit."""
+        from src.config import ExtractionConfig, ModelOverrides
+
+        overrides = ModelOverrides(journal_article="claude-sonnet-4-20250514")
+        config = ExtractionConfig(provider="google", model_overrides=overrides)
+
+        # No override for report, should use Google default
+        model = config.get_model_or_default(item_type="report")
+        assert "gemini" in model.lower()
+
+    def test_model_overrides_without_item_type(self):
+        """Should return default model when item_type not provided."""
+        from src.config import ExtractionConfig, ModelOverrides
+
+        overrides = ModelOverrides(journal_article="claude-sonnet-4-20250514")
+        config = ExtractionConfig(model="gpt-5.2", model_overrides=overrides)
+
+        # No item_type, should use explicit model
+        model = config.get_model_or_default()
+        assert model == "gpt-5.2"
+
+    def test_model_overrides_all_types(self):
+        """Should handle all supported item types."""
+        from src.config import ExtractionConfig, ModelOverrides
+
+        overrides = ModelOverrides(
+            journal_article="model-a",
+            book="model-b",
+            book_section="model-c",
+            thesis="model-d",
+            conference_paper="model-e",
+            report="model-f",
+            preprint="model-g",
+        )
+        config = ExtractionConfig(model_overrides=overrides)
+
+        assert config.get_model_or_default(item_type="journalArticle") == "model-a"
+        assert config.get_model_or_default(item_type="book") == "model-b"
+        assert config.get_model_or_default(item_type="bookSection") == "model-c"
+        assert config.get_model_or_default(item_type="thesis") == "model-d"
+        assert config.get_model_or_default(item_type="conferencePaper") == "model-e"
+        assert config.get_model_or_default(item_type="report") == "model-f"
+        assert config.get_model_or_default(item_type="preprint") == "model-g"
+
+
 class TestBackwardCompatibility:
     """Tests for backward compatibility with old API."""
 

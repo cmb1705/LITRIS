@@ -3,7 +3,7 @@
 #
 # Schema version - do not modify manually. The system will auto-migrate
 # older configs to newer versions when loaded.
-version: "1.1.0"
+version: "1.2.0"
 
 # =============================================================================
 # Reference Source Configuration
@@ -62,6 +62,16 @@ extraction:
   # Options: none, low, medium, high, xhigh
   # Leave empty for non-OpenAI or to use default
   reasoning_effort: ""
+
+  # Model overrides by item type (optional)
+  # Use different models for different document types to optimize cost/quality
+  # Example: Use faster model for conference papers, better model for books
+  # model_overrides:
+  #   journal_article: claude-sonnet-4-20250514
+  #   book: claude-opus-4-5-20251101
+  #   thesis: claude-opus-4-5-20251101
+  #   conference_paper: gemini-2.5-flash
+  #   preprint: gemini-2.5-flash
 
 # =============================================================================
 # Embedding Model Configuration
