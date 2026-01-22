@@ -314,6 +314,33 @@ python -m streamlit run scripts/web_ui.py
 The UI expects an existing index at `data/index` (run `scripts/build_index.py` if needed)
 and saves exports to `data/query_results/`.
 
+**Features:**
+
+| Feature | Description |
+|---------|-------------|
+| Semantic search | Query the index with natural language |
+| Filters | Year range, collections, item types, chunk types |
+| Quick filters | One-click common filters (Recent, Methods, etc.) |
+| Detail panel | Full extraction view with PDF access |
+| Similarity network | Interactive PyVis visualization of related papers |
+| Export | CSV, BibTeX, and PDF export formats |
+
+**Keyboard shortcuts:**
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Execute search |
+| `j` / `Down` | Next result |
+| `k` / `Up` | Previous result |
+| `o` | Open detail panel |
+| `Esc` | Close detail panel |
+
+Install visualization dependencies for similarity network:
+
+```bash
+pip install pyvis networkx
+```
+
 ### AI-Assisted Literature Queries
 
 Beyond basic search, LITRIS enables complex multi-part research queries when paired with Claude Code. The AI can:

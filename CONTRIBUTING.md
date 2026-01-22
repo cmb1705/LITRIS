@@ -32,6 +32,31 @@ When finished:
 bd close <id>
 ```
 
+## Pre-commit Hooks
+
+Install pre-commit hooks to automatically check code before commits:
+
+```bash
+pip install pre-commit
+pre-commit install
+pre-commit install --hook-type pre-push
+```
+
+The hooks run:
+
+- Trailing whitespace and EOF fixes
+- YAML validation
+- Large file detection
+- Ruff linting and formatting
+- mypy type checking (on src/)
+- pytest quick tests (on push only)
+
+To run all hooks manually:
+
+```bash
+pre-commit run --all-files
+```
+
 ## Code Style
 
 - Follow PEP 8 and use type hints.
@@ -72,6 +97,18 @@ python -m pip install -r docs/requirements.txt
 cd docs/sphinx
 make html
 ```
+
+## Continuous Integration
+
+Pull requests trigger GitHub Actions CI which runs:
+
+| Job | Description |
+|-----|-------------|
+| test | Runs pytest on Python 3.10-3.12 across Ubuntu, Windows, and macOS |
+| type-check | Runs mypy type checking on src/ |
+| security | Runs pip-audit to check for known vulnerabilities |
+
+All jobs must pass before merging. Check the Actions tab for details on failures.
 
 ## Pull Requests
 

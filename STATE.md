@@ -13,12 +13,13 @@
 | Project Memory | [CLAUDE.md](CLAUDE.md) | Instructions for Claude Code |
 | Technical Specification | [docs/proposals/mcp_technical_specification.md](docs/proposals/mcp_technical_specification.md) | MCP system design |
 | Troubleshooting | [docs/troubleshooting.md](docs/troubleshooting.md) | Common issues and solutions |
+| Usage Guide | [docs/usage.md](docs/usage.md) | Workflows and configuration |
 
 ---
 
 ## Current Status
 
-LITRIS is fully operational with MCP integration complete:
+LITRIS is fully operational with comprehensive integrations:
 
 - **332 papers** indexed from Zotero library
 - **3,746 embedding chunks** in vector store
@@ -26,6 +27,10 @@ LITRIS is fully operational with MCP integration complete:
 - Incremental update support
 - MCP tools for Claude Code integration
 - Citation verification agent for academic writing support
+- **Streamlit Web UI** for interactive search and exploration
+- **Multi-provider LLM support** (Anthropic, OpenAI, Google, Ollama, llama.cpp)
+- **Multiple reference sources** (Zotero, BibTeX, PDF Folder, Mendeley, EndNote, Paperpile)
+- **Docker containerization** for portable deployments
 
 All implementation phases complete. System is production-ready for research workflows.
 
@@ -142,7 +147,7 @@ LITRIS/
 ### Near-term Enhancements
 
 - **Full-text search**: Add keyword search alongside semantic search
-- **Citation graph**: Build paper citation network for influence analysis
+- **Citation graph**: Build paper citation network from DOI references
 - **Author profiles**: Aggregate papers by author for collaboration analysis
 - **Topic modeling**: Automatic clustering of papers by research themes
 
@@ -150,7 +155,6 @@ LITRIS/
 
 - **Research gap detection**: Identify underexplored intersections in the literature
 - **Trend forecasting**: Use temporal patterns to predict emerging topics
-- **Multi-database support**: Extend beyond Zotero to other reference managers
 - **Collaborative annotations**: Share extractions and notes across researchers
 
 ### Integration Opportunities
@@ -158,7 +162,14 @@ LITRIS/
 - **Zotero plugin**: Direct integration with Zotero desktop
 - **Browser extension**: One-click paper addition and extraction
 - **API service**: REST API for programmatic access
-- **Web interface**: Browser-based search and exploration
+
+### Recently Completed (January 2026)
+
+- **Web interface**: Streamlit-based search workbench with export
+- **Multi-database support**: Zotero, BibTeX, PDF Folder, Mendeley, EndNote, Paperpile
+- **Similarity network visualization**: PyVis-powered interactive paper similarity graphs
+- **Local LLM support**: Ollama and llama.cpp for offline extraction
+- **CI/CD pipeline**: GitHub Actions with pre-commit hooks
 
 ---
 
@@ -174,4 +185,4 @@ LITRIS/
 
 ---
 
-Last Updated: 2025-12-10
+Last Updated: 2026-01-22
