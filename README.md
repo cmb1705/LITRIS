@@ -303,6 +303,17 @@ python scripts/query_index.py --summary
 
 ```
 
+### Web UI
+
+Launch the local search workbench with Streamlit:
+
+```bash
+python -m streamlit run scripts/web_ui.py
+```
+
+The UI expects an existing index at `data/index` (run `scripts/build_index.py` if needed)
+and saves exports to `data/query_results/`.
+
 ### AI-Assisted Literature Queries
 
 Beyond basic search, LITRIS enables complex multi-part research queries when paired with Claude Code. The AI can:
