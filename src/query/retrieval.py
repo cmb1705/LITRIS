@@ -243,23 +243,99 @@ def slugify_query(query: str, max_length: int = 50) -> str:
 
 
 def _get_pdf_css() -> str:
-    """Return CSS styles for PDF HTML rendering."""
+    """Return CSS styles for PDF HTML rendering (GitHub-flavored markdown style)."""
     return """
-    body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; line-height: 1.4; color: #333; }
-    h1 { font-size: 16pt; color: #1a1a1a; margin-bottom: 10px; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
-    h2 { font-size: 12pt; color: #2c3e50; margin-top: 12px; margin-bottom: 6px; }
-    h3 { font-size: 11pt; color: #34495e; margin-top: 8px; margin-bottom: 4px; }
-    .meta { font-size: 9pt; color: #666; margin-bottom: 12px; }
-    .query { background-color: #f0f4f8; border-left: 3px solid #3498db; padding: 8px 12px; margin: 10px 0; font-style: italic; }
-    .result { margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #ddd; }
-    .title { font-size: 11pt; font-weight: bold; color: #2c3e50; margin-bottom: 4px; }
-    .info { font-size: 9pt; color: #666; margin-left: 10px; }
-    .paper-id { font-family: Courier, monospace; font-size: 8pt; color: #888; }
-    .matched { margin-top: 6px; margin-left: 10px; padding: 6px; background-color: #fafafa; font-size: 9pt; }
-    blockquote { border-left: 2px solid #ccc; margin-left: 10px; padding-left: 8px; color: #555; font-style: italic; }
-    table { border-collapse: collapse; width: 100%; margin: 8px 0; }
-    th, td { border: 1px solid #ddd; padding: 4px 6px; text-align: left; font-size: 9pt; }
-    th { background-color: #f5f5f5; font-weight: bold; }
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        font-size: 10pt;
+        line-height: 1.6;
+        color: #24292e;
+        max-width: 100%;
+    }
+    h1 {
+        font-size: 18pt;
+        font-weight: 600;
+        color: #24292e;
+        margin-top: 16px;
+        margin-bottom: 10px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #eaecef;
+    }
+    h2 {
+        font-size: 14pt;
+        font-weight: 600;
+        color: #24292e;
+        margin-top: 16px;
+        margin-bottom: 8px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid #eaecef;
+    }
+    h3 {
+        font-size: 12pt;
+        font-weight: 600;
+        color: #24292e;
+        margin-top: 14px;
+        margin-bottom: 6px;
+    }
+    h4 {
+        font-size: 11pt;
+        font-weight: 600;
+        color: #24292e;
+        margin-top: 12px;
+        margin-bottom: 4px;
+    }
+    p { margin-top: 0; margin-bottom: 10px; }
+    strong, b { font-weight: 600; }
+    em, i { font-style: italic; }
+    a { color: #0366d6; text-decoration: none; }
+    code {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 9pt;
+        background-color: rgba(27, 31, 35, 0.05);
+        padding: 2px 4px;
+        border-radius: 3px;
+    }
+    pre {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 9pt;
+        background-color: #f6f8fa;
+        padding: 12px;
+        border-radius: 3px;
+        overflow-x: auto;
+        line-height: 1.45;
+    }
+    blockquote {
+        margin: 0;
+        padding: 0 12px;
+        color: #6a737d;
+        border-left: 4px solid #dfe2e5;
+    }
+    ul, ol { padding-left: 24px; margin-top: 0; margin-bottom: 10px; }
+    li { margin-bottom: 4px; }
+    hr { height: 2px; background-color: #e1e4e8; border: 0; margin: 16px 0; }
+    table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 12px 0;
+        font-size: 9pt;
+    }
+    th, td {
+        border: 1px solid #dfe2e5;
+        padding: 6px 10px;
+        text-align: left;
+    }
+    th {
+        background-color: #f6f8fa;
+        font-weight: 600;
+    }
+    tr:nth-child(even) { background-color: #f6f8fa; }
+    .meta { font-size: 9pt; color: #586069; margin-bottom: 12px; }
+    .query { background-color: #f6f8fa; border-left: 4px solid #0366d6; padding: 10px 14px; margin: 12px 0; }
+    .result { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #eaecef; }
+    .title { font-size: 11pt; font-weight: 600; color: #24292e; margin-bottom: 4px; }
+    .info { font-size: 9pt; color: #586069; margin-left: 10px; }
+    .paper-id { font-family: "SFMono-Regular", Consolas, monospace; font-size: 8pt; color: #6a737d; }
+    .matched { margin-top: 8px; margin-left: 10px; padding: 8px; background-color: #f6f8fa; font-size: 9pt; border-radius: 3px; }
     """
 
 
