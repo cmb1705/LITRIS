@@ -26,6 +26,8 @@ class TestBaseLLMClient:
         assert "anthropic" in providers
         assert "openai" in providers
         assert "google" in providers
+        assert "ollama" in providers
+        assert "llamacpp" in providers
 
 
 class TestLLMFactory:
@@ -38,6 +40,8 @@ class TestLLMFactory:
         assert "anthropic" in providers
         assert "openai" in providers
         assert "google" in providers
+        assert "ollama" in providers
+        assert "llamacpp" in providers
 
     def test_get_default_model_anthropic(self):
         """Should return Claude default model."""
@@ -53,6 +57,16 @@ class TestLLMFactory:
         """Should return Gemini default model."""
         model = get_default_model("google")
         assert "gemini" in model.lower()
+
+    def test_get_default_model_ollama(self):
+        """Should return llama3 default model."""
+        model = get_default_model("ollama")
+        assert "llama" in model.lower()
+
+    def test_get_default_model_llamacpp(self):
+        """Should return llama-3 default model."""
+        model = get_default_model("llamacpp")
+        assert "llama" in model.lower()
 
     def test_get_provider_models_anthropic(self):
         """Should return Anthropic models."""
@@ -77,6 +91,22 @@ class TestLLMFactory:
         assert len(models) > 0
         # Should have Gemini models
         assert any("gemini" in k.lower() for k in models.keys())
+
+    def test_get_provider_models_ollama(self):
+        """Should return Ollama models."""
+        models = get_provider_models("ollama")
+        assert isinstance(models, dict)
+        assert len(models) > 0
+        # Should have llama models
+        assert any("llama" in k.lower() for k in models.keys())
+
+    def test_get_provider_models_llamacpp(self):
+        """Should return llama.cpp model families."""
+        models = get_provider_models("llamacpp")
+        assert isinstance(models, dict)
+        assert len(models) > 0
+        # Should have llama model family
+        assert any("llama" in k.lower() for k in models.keys())
 
     def test_create_invalid_provider(self):
         """Should raise error for invalid provider."""
@@ -306,6 +336,136 @@ class TestGeminiClientEstimateCost:
         assert cost_flash < cost_pro
 
 
+class TestOllamaClient:
+    """Tests for OllamaLLMClient."""
+
+    def test_provider_property(self):
+        """Should return 'ollama' as provider."""
+        from src.analysis.ollama_client import OllamaLLMClient
+
+        client = OllamaLLMClient.__new__(OllamaLLMClient)
+        assert client.provider == "ollama"
+
+    def test_default_model(self):
+        """Should have llama3 default model."""
+        from src.analysis.ollama_client import OllamaLLMClient
+
+        client = OllamaLLMClient.__new__(OllamaLLMClient)
+        assert "llama" in client.default_model.lower()
+
+    def test_supported_modes(self):
+        """Should support api mode only."""
+        from src.analysis.ollama_client import OllamaLLMClient
+
+        client = OllamaLLMClient.__new__(OllamaLLMClient)
+        modes = client.supported_modes
+        assert "api" in modes
+        # Ollama does not have CLI mode
+        assert "cli" not in modes
+
+    def test_list_models(self):
+        """Should list available Ollama models."""
+        from src.analysis.ollama_client import OllamaLLMClient
+
+        models = OllamaLLMClient.list_models()
+        assert isinstance(models, dict)
+        assert "llama3" in models
+        assert "mistral" in models
+        assert "gemma2" in models
+
+    def test_estimate_cost_always_zero(self):
+        """Should return zero cost for local inference."""
+        from src.analysis.ollama_client import OllamaLLMClient
+
+        client = OllamaLLMClient.__new__(OllamaLLMClient)
+
+        cost = client.estimate_cost(10000)  # 10k chars
+        assert cost == 0.0
+
+
+class TestLlamaCppClient:
+    """Tests for LlamaCppLLMClient."""
+
+    def test_provider_property(self):
+        """Should return 'llamacpp' as provider."""
+        from src.analysis.llamacpp_client import LlamaCppLLMClient
+
+        client = LlamaCppLLMClient.__new__(LlamaCppLLMClient)
+        assert client.provider == "llamacpp"
+
+    def test_default_model(self):
+        """Should have llama-3 default model."""
+        from src.analysis.llamacpp_client import LlamaCppLLMClient
+
+        client = LlamaCppLLMClient.__new__(LlamaCppLLMClient)
+        assert "llama" in client.default_model.lower()
+
+    def test_supported_modes(self):
+        """Should support api mode only."""
+        from src.analysis.llamacpp_client import LlamaCppLLMClient
+
+        client = LlamaCppLLMClient.__new__(LlamaCppLLMClient)
+        modes = client.supported_modes
+        assert "api" in modes
+        # llama.cpp does not have CLI mode
+        assert "cli" not in modes
+
+    def test_list_models(self):
+        """Should list available llama.cpp model families."""
+        from src.analysis.llamacpp_client import LlamaCppLLMClient
+
+        models = LlamaCppLLMClient.list_models()
+        assert isinstance(models, dict)
+        assert "llama-3" in models
+        assert "mistral" in models
+        assert "gemma" in models
+
+    def test_estimate_cost_always_zero(self):
+        """Should return zero cost for local inference."""
+        from src.analysis.llamacpp_client import LlamaCppLLMClient
+
+        client = LlamaCppLLMClient.__new__(LlamaCppLLMClient)
+
+        cost = client.estimate_cost(10000)  # 10k chars
+        assert cost == 0.0
+
+
+class TestLocalLLMCostComparison:
+    """Tests comparing local vs cloud LLM costs."""
+
+    def test_local_cheaper_than_anthropic(self):
+        """Local inference should be cheaper (free) than Anthropic."""
+        from src.analysis.anthropic_client import AnthropicLLMClient
+        from src.analysis.ollama_client import OllamaLLMClient
+
+        anthropic_client = AnthropicLLMClient.__new__(AnthropicLLMClient)
+        anthropic_client.model = "claude-opus-4-5-20251101"
+
+        ollama_client = OllamaLLMClient.__new__(OllamaLLMClient)
+
+        anthropic_cost = anthropic_client.estimate_cost(10000)
+        ollama_cost = ollama_client.estimate_cost(10000)
+
+        assert ollama_cost == 0.0
+        assert ollama_cost < anthropic_cost
+
+    def test_local_cheaper_than_openai(self):
+        """Local inference should be cheaper (free) than OpenAI."""
+        from src.analysis.openai_client import OpenAILLMClient
+        from src.analysis.llamacpp_client import LlamaCppLLMClient
+
+        openai_client = OpenAILLMClient.__new__(OpenAILLMClient)
+        openai_client.model = "gpt-5.2"
+
+        llamacpp_client = LlamaCppLLMClient.__new__(LlamaCppLLMClient)
+
+        openai_cost = openai_client.estimate_cost(10000)
+        llamacpp_cost = llamacpp_client.estimate_cost(10000)
+
+        assert llamacpp_cost == 0.0
+        assert llamacpp_cost < openai_cost
+
+
 class TestConfigExtraction:
     """Tests for extraction config with provider support."""
 
@@ -329,6 +489,20 @@ class TestConfigExtraction:
 
         config = ExtractionConfig(provider="google")
         assert config.provider == "google"
+
+    def test_config_ollama_provider(self, sample_config_dict):
+        """Should accept ollama provider."""
+        from src.config import ExtractionConfig
+
+        config = ExtractionConfig(provider="ollama")
+        assert config.provider == "ollama"
+
+    def test_config_llamacpp_provider(self, sample_config_dict):
+        """Should accept llamacpp provider."""
+        from src.config import ExtractionConfig
+
+        config = ExtractionConfig(provider="llamacpp")
+        assert config.provider == "llamacpp"
 
     def test_config_invalid_provider(self, sample_config_dict):
         """Should reject invalid provider."""
@@ -374,6 +548,22 @@ class TestConfigExtraction:
         config = ExtractionConfig(provider="google", model=None)
         model = config.get_model_or_default()
         assert "gemini" in model.lower()
+
+    def test_config_get_model_or_default_ollama(self, sample_config_dict):
+        """Should return llama3 default when no model specified."""
+        from src.config import ExtractionConfig
+
+        config = ExtractionConfig(provider="ollama", model=None)
+        model = config.get_model_or_default()
+        assert "llama" in model.lower()
+
+    def test_config_get_model_or_default_llamacpp(self, sample_config_dict):
+        """Should return llama-3 default when no model specified."""
+        from src.config import ExtractionConfig
+
+        config = ExtractionConfig(provider="llamacpp", model=None)
+        model = config.get_model_or_default()
+        assert "llama" in model.lower()
 
     def test_config_get_model_explicit(self, sample_config_dict):
         """Should return explicit model when specified."""

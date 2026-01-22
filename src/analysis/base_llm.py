@@ -6,7 +6,7 @@ from typing import Literal
 from src.analysis.schemas import ExtractionResult
 
 ExtractionMode = Literal["api", "cli", "batch_api"]
-LLMProvider = Literal["anthropic", "openai", "google"]
+LLMProvider = Literal["anthropic", "openai", "google", "ollama", "llamacpp"]
 
 
 class BaseLLMClient(ABC):
@@ -108,4 +108,4 @@ class BaseLLMClient(ABC):
     @staticmethod
     def get_available_providers() -> list[str]:
         """Return list of available LLM providers."""
-        return ["anthropic", "openai", "google"]
+        return ["anthropic", "openai", "google", "ollama", "llamacpp"]

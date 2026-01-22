@@ -26,12 +26,13 @@ Embedding Generation --> ChromaDB Vector Store --> Semantic Search
 
 ## Features
 
-- **Zotero Integration**: Read-only access to Zotero SQLite database and PDF storage
+- **Multi-Provider LLM Support**: Anthropic Claude, OpenAI GPT, and Google Gemini
+- **Multiple Reference Sources**: Zotero, BibTeX files, PDF folders, and Mendeley
+- **Flexible Extraction Modes**: CLI (free with subscriptions) or API (pay-per-use)
 - **PDF Processing**: PyMuPDF extraction with OCR fallback for scanned documents
-- **Dual Extraction Modes**: CLI (free with Max subscription) or Batch API (paid, 50% discount)
 - **Semantic Search**: Vector similarity search with metadata filtering
 - **Incremental Updates**: Detect and process new/modified papers without full rebuild
-- **Multi-attachment Support**: Handles papers with multiple PDF attachments
+- **Config Migration**: Automatic schema versioning and migration
 
 ## Collaborative Research Model
 
@@ -120,9 +121,16 @@ When using Claude Code in this project, these slash commands are available:
 ## Prerequisites
 
 - Python 3.10+
-- Zotero desktop with local library
-- **For CLI mode**: Claude Code CLI with Max subscription (`claude login`)
-- **For Batch API mode**: Anthropic API key
+- Reference source (one of):
+  - Zotero desktop with local library
+  - BibTeX file (`.bib`) with optional PDF folder
+  - Folder of PDF files
+  - Mendeley Desktop
+- LLM access (one of):
+  - **Claude CLI**: Free with Max subscription (`claude login`)
+  - **Codex CLI**: Free with ChatGPT Plus/Pro (`codex login`)
+  - **API Key**: Anthropic, OpenAI, or Google Gemini
+  - **Local LLM**: Ollama or llama.cpp (free, runs on your hardware)
 - Optional: Tesseract OCR for scanned PDFs
 
 ## Installation
@@ -222,7 +230,7 @@ LITRIS/
 
 ## Configuration
 
-Create a `config.yaml` file (see `config.yaml.example`):
+Create a `config.yaml` file (see `config.example.yaml`):
 
 ```yaml
 zotero:
@@ -230,19 +238,36 @@ zotero:
   storage_path: "/path/to/zotero/storage"
 
 extraction:
-  mode: "cli"  # "cli" (free) or "batch_api" (paid, 50% discount)
-  model: "claude-opus-4-5-20251101"
+  provider: "anthropic"  # or "openai", "google", "ollama", "llamacpp"
+  mode: "cli"            # "cli" (subscription) or "api" (pay-per-use)
+  model: ""              # Leave empty for provider default
 
 embeddings:
   model: "sentence-transformers/all-MiniLM-L6-v2"
 ```
 
-### Extraction Mode Comparison
+### LLM Provider Options
 
-| Mode | Cost | Speed | Best For |
-|------|------|-------|----------|
-| `cli` | Free (Max subscription) | ~30s/paper | Budget, incremental updates |
-| `batch_api` | ~$0.14/paper | ~1hr for 500 | Speed, bulk builds |
+| Provider | CLI Mode | API Mode | Default Model |
+| -------- | -------- | -------- | ------------- |
+| Anthropic | Claude Max | API key | claude-opus-4-5-20251101 |
+| OpenAI | ChatGPT Plus/Pro | API key | gpt-5.2 |
+| Google | N/A | API key | gemini-3-pro |
+| Ollama | N/A | Local server | llama3 |
+| llama.cpp | N/A | Local file | llama-3 |
+
+See [docs/guides/openai-integration.md](docs/guides/openai-integration.md), [docs/guides/gemini-integration.md](docs/guides/gemini-integration.md), and [docs/guides/local-llm-integration.md](docs/guides/local-llm-integration.md) for setup details.
+
+### Reference Source Options
+
+| Source | Command | Use Case |
+| ------ | ------- | -------- |
+| Zotero | `--provider zotero` (default) | Full-featured reference manager |
+| BibTeX | `--provider bibtex --bibtex-path file.bib` | Any ref manager export |
+| PDF Folder | `--provider pdffolder --folder-path ./papers/` | No ref manager needed |
+| Mendeley | `--provider mendeley --db-path mendeley.sqlite` | Mendeley Desktop users |
+
+See [docs/guides/alternative-sources.md](docs/guides/alternative-sources.md) for details.
 
 ## Usage Examples
 
@@ -369,6 +394,6 @@ MIT
 ## Acknowledgments
 
 - [Zotero](https://www.zotero.org/) for reference management
-- [Anthropic Claude](https://www.anthropic.com/) for LLM extraction
+- [Anthropic Claude](https://www.anthropic.com/), [OpenAI](https://openai.com/), and [Google Gemini](https://ai.google.dev/) for LLM extraction
 - [ChromaDB](https://www.trychroma.com/) for vector storage
 - [sentence-transformers](https://www.sbert.net/) for embeddings

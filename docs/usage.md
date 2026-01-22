@@ -5,9 +5,10 @@ This guide covers the main workflows for using the Literature Review Index Syste
 ## Prerequisites
 
 Before starting, ensure you have:
+
 1. Completed the installation steps in README.md
-2. Configured `config.yaml` with your Zotero paths
-3. A Zotero library with PDF attachments
+2. Configured `config.yaml` with your reference source paths
+3. A reference source with papers (Zotero, BibTeX, PDF folder, or Mendeley)
 
 ## Building the Index
 
@@ -185,15 +186,64 @@ The extraction data is stored in `data/index/extractions.json`.
 
 ## Configuration Reference
 
-### config.yaml
+LITRIS uses `config.yaml` for all settings. See `config.example.yaml` for the full template.
+
+### Configuration Versioning
+
+The configuration file includes a schema version that enables automatic migration:
 
 ```yaml
+version: "1.2.0"  # Do not modify manually
+```
+
+When you upgrade LITRIS, old config files are automatically migrated to the current schema.
+A backup is created before migration (e.g., `config.yaml.bak.1.1.0`).
+
+### Multi-Provider LLM Configuration
+
+```yaml
+extraction:
+  provider: "anthropic"  # "anthropic", "openai", or "google"
+  mode: "cli"            # "cli" (subscription) or "api" (pay-per-use)
+  model: ""              # Leave empty for provider default
+  max_tokens: 100000
+  timeout: 120
+```
+
+Provider defaults:
+
+- **Anthropic**: claude-opus-4-5-20251101
+- **OpenAI**: gpt-5.2
+- **Google**: gemini-3-pro
+
+### Model Overrides by Document Type
+
+Optimize cost by using different models for different document types:
+
+```yaml
+extraction:
+  provider: "anthropic"
+  model: "claude-sonnet-4-20250514"  # Default model
+  model_overrides:
+    journal_article: "claude-sonnet-4-20250514"
+    book: "claude-opus-4-5-20251101"           # Better for books
+    thesis: "claude-opus-4-5-20251101"         # Better for theses
+    conference_paper: "gemini-2.5-flash"       # Cost-effective
+    preprint: "gemini-2.5-flash"               # Cost-effective
+```
+
+### Full Configuration Example
+
+```yaml
+version: "1.2.0"
+
 zotero:
   database_path: "D:/Zotero/zotero.sqlite"
   storage_path: "D:/Zotero/storage"
 
 extraction:
-  mode: "cli"  # or "batch_api"
+  provider: "anthropic"
+  mode: "cli"
   model: "claude-opus-4-5-20251101"
   max_tokens: 100000
   timeout: 120
@@ -213,7 +263,27 @@ processing:
   min_text_length: 100
 ```
 
+## Alternative Reference Sources
+
+LITRIS supports multiple reference sources beyond Zotero:
+
+```bash
+# BibTeX file
+python scripts/build_index.py --provider bibtex --bibtex-path refs.bib --pdf-dir ./papers/
+
+# PDF folder (no reference manager)
+python scripts/build_index.py --provider pdffolder --folder-path ./papers/
+
+# Mendeley Desktop
+python scripts/build_index.py --provider mendeley --db-path mendeley.sqlite
+```
+
+See [guides/alternative-sources.md](guides/alternative-sources.md) for detailed setup.
+
 ## Next Steps
 
 - See [Query Guide](query_guide.md) for search examples
 - See [Troubleshooting](troubleshooting.md) for common issues
+- See [guides/openai-integration.md](guides/openai-integration.md) for OpenAI/Codex setup
+- See [guides/gemini-integration.md](guides/gemini-integration.md) for Google Gemini setup
+- See [guides/alternative-sources.md](guides/alternative-sources.md) for BibTeX/PDF folder/Mendeley

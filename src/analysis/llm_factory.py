@@ -5,7 +5,7 @@ from typing import Literal
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode, LLMProvider
 
 # Provider type for configuration
-Provider = Literal["anthropic", "openai", "google"]
+Provider = Literal["anthropic", "openai", "google", "ollama", "llamacpp"]
 
 
 def create_llm_client(
@@ -22,13 +22,16 @@ def create_llm_client(
     provider selection and passes configuration to the appropriate client.
 
     Args:
-        provider: LLM provider ('anthropic', 'openai', or 'google').
+        provider: LLM provider ('anthropic', 'openai', 'google', 'ollama', or 'llamacpp').
         mode: Extraction mode ('api' for direct API, 'cli' for CLI tool).
         model: Model identifier. If None, uses provider's default.
         max_tokens: Maximum tokens for response.
         timeout: Request timeout in seconds.
         **kwargs: Additional provider-specific arguments.
             For OpenAI: reasoning_effort ('none', 'low', 'medium', 'high', 'xhigh')
+            For Ollama: ollama_host (server URL, default http://localhost:11434)
+            For llama.cpp: model_path (path to GGUF file), n_ctx (context size),
+                n_gpu_layers (GPU offload layers), verbose (enable logging)
 
     Returns:
         Configured LLM client instance.
@@ -51,6 +54,20 @@ def create_llm_client(
         client = create_llm_client(
             provider="google",
             model="gemini-2.5-flash"
+        )
+
+        # Create Ollama client for local inference
+        client = create_llm_client(
+            provider="ollama",
+            model="llama3",
+            ollama_host="http://localhost:11434"
+        )
+
+        # Create llama.cpp client for direct model loading
+        client = create_llm_client(
+            provider="llamacpp",
+            model_path="/path/to/model.gguf",
+            n_gpu_layers=-1  # Offload all layers to GPU
         )
     """
     if provider == "anthropic":
@@ -78,6 +95,27 @@ def create_llm_client(
             max_tokens=max_tokens,
             timeout=timeout,
         )
+    elif provider == "ollama":
+        from src.analysis.ollama_client import OllamaLLMClient
+        return OllamaLLMClient(
+            mode=mode,
+            model=model,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            host=kwargs.get("ollama_host"),
+        )
+    elif provider == "llamacpp":
+        from src.analysis.llamacpp_client import LlamaCppLLMClient
+        return LlamaCppLLMClient(
+            mode=mode,
+            model=model,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            model_path=kwargs.get("model_path"),
+            n_ctx=kwargs.get("n_ctx", 8192),
+            n_gpu_layers=kwargs.get("n_gpu_layers", -1),
+            verbose=kwargs.get("verbose", False),
+        )
     else:
         raise ValueError(
             f"Unsupported LLM provider: {provider}. "
@@ -87,7 +125,7 @@ def create_llm_client(
 
 def get_available_providers() -> list[str]:
     """Return list of available LLM providers."""
-    return ["anthropic", "openai", "google"]
+    return ["anthropic", "openai", "google", "ollama", "llamacpp"]
 
 
 def get_provider_models(provider: Provider) -> dict[str, str]:
@@ -108,6 +146,12 @@ def get_provider_models(provider: Provider) -> dict[str, str]:
     elif provider == "google":
         from src.analysis.gemini_client import GeminiLLMClient
         return GeminiLLMClient.list_models()
+    elif provider == "ollama":
+        from src.analysis.ollama_client import OllamaLLMClient
+        return OllamaLLMClient.list_models()
+    elif provider == "llamacpp":
+        from src.analysis.llamacpp_client import LlamaCppLLMClient
+        return LlamaCppLLMClient.list_models()
     else:
         return {}
 
@@ -125,6 +169,8 @@ def get_default_model(provider: Provider) -> str:
         "anthropic": "claude-opus-4-5-20251101",
         "openai": "gpt-5.2",
         "google": "gemini-2.5-flash",
+        "ollama": "llama3",
+        "llamacpp": "llama-3",
     }
     return defaults.get(provider, "")
 
