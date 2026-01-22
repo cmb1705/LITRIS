@@ -17,4 +17,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Streamlit Web UI port
+EXPOSE 8501
+
+# Default: show help. Override with docker run command.
 CMD ["python", "scripts/query_index.py", "--help"]

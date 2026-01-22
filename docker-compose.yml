@@ -9,10 +9,30 @@ services:
     volumes:
       - ./data:/app/data
       - ./config.yaml:/app/config.yaml:ro
-      - ${ZOTERO_DB_HOST}:/zotero/zotero.sqlite:ro
-      - ${ZOTERO_STORAGE_HOST}:/zotero/storage:ro
+      - ${ZOTERO_DB_HOST:-/dev/null}:/zotero/zotero.sqlite:ro
+      - ${ZOTERO_STORAGE_HOST:-/dev/null}:/zotero/storage:ro
     environment:
       ZOTERO_DATABASE_PATH: /zotero/zotero.sqlite
       ZOTERO_STORAGE_PATH: /zotero/storage
     env_file:
       - .env
+
+  # Web UI service - run with: docker compose up web
+  web:
+    build:
+      context: .
+    image: litris:dev
+    working_dir: /app
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+      - ${ZOTERO_DB_HOST:-/dev/null}:/zotero/zotero.sqlite:ro
+      - ${ZOTERO_STORAGE_HOST:-/dev/null}:/zotero/storage:ro
+    environment:
+      ZOTERO_DATABASE_PATH: /zotero/zotero.sqlite
+      ZOTERO_STORAGE_PATH: /zotero/storage
+    env_file:
+      - .env
+    command: ["python", "-m", "streamlit", "run", "scripts/web_ui.py", "--server.address", "0.0.0.0"]

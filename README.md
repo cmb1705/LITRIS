@@ -185,8 +185,15 @@ docker compose build
 Run commands via Compose:
 
 ```bash
-docker compose run --rm litris scripts/build_index.py --dry-run
-docker compose run --rm litris scripts/query_index.py -q "network analysis methods"
+docker compose run --rm litris python scripts/build_index.py --dry-run
+docker compose run --rm litris python scripts/query_index.py -q "network analysis methods"
+```
+
+Run the Web UI:
+
+```bash
+docker compose up web
+# Open http://localhost:8501 in your browser
 ```
 
 Note: The container targets API or batch modes. CLI modes require installing and authenticating
