@@ -1397,6 +1397,8 @@ def main() -> None:
         st.info("Try rebuilding the index using the controls in the sidebar.")
         st.stop()
 
+    st.session_state.setdefault("search_error", None)
+
     with st.sidebar:
         st.subheader("Filters")
         filter_options = load_filter_options(engine)
@@ -1609,6 +1611,7 @@ def main() -> None:
             submitted = st.form_submit_button("Run search", type="primary")
 
         if submitted:
+            st.session_state["search_error"] = None
             if metadata_only:
                 title_text = title_query.strip()
                 author_text = author_query.strip()
@@ -1639,6 +1642,7 @@ def main() -> None:
                             )
                             results = sort_results(results, sort_key)
                         except Exception as e:
+                            st.session_state["search_error"] = f"Metadata search failed: {e}"
                             st.error(f"Metadata search failed: {e}")
                             results = []
                     st.session_state["search_results"] = results
@@ -1676,6 +1680,7 @@ def main() -> None:
                             )
                             results = sort_results(results, sort_key)
                         except Exception as e:
+                            st.session_state["search_error"] = f"Search failed: {e}"
                             st.error(f"Search failed: {e}")
                             results = []
                     st.session_state["search_results"] = results
@@ -1698,6 +1703,7 @@ def main() -> None:
 
         # Handle quick filter trigger - re-run search with current query and updated filters
         if st.session_state.pop("trigger_search", False):
+            st.session_state["search_error"] = None
             last_query = st.session_state.get("last_query", "")
             if metadata_only:
                 title_text = st.session_state.get("metadata_title", "").strip()
@@ -1732,6 +1738,7 @@ def main() -> None:
                                 results[0].paper_id if results else None
                             )
                         except Exception as e:
+                            st.session_state["search_error"] = f"Filter search failed: {e}"
                             st.error(f"Filter search failed: {e}")
                 else:
                     st.warning("Enter a title or author to search.")
@@ -1754,6 +1761,7 @@ def main() -> None:
                         st.session_state["selected_ids"] = set()
                         st.session_state["results_page"] = 0
                     except Exception as e:
+                        st.session_state["search_error"] = f"Filter search failed: {e}"
                         st.error(f"Filter search failed: {e}")
 
         results = sort_results(
@@ -1761,6 +1769,7 @@ def main() -> None:
             sort_key,
         )
         last_query = st.session_state.get("last_query", "")
+        search_error = st.session_state.get("search_error")
 
         if results:
             st.markdown(f"**{len(results)} results** for `{last_query}`")
@@ -1781,6 +1790,8 @@ def main() -> None:
 
         elif last_query:
             # Search was run but no results found
+            if search_error:
+                return
             st.warning(f"No results found for: `{last_query}`")
             st.markdown("""
 **Suggestions:**

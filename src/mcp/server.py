@@ -39,7 +39,8 @@ mcp = FastMCP(
     instructions="LITRIS provides semantic search over an academic literature index. "
     "Use litris_search for finding papers, litris_get_paper for full details, "
     "litris_similar for related papers, litris_summary for index stats, "
-    "and litris_collections for available collections.",
+    "litris_collections for available collections, and litris_save_query to save "
+    "query results to the query_results folder.",
 )
 
 # Global adapter instance (lazy initialized)
@@ -277,6 +278,128 @@ async def litris_collections() -> dict[str, Any]:
         elapsed = time.time() - start_time
         logger.error(f"[{request_id}] Collections failed in {elapsed:.3f}s: {e}")
         return {"error": "SEARCH_FAILED", "message": str(e), "collections": []}
+
+
+@mcp.tool()
+async def litris_save_query(
+    content: str,
+    query: str,
+    title: str | None = None,
+    generate_pdf: bool = True,
+) -> dict[str, Any]:
+    """Save query results to the query_results folder.
+
+    Args:
+        content: Markdown content to save (the formatted query response)
+        query: The original search query (used for filename generation)
+        title: Optional custom title for the file (overrides query-based slug)
+        generate_pdf: Whether to also generate a PDF version (default: True)
+
+    Returns:
+        Paths to saved files and status
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+    logger.info(f"[{request_id}] litris_save_query called: query='{query[:50]}...'")
+
+    try:
+        from datetime import datetime
+        from src.query.retrieval import slugify_query, _get_pdf_css
+
+        # Determine output directory
+        output_dir = Path("data/query_results")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate filename
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        if title:
+            slug = slugify_query(title)
+        else:
+            slug = slugify_query(query)
+
+        md_filename = f"{date_str}_{slug}.md"
+        md_path = output_dir / md_filename
+
+        # Save markdown
+        md_path.write_text(content, encoding="utf-8")
+
+        # Update latest.md
+        latest_md = output_dir / "latest.md"
+        latest_md.write_text(content, encoding="utf-8")
+
+        saved_files = [str(md_path), str(latest_md)]
+
+        # Generate PDF if requested
+        if generate_pdf:
+            try:
+                import fitz
+                import markdown
+
+                html_content = markdown.markdown(
+                    content,
+                    extensions=["tables", "fenced_code", "nl2br"],
+                )
+                html_content = f"<html><body>{html_content}</body></html>"
+
+                css = _get_pdf_css()
+                page_width, page_height = 612, 792
+                margin = 54
+
+                # Save dated PDF
+                pdf_path = md_path.with_suffix(".pdf")
+                story = fitz.Story(html=html_content, user_css=css)
+                writer = fitz.DocumentWriter(str(pdf_path))
+                mediabox = fitz.Rect(0, 0, page_width, page_height)
+                where = fitz.Rect(margin, margin, page_width - margin, page_height - margin)
+
+                more = True
+                while more:
+                    device = writer.begin_page(mediabox)
+                    more, _ = story.place(where)
+                    story.draw(device)
+                    writer.end_page()
+                writer.close()
+
+                # Save latest PDF
+                latest_pdf = output_dir / "latest.pdf"
+                story = fitz.Story(html=html_content, user_css=css)
+                writer = fitz.DocumentWriter(str(latest_pdf))
+
+                more = True
+                while more:
+                    device = writer.begin_page(mediabox)
+                    more, _ = story.place(where)
+                    story.draw(device)
+                    writer.end_page()
+                writer.close()
+
+                saved_files.extend([str(pdf_path), str(latest_pdf)])
+                logger.info(f"[{request_id}] Generated PDF: {pdf_path}")
+
+            except ImportError as e:
+                logger.warning(f"[{request_id}] PDF generation skipped (missing deps): {e}")
+            except Exception as e:
+                logger.warning(f"[{request_id}] PDF generation failed: {e}")
+
+        elapsed = time.time() - start_time
+        logger.info(f"[{request_id}] litris_save_query saved {len(saved_files)} files in {elapsed:.3f}s")
+
+        return {
+            "success": True,
+            "saved_files": saved_files,
+            "primary_file": str(md_path),
+            "message": f"Query results saved to {md_path}",
+        }
+
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"[{request_id}] Save query failed in {elapsed:.3f}s: {e}")
+        return {
+            "success": False,
+            "error": "SAVE_FAILED",
+            "message": str(e),
+            "saved_files": [],
+        }
 
 
 def create_server() -> FastMCP:

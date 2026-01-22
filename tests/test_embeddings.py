@@ -328,6 +328,30 @@ class TestVectorStore:
         for r in results:
             assert r.metadata.get("item_type") == "journalArticle"
 
+    def test_search_year_filter_operands_are_numeric(self, vector_store, monkeypatch):
+        """Ensure year filter operands stay numeric for Chroma queries."""
+        captured = {}
+
+        def fake_query(**kwargs):
+            captured["where"] = kwargs.get("where")
+            return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+        monkeypatch.setattr(vector_store.collection, "query", fake_query)
+
+        vector_store.search(
+            query_embedding=[0.1] * 384,
+            top_k=5,
+            year_min=1945,
+            year_max=2025,
+        )
+
+        where = captured.get("where")
+        assert where is not None
+        assert where["$and"][0]["year"]["$gte"] == 1945
+        assert isinstance(where["$and"][0]["year"]["$gte"], int)
+        assert where["$and"][1]["year"]["$lte"] == 2025
+        assert isinstance(where["$and"][1]["year"]["$lte"], int)
+
     def test_delete_paper(self, vector_store, sample_chunks):
         """Test deleting a paper's chunks."""
         vector_store.add_chunks(sample_chunks)

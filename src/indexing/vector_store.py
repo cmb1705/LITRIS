@@ -15,6 +15,32 @@ logger = get_logger(__name__)
 COLLECTION_NAME = "paper_chunks"
 
 
+def _normalize_metadata(metadata: dict) -> dict:
+    normalized: dict[str, Any] = {}
+    for key, value in metadata.items():
+        if key == "year":
+            if isinstance(value, (int, float)):
+                normalized[key] = int(value)
+            else:
+                value_str = str(value).strip() if value is not None else ""
+                normalized[key] = int(value_str) if value_str.isdigit() else value_str
+            continue
+        if isinstance(value, (int, float, bool)):
+            normalized[key] = value
+        elif value is None:
+            normalized[key] = ""
+        else:
+            normalized[key] = str(value)
+    return normalized
+
+
+def _collections_match(value: str, requested: list[str]) -> bool:
+    if not value:
+        return False
+    available = {item.strip() for item in value.split(",") if item.strip()}
+    return any(item in available for item in requested)
+
+
 @dataclass
 class SearchResult:
     """A single search result."""
@@ -124,7 +150,7 @@ class VectorStore:
                 {
                     "paper_id": c.paper_id,
                     "chunk_type": c.chunk_type,
-                    **{k: str(v) for k, v in c.metadata.items()},
+                    **_normalize_metadata(c.metadata or {}),
                 }
                 for c in batch
             ]
@@ -219,7 +245,7 @@ class VectorStore:
             search_results = [
                 r
                 for r in search_results
-                if any(c in r.metadata.get("collections", "") for c in collections)
+                if _collections_match(r.metadata.get("collections", ""), collections)
             ]
 
         return search_results

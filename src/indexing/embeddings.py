@@ -4,7 +4,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from sentence_transformers import SentenceTransformer
+try:
+    from sentence_transformers import SentenceTransformer as _SentenceTransformer
+except Exception:  # noqa: BLE001 - handle missing or broken optional dependency
+    _SentenceTransformer = None
 
 from src.analysis.schemas import PaperExtraction
 from src.utils.logging_config import get_logger
@@ -35,6 +38,8 @@ CHUNK_TYPES: list[ChunkType] = [
     "future_work",
     "full_summary",
 ]
+
+SentenceTransformer = _SentenceTransformer
 
 
 @dataclass
@@ -80,6 +85,16 @@ class EmbeddingGenerator:
         self.device = device
 
         logger.info(f"Loading embedding model: {model_name}")
+        global SentenceTransformer
+        if SentenceTransformer is None:
+            try:
+                from sentence_transformers import SentenceTransformer as ImportedSentenceTransformer
+            except Exception as exc:  # noqa: BLE001 - surface actionable error
+                raise RuntimeError(
+                    "sentence-transformers failed to import. "
+                    "Install dependencies from requirements.txt and ensure the .venv is active."
+                ) from exc
+            SentenceTransformer = ImportedSentenceTransformer
         self.model = SentenceTransformer(model_name, device=device)
         self.embedding_dim = self.model.get_sentence_embedding_dimension()
         logger.info(f"Model loaded. Embedding dimension: {self.embedding_dim}")
