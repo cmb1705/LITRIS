@@ -26,8 +26,8 @@ Embedding Generation --> ChromaDB Vector Store --> Semantic Search
 
 ## Features
 
-- **Multi-Provider LLM Support**: Anthropic Claude, OpenAI GPT, and Google Gemini
-- **Multiple Reference Sources**: Zotero, BibTeX files, PDF folders, and Mendeley
+- **Multi-Provider LLM Support**: Anthropic Claude, OpenAI GPT, Google Gemini, Ollama, and llama.cpp
+- **Multiple Reference Sources**: Zotero, BibTeX, PDF folders, Mendeley, EndNote, and Paperpile
 - **Flexible Extraction Modes**: CLI (free with subscriptions) or API (pay-per-use)
 - **PDF Processing**: PyMuPDF extraction with OCR fallback for scanned documents
 - **Semantic Search**: Vector similarity search with metadata filtering

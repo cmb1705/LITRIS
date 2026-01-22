@@ -13,7 +13,7 @@ def create_reference_db(
     """Create a reference database instance for the specified provider.
 
     Args:
-        provider: Reference manager provider ('zotero', 'bibtex', 'pdffolder', or 'mendeley').
+        provider: Reference manager provider.
         **kwargs: Provider-specific configuration.
 
     For Zotero:
@@ -32,6 +32,15 @@ def create_reference_db(
     For Mendeley:
         db_path: Path to Mendeley SQLite database.
         storage_path: Optional root path for resolving relative file paths.
+
+    For EndNote:
+        xml_path: Path to EndNote XML export file.
+        pdf_dir: Optional path to directory containing PDFs.
+
+    For Paperpile:
+        bibtex_path: Path to BibTeX file exported from Paperpile.
+        pdf_dir: Optional path to directory containing PDFs.
+        sync_folder: Optional path to Paperpile sync folder (Google Drive).
 
     Returns:
         Configured reference database instance.
@@ -65,6 +74,20 @@ def create_reference_db(
         db = create_reference_db(
             provider="mendeley",
             db_path=Path("~/Mendeley Desktop/mendeley.sqlite"),
+        )
+
+        # Create EndNote reference database
+        db = create_reference_db(
+            provider="endnote",
+            xml_path=Path("library.xml"),
+            pdf_dir=Path("papers/"),
+        )
+
+        # Create Paperpile reference database
+        db = create_reference_db(
+            provider="paperpile",
+            bibtex_path=Path("paperpile_export.bib"),
+            sync_folder=Path("~/Google Drive/Paperpile"),
         )
     """
     if provider == "zotero":
@@ -127,6 +150,36 @@ def create_reference_db(
             storage_path=Path(storage_path) if storage_path else None,
         )
 
+    elif provider == "endnote":
+        from src.references.endnote_adapter import EndNoteReferenceDB
+
+        xml_path = kwargs.get("xml_path")
+        pdf_dir = kwargs.get("pdf_dir")
+
+        if not xml_path:
+            raise ValueError("xml_path is required for EndNote provider")
+
+        return EndNoteReferenceDB(
+            xml_path=Path(xml_path),
+            pdf_dir=Path(pdf_dir) if pdf_dir else None,
+        )
+
+    elif provider == "paperpile":
+        from src.references.paperpile_adapter import PaperpileReferenceDB
+
+        bibtex_path = kwargs.get("bibtex_path")
+        pdf_dir = kwargs.get("pdf_dir")
+        sync_folder = kwargs.get("sync_folder")
+
+        if not bibtex_path:
+            raise ValueError("bibtex_path is required for Paperpile provider")
+
+        return PaperpileReferenceDB(
+            bibtex_path=Path(bibtex_path),
+            pdf_dir=Path(pdf_dir) if pdf_dir else None,
+            sync_folder=Path(sync_folder) if sync_folder else None,
+        )
+
     else:
         raise ValueError(
             f"Unsupported reference provider: {provider}. "
@@ -136,4 +189,4 @@ def create_reference_db(
 
 def get_available_providers() -> list[str]:
     """Return list of available reference providers."""
-    return ["zotero", "bibtex", "pdffolder", "mendeley"]
+    return ["zotero", "bibtex", "pdffolder", "mendeley", "endnote", "paperpile"]

@@ -5,6 +5,8 @@ LITRIS supports multiple reference sources beyond Zotero:
 - **BibTeX**: Import from `.bib` files exported from any reference manager
 - **PDF Folder**: Scan folders of PDF files without any reference manager
 - **Mendeley**: Read directly from Mendeley Desktop database
+- **EndNote**: Parse EndNote XML export files
+- **Paperpile**: Import from Paperpile BibTeX exports with sync folder support
 
 ## Quick Reference
 
@@ -14,6 +16,8 @@ LITRIS supports multiple reference sources beyond Zotero:
 | BibTeX | `.bib` file + PDF folder | Cross-platform, any ref manager |
 | PDF Folder | Folder of PDFs | No reference manager needed |
 | Mendeley | SQLite database | Mendeley Desktop users |
+| EndNote | XML export file | EndNote users |
+| Paperpile | BibTeX export + sync folder | Paperpile users |
 
 ## BibTeX Import
 
@@ -280,16 +284,159 @@ for paper in db.get_all_papers():
     print(f"  Collections: {paper.collections}")
 ```
 
+## EndNote Import
+
+### Overview
+
+The EndNote adapter parses XML files exported from EndNote. This provides full metadata access including custom reference types, keywords, and file attachments.
+
+### Exporting from EndNote
+
+1. Open your EndNote library
+2. Select references to export (or Ctrl+A for all)
+3. File -> Export...
+4. Choose "XML" as the output style
+5. Save the `.xml` file
+
+### Usage
+
+```powershell
+# Build index from EndNote XML
+python scripts/build_index.py --provider endnote --xml-path library.xml
+
+# With PDF directory for file matching
+python scripts/build_index.py --provider endnote --xml-path library.xml --pdf-dir ./papers/
+```
+
+### Supported Reference Types
+
+| EndNote Type | LITRIS Type |
+| ------------ | ----------- |
+| Journal Article | journalArticle |
+| Book | book |
+| Book Section | bookSection |
+| Conference Proceedings | conferencePaper |
+| Thesis | thesis |
+| Report | report |
+| Web Page | webpage |
+| Patent | patent |
+| Generic | document |
+
+### PDF Matching
+
+When a `pdf_dir` is specified, the adapter matches PDFs by record number:
+
+```text
+library.xml contains:
+  <record><rec-number>123</rec-number>...</record>
+
+papers/ contains:
+  123.pdf  -> Matched!
+```
+
+### Programmatic Usage
+
+```python
+from src.references.factory import create_reference_db
+
+db = create_reference_db(
+    provider="endnote",
+    xml_path="library.xml",
+    pdf_dir="papers/"  # Optional
+)
+
+for paper in db.get_all_papers():
+    print(f"{paper.title} ({paper.publication_year})")
+```
+
+### Running the Smoketest
+
+```powershell
+python scripts/smoketest_endnote.py
+```
+
+## Paperpile Import
+
+### Overview
+
+The Paperpile adapter works with BibTeX exports from Paperpile. Since Paperpile does not provide a public API, this is the recommended approach for importing your library.
+
+Note: Paperpile's sync folder (Google Drive) can be used for automatic PDF matching.
+
+### Exporting from Paperpile
+
+1. Go to [paperpile.com](https://paperpile.com) and open your library
+2. Select references to export (or all)
+3. Click Export -> BibTeX
+4. Save the `.bib` file
+
+### Usage
+
+```powershell
+# Build index from Paperpile BibTeX
+python scripts/build_index.py --provider paperpile --bibtex-path paperpile.bib
+
+# With PDF directory
+python scripts/build_index.py --provider paperpile --bibtex-path paperpile.bib --pdf-dir ./papers/
+
+# With Paperpile sync folder (Google Drive)
+python scripts/build_index.py --provider paperpile --bibtex-path paperpile.bib --sync-folder "~/Google Drive/Paperpile"
+```
+
+### Sync Folder Support
+
+If you use Paperpile's Google Drive sync, the adapter can automatically find PDFs:
+
+```text
+Google Drive/Paperpile/
+  Smith/
+    Smith2020_Network_Analysis.pdf  -> Matched by author folder
+  Jones/
+    Jones2021_Graph_Theory.pdf
+```
+
+### Paperpile-Specific Metadata
+
+The adapter handles Paperpile-specific fields:
+
+- **Labels**: Mapped to tags (from `keywords` field)
+- **Folders/Groups**: Mapped to collections (from `groups` field)
+- **Notes**: Used as abstract if no abstract exists
+
+### Programmatic Usage
+
+```python
+from src.references.factory import create_reference_db
+
+db = create_reference_db(
+    provider="paperpile",
+    bibtex_path="paperpile.bib",
+    pdf_dir="papers/",         # Optional
+    sync_folder="~/Google Drive/Paperpile"  # Optional
+)
+
+for paper in db.get_all_papers():
+    print(f"{paper.title}")
+    print(f"  Tags: {paper.tags}")
+    print(f"  Collections: {paper.collections}")
+```
+
+### Running the Smoketest
+
+```powershell
+python scripts/smoketest_paperpile.py
+```
+
 ## Comparison
 
-| Feature | Zotero | BibTeX | PDF Folder | Mendeley |
-| ------- | ------ | ------ | ---------- | -------- |
-| Full metadata | Yes | Yes | Partial | Yes |
-| PDF attachments | Yes | Manual match | Automatic | Yes |
-| Collections/folders | Yes | No | From subfolders | Yes |
-| Tags/keywords | Yes | From field | From PDF | Yes |
-| Requires software | Yes | No | No | Yes |
-| Cross-platform | Yes | Yes | Yes | Yes |
+| Feature | Zotero | BibTeX | PDF Folder | Mendeley | EndNote | Paperpile |
+| ------- | ------ | ------ | ---------- | -------- | ------- | --------- |
+| Full metadata | Yes | Yes | Partial | Yes | Yes | Yes |
+| PDF attachments | Yes | Manual match | Automatic | Yes | Manual match | Sync folder |
+| Collections/folders | Yes | No | From subfolders | Yes | No | Yes |
+| Tags/keywords | Yes | From field | From PDF | Yes | Yes | Yes |
+| Requires software | Yes | No | No | Yes | Yes | No |
+| Cross-platform | Yes | Yes | Yes | Yes | Yes | Yes |
 
 ## Troubleshooting
 
