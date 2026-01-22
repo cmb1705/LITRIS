@@ -487,21 +487,43 @@ def render_header() -> None:
     )
 
 
-def render_index_summary(engine: SearchEngine) -> None:
-    """Render index summary stats in the sidebar."""
+def render_index_summary(engine: SearchEngine, full_view: bool = False) -> None:
+    """Render index summary stats.
+
+    Args:
+        engine: SearchEngine instance.
+        full_view: If True, render full summary. Otherwise compact sidebar view.
+    """
     if "summary" not in st.session_state:
         st.session_state.summary = engine.get_summary()
 
     summary = st.session_state.summary
-    st.metric("Papers", summary.get("total_papers", 0))
-    st.metric("Extractions", summary.get("total_extractions", 0))
+
+    if full_view:
+        # Full summary view for main content area
+        st.markdown(format_summary(summary))
+        return
+
+    # Compact sidebar view
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Papers", summary.get("total_papers", 0))
+    with col2:
+        st.metric("Extractions", summary.get("total_extractions", 0))
+
     generated_at = summary.get("generated_at")
     if generated_at:
-        st.caption(f"Summary generated: {generated_at}")
+        st.caption(f"Summary: {generated_at}")
     if summary.get("vector_store"):
         st.caption(
-            f"Vector chunks: {summary['vector_store'].get('total_chunks', 0)}"
+            f"Chunks: {summary['vector_store'].get('total_chunks', 0)}"
         )
+
+    # Top collections preview
+    by_collection = summary.get("papers_by_collection", {})
+    if by_collection:
+        top_3 = list(by_collection.items())[:3]
+        st.caption("Top collections: " + ", ".join(f"{c}({n})" for c, n in top_3))
 
 
 def render_build_controls() -> None:
@@ -666,218 +688,290 @@ def main() -> None:
         )
 
         with st.expander("Index summary", expanded=False):
-            render_index_summary(engine)
+            render_index_summary(engine, full_view=False)
 
         if st.button("Refresh index metadata", use_container_width=True):
             st.session_state.pop("filter_options", None)
             st.session_state.pop("summary", None)
+            st.rerun()
 
-    with st.form("search_form", clear_on_submit=False):
-        query = st.text_input(
-            "Search query",
-            value=st.session_state.get("last_query", ""),
-            placeholder="Enter a research question or concept",
-        )
-        submitted = st.form_submit_button("Run search", type="primary")
+    # Main content tabs
+    search_tab, summary_tab = st.tabs(["Search", "Index Summary"])
 
-    if submitted:
-        if not query.strip():
-            st.warning("Enter a query to search.")
-        else:
-            with st.spinner("Running semantic search..."):
-                results = execute_search(
-                    engine=engine,
-                    query=query.strip(),
-                    top_k=top_k,
-                    chunk_types=normalize_chunk_filter(chunk_types),
-                    year_min=year_range[0] if use_year_filter else None,
-                    year_max=year_range[1] if use_year_filter else None,
-                    collections=collections or None,
-                    item_types=item_types or None,
-                    include_extraction=include_extraction,
-                    deduplicate_papers=deduplicate_papers,
+    with summary_tab:
+        st.subheader("Full Index Summary")
+        render_index_summary(engine, full_view=True)
+
+    with search_tab:
+        with st.form("search_form", clear_on_submit=False):
+            query = st.text_input(
+                "Search query",
+                value=st.session_state.get("last_query", ""),
+                placeholder="Enter a research question or concept",
+            )
+            submitted = st.form_submit_button("Run search", type="primary")
+
+        if submitted:
+            query_text = query.strip()
+            if not query_text:
+                st.warning("Enter a query to search.")
+            elif len(query_text) < 3:
+                st.warning("Query too short. Enter at least 3 characters.")
+            else:
+                with st.spinner("Running semantic search..."):
+                    try:
+                        results = execute_search(
+                            engine=engine,
+                            query=query_text,
+                            top_k=top_k,
+                            chunk_types=normalize_chunk_filter(chunk_types),
+                            year_min=year_range[0] if use_year_filter else None,
+                            year_max=year_range[1] if use_year_filter else None,
+                            collections=collections or None,
+                            item_types=item_types or None,
+                            include_extraction=include_extraction,
+                            deduplicate_papers=deduplicate_papers,
+                        )
+                    except Exception as e:
+                        st.error(f"Search failed: {e}")
+                        results = []
+                st.session_state["search_results"] = results
+                st.session_state["last_query"] = query_text
+                st.session_state["selected_paper_id"] = (
+                    results[0].paper_id if results else None
                 )
-            st.session_state["search_results"] = results
-            st.session_state["last_query"] = query.strip()
-            st.session_state["selected_paper_id"] = (
-                results[0].paper_id if results else None
+                # Clear similar results when new search is run
+                st.session_state.pop("similar_results", None)
+
+        results = st.session_state.get("search_results", [])
+        last_query = st.session_state.get("last_query", "")
+
+        if results:
+            st.markdown(f"**{len(results)} results** for `{last_query}`")
+        elif last_query:
+            # Search was run but no results found
+            st.warning(f"No results found for: `{last_query}`")
+            st.markdown("""
+**Suggestions:**
+- Try broader or different search terms
+- Remove some filters (collections, year range, item types)
+- Check if the chunk types filter is too restrictive
+- Use the "Find Similar Papers" feature from a known paper
+            """)
+            return
+        else:
+            st.info("Run a search to see results. Enter a research question or concept above.")
+            # Show some example queries
+            with st.expander("Example queries", expanded=False):
+                examples = [
+                    "neural network architectures for image classification",
+                    "qualitative research methods in social sciences",
+                    "climate change impact on biodiversity",
+                    "machine learning in healthcare diagnostics",
+                ]
+                for ex in examples:
+                    st.code(ex)
+
+        if not results:
+            return
+
+        export_col, spacer_col, detail_col = st.columns([1.2, 0.1, 1.1], gap="large")
+
+        with export_col:
+            st.subheader("Results")
+
+            # Export options
+            export_format = st.selectbox(
+                "Export format",
+                options=["markdown", "json", "brief", "pdf", "csv", "bibtex"],
+                index=0,
+                help="Choose format for exporting search results",
             )
 
-    results = st.session_state.get("search_results", [])
-    if results:
-        st.markdown(f"**{len(results)} results** for `{st.session_state.get('last_query', '')}`")
-    else:
-        st.info("Run a search to see results.")
-
-    if not results:
-        return
-
-    export_col, spacer_col, detail_col = st.columns([1.2, 0.1, 1.1], gap="large")
-
-    with export_col:
-        st.subheader("Results")
-
-        # Export options
-        export_format = st.selectbox(
-            "Export format",
-            options=["markdown", "json", "brief", "pdf", "csv", "bibtex"],
-            index=0,
-            help="Choose format for exporting search results",
-        )
-
-        export_cols = st.columns(2)
-        with export_cols[0]:
-            if st.button("Save to disk", use_container_width=True):
-                if export_format in ("csv", "bibtex"):
-                    # Handle CSV/BibTeX separately
-                    query_slug = st.session_state.get("last_query", "search")[:30].replace(" ", "-")
-                    date_str = datetime.now().strftime("%Y-%m-%d")
-                    if export_format == "csv":
-                        content = results_to_csv(results)
-                        filename = f"{date_str}_{query_slug}.csv"
+            export_cols = st.columns(2)
+            with export_cols[0]:
+                if st.button("Save to disk", use_container_width=True):
+                    if export_format in ("csv", "bibtex"):
+                        # Handle CSV/BibTeX separately
+                        query_slug = st.session_state.get("last_query", "search")[:30].replace(" ", "-")
+                        date_str = datetime.now().strftime("%Y-%m-%d")
+                        if export_format == "csv":
+                            content = results_to_csv(results)
+                            filename = f"{date_str}_{query_slug}.csv"
+                        else:
+                            content = results_to_bibtex(results)
+                            filename = f"{date_str}_{query_slug}.bib"
+                        export_path = results_dir / filename
+                        results_dir.mkdir(parents=True, exist_ok=True)
+                        export_path.write_text(content, encoding="utf-8")
+                        st.success(f"Saved to {export_path}")
                     else:
-                        content = results_to_bibtex(results)
-                        filename = f"{date_str}_{query_slug}.bib"
-                    export_path = results_dir / filename
-                    results_dir.mkdir(parents=True, exist_ok=True)
-                    export_path.write_text(content, encoding="utf-8")
-                    st.success(f"Saved to {export_path}")
-                else:
-                    export_path = save_export(
+                        export_path = save_export(
+                            results=results,
+                            query=st.session_state.get("last_query", "search"),
+                            export_format=cast(OutputFormat, export_format),
+                            results_dir=results_dir,
+                            include_extraction=include_extraction,
+                        )
+                        st.success(f"Saved to {export_path}")
+
+            with export_cols[1]:
+                # Direct download button
+                query_slug = st.session_state.get("last_query", "search")[:30].replace(" ", "-")
+                date_str = datetime.now().strftime("%Y-%m-%d")
+
+                if export_format == "csv":
+                    content = results_to_csv(results)
+                    st.download_button(
+                        "Download CSV",
+                        data=content,
+                        file_name=f"{date_str}_{query_slug}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
+                elif export_format == "bibtex":
+                    content = results_to_bibtex(results)
+                    st.download_button(
+                        "Download BibTeX",
+                        data=content,
+                        file_name=f"{date_str}_{query_slug}.bib",
+                        mime="application/x-bibtex",
+                        use_container_width=True,
+                    )
+                elif export_format == "pdf":
+                    # Generate PDF and offer download
+                    temp_path = save_export(
                         results=results,
                         query=st.session_state.get("last_query", "search"),
-                        export_format=cast(OutputFormat, export_format),
+                        export_format="pdf",
                         results_dir=results_dir,
                         include_extraction=include_extraction,
                     )
-                    st.success(f"Saved to {export_path}")
-
-        with export_cols[1]:
-            # Direct download button
-            query_slug = st.session_state.get("last_query", "search")[:30].replace(" ", "-")
-            date_str = datetime.now().strftime("%Y-%m-%d")
-
-            if export_format == "csv":
-                content = results_to_csv(results)
-                st.download_button(
-                    "Download CSV",
-                    data=content,
-                    file_name=f"{date_str}_{query_slug}.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
-            elif export_format == "bibtex":
-                content = results_to_bibtex(results)
-                st.download_button(
-                    "Download BibTeX",
-                    data=content,
-                    file_name=f"{date_str}_{query_slug}.bib",
-                    mime="application/x-bibtex",
-                    use_container_width=True,
-                )
-            elif export_format == "pdf":
-                # Generate PDF and offer download
-                temp_path = save_export(
-                    results=results,
-                    query=st.session_state.get("last_query", "search"),
-                    export_format="pdf",
-                    results_dir=results_dir,
-                    include_extraction=include_extraction,
-                )
-                if temp_path.exists():
+                    if temp_path.exists():
+                        st.download_button(
+                            "Download PDF",
+                            data=temp_path.read_bytes(),
+                            file_name=temp_path.name,
+                            mime="application/pdf",
+                            use_container_width=True,
+                        )
+                else:
+                    content = format_results(
+                        results=results,
+                        query=st.session_state.get("last_query", "search"),
+                        output_format=cast(OutputFormat, export_format),
+                        include_extraction=include_extraction,
+                    )
+                    ext = {"markdown": "md", "json": "json", "brief": "txt"}.get(export_format, "txt")
                     st.download_button(
-                        "Download PDF",
-                        data=temp_path.read_bytes(),
-                        file_name=temp_path.name,
-                        mime="application/pdf",
+                        f"Download {export_format.upper()}",
+                        data=content,
+                        file_name=f"{date_str}_{query_slug}.{ext}",
                         use_container_width=True,
                     )
-            else:
-                content = format_results(
-                    results=results,
-                    query=st.session_state.get("last_query", "search"),
-                    output_format=cast(OutputFormat, export_format),
-                    include_extraction=include_extraction,
-                )
-                ext = {"markdown": "md", "json": "json", "brief": "txt"}.get(export_format, "txt")
-                st.download_button(
-                    f"Download {export_format.upper()}",
-                    data=content,
-                    file_name=f"{date_str}_{query_slug}.{ext}",
-                    use_container_width=True,
-                )
 
-        for idx, result in enumerate(results, 1):
-            year_label = f" ({result.year})" if result.year else ""
-            authors = escape(result.authors or "Unknown")
-            title = escape(result.title)
-            chunk_label = escape(result.chunk_type)
-            item_label = escape(result.item_type or "unknown")
-            matched = escape(result.matched_text.strip())
-            if len(matched) > 280:
-                matched = matched[:280] + "..."
-            card_html = f"""
-            <div class="result-card" style="animation-delay: {idx * 70}ms;">
-              <div class="result-title">{idx}. {title}{year_label}</div>
-              <div class="result-meta">{authors} | Score {result.score:.3f}</div>
-              <div class="result-tags">
-                <span class="result-tag">{chunk_label}</span>
-                <span class="result-tag">{item_label}</span>
-              </div>
-              <div class="matched-text">{matched}</div>
-            </div>
-            """
-            st.markdown(card_html, unsafe_allow_html=True)
-            button_cols = st.columns([0.4, 0.6])
-            with button_cols[0]:
-                if st.button("Focus", key=f"focus_{result.paper_id}_{idx}"):
-                    st.session_state["selected_paper_id"] = result.paper_id
-            with button_cols[1]:
-                if result.collections:
-                    st.caption(", ".join(result.collections))
+            for idx, result in enumerate(results, 1):
+                year_label = f" ({result.year})" if result.year else ""
+                authors = escape(result.authors or "Unknown")
+                title = escape(result.title)
+                chunk_label = escape(result.chunk_type)
+                item_label = escape(result.item_type or "unknown")
+                matched = escape(result.matched_text.strip())
+                if len(matched) > 280:
+                    matched = matched[:280] + "..."
+                card_html = f"""
+                <div class="result-card" style="animation-delay: {idx * 70}ms;">
+                  <div class="result-title">{idx}. {title}{year_label}</div>
+                  <div class="result-meta">{authors} | Score {result.score:.3f}</div>
+                  <div class="result-tags">
+                    <span class="result-tag">{chunk_label}</span>
+                    <span class="result-tag">{item_label}</span>
+                  </div>
+                  <div class="matched-text">{matched}</div>
+                </div>
+                """
+                st.markdown(card_html, unsafe_allow_html=True)
+                button_cols = st.columns([0.4, 0.6])
+                with button_cols[0]:
+                    if st.button("Focus", key=f"focus_{result.paper_id}_{idx}"):
+                        st.session_state["selected_paper_id"] = result.paper_id
+                with button_cols[1]:
+                    if result.collections:
+                        st.caption(", ".join(result.collections))
 
-    with detail_col:
-        st.subheader("Detail")
-        selected_id = st.session_state.get("selected_paper_id")
-        selected = next((r for r in results if r.paper_id == selected_id), results[0])
-        detail_md = resolve_detail_markdown(
-            engine=engine,
-            result=selected,
-            include_extraction=include_extraction,
-        )
-        matched_preview = escape(selected.matched_text[:320])
-        st.markdown(
-            f"""
-            <div class="detail-panel">
-              <div class="detail-title">Focused paper</div>
-              <div class="matched-text">
-                {matched_preview}
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.markdown(detail_md)
-
-        pdf_path = Path(selected.paper_data.get("pdf_path", "")).expanduser()
-        if pdf_path.is_file():
-            st.download_button(
-                "Download PDF",
-                data=pdf_path.read_bytes(),
-                file_name=pdf_path.name,
-                mime="application/pdf",
-            )
-        elif selected.paper_data.get("pdf_path"):
-            st.caption(f"PDF path: {selected.paper_data.get('pdf_path')}")
-
-        if st.checkbox("Show formatted output preview", value=False):
-            preview = format_results(
-                results=[selected],
-                query=st.session_state.get("last_query", "search"),
-                output_format="markdown",
+        with detail_col:
+            st.subheader("Detail")
+            selected_id = st.session_state.get("selected_paper_id")
+            selected = next((r for r in results if r.paper_id == selected_id), results[0])
+            detail_md = resolve_detail_markdown(
+                engine=engine,
+                result=selected,
                 include_extraction=include_extraction,
             )
-            st.markdown(preview)
+            matched_preview = escape(selected.matched_text[:320])
+            st.markdown(
+                f"""
+                <div class="detail-panel">
+                  <div class="detail-title">Focused paper</div>
+                  <div class="matched-text">
+                    {matched_preview}
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.markdown(detail_md)
+
+            # PDF actions
+            pdf_path_str = selected.paper_data.get("pdf_path", "")
+            if pdf_path_str:
+                pdf_path = Path(pdf_path_str).expanduser()
+                if pdf_path.is_file():
+                    pdf_cols = st.columns(2)
+                    with pdf_cols[0]:
+                        st.download_button(
+                            "Download PDF",
+                            data=pdf_path.read_bytes(),
+                            file_name=pdf_path.name,
+                            mime="application/pdf",
+                            use_container_width=True,
+                        )
+                    with pdf_cols[1]:
+                        st.caption(f"Local: {pdf_path.name}")
+                else:
+                    st.caption(f"PDF not found: {pdf_path_str}")
+
+            # Similar papers
+            with st.expander("Find Similar Papers", expanded=False):
+                num_similar = st.slider("Number of similar papers", 3, 10, 5, key="similar_k")
+                if st.button("Find Similar", use_container_width=True):
+                    with st.spinner("Finding similar papers..."):
+                        similar = find_similar_papers(engine, selected.paper_id, num_similar)
+                    if similar:
+                        st.session_state["similar_results"] = similar
+                        st.success(f"Found {len(similar)} similar papers")
+                    else:
+                        st.info("No similar papers found")
+
+                if "similar_results" in st.session_state:
+                    for i, sim in enumerate(st.session_state["similar_results"], 1):
+                        year_str = f" ({sim.year})" if sim.year else ""
+                        st.markdown(f"**{i}. {sim.title}{year_str}**")
+                        st.caption(f"{sim.authors} | Score: {sim.score:.3f}")
+                        if st.button("Focus", key=f"sim_focus_{sim.paper_id}_{i}"):
+                            st.session_state["selected_paper_id"] = sim.paper_id
+                            st.session_state.pop("similar_results", None)
+                            st.rerun()
+
+            # Formatted output preview
+            if st.checkbox("Show formatted output preview", value=False):
+                preview = format_results(
+                    results=[selected],
+                    query=st.session_state.get("last_query", "search"),
+                    output_format="markdown",
+                    include_extraction=include_extraction,
+                )
+                st.markdown(preview)
 
 
 if __name__ == "__main__":
