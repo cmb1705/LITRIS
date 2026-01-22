@@ -406,6 +406,8 @@ class PaperpileReferenceDB(BaseReferenceDB):
     ) -> Generator[PaperMetadata, None, None]:
         """Get all papers from the Paperpile export.
 
+        Memory: O(n) entries; the BibTeX file is parsed into memory.
+
         Args:
             progress_callback: Optional callback(current, total) for progress.
 
