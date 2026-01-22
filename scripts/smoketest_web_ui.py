@@ -73,6 +73,7 @@ def test_helper_functions() -> bool:
         from scripts.web_ui import (
             sanitize_csv_field,
             escape_bibtex,
+            highlight_query_terms,
             results_to_csv,
             results_to_bibtex,
             check_index_exists,
@@ -87,6 +88,15 @@ def test_helper_functions() -> bool:
     assert sanitize_csv_field("normal text") == "normal text", "Normal text altered"
     assert sanitize_csv_field("") == "", "Empty string not handled"
     print("  sanitize_csv_field: OK")
+
+    # Test highlight_query_terms
+    highlighted = highlight_query_terms("This is a test string", "test")
+    assert "<mark" in highlighted, "Highlight mark not found"
+    assert "test" in highlighted.lower(), "Query term not in output"
+    # Test that HTML is escaped
+    escaped = highlight_query_terms("<script>alert</script>", "alert")
+    assert "&lt;script&gt;" in escaped, "HTML not escaped"
+    print("  highlight_query_terms: OK")
 
     # Test escape_bibtex
     escaped = escape_bibtex("a & b")
@@ -167,6 +177,7 @@ def test_ui_layout_functions() -> bool:
             render_index_summary,
             render_no_index_message,
             render_build_controls,
+            render_active_filters,
             load_filter_options,
             execute_search,
             resolve_detail_markdown,

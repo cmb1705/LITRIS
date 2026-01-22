@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import subprocess
 import sys
 from datetime import datetime
@@ -30,6 +31,13 @@ from src.query.search import EnrichedResult, SearchEngine
 
 DEFAULT_TOP_K = 10
 MAX_TOP_K = 50
+SORT_OPTIONS = {
+    "Relevance": "relevance",
+    "Year: Newest first": "year_desc",
+    "Year: Oldest first": "year_asc",
+    "Title: A-Z": "title_asc",
+    "Title: Z-A": "title_desc",
+}
 
 STYLE = """
 <style>
@@ -184,10 +192,131 @@ button[kind="primary"] p {
 </style>
 """
 
+STYLE_DARK = """
+<style>
+:root {
+  --bg: #1a1a1a;
+  --bg-dark: #121212;
+  --ink: #e8e8e8;
+  --muted: #a0a0a0;
+  --accent: #e08050;
+  --accent-soft: #3a2820;
+  --card: rgba(40, 40, 40, 0.85);
+  --stroke: rgba(255, 255, 255, 0.12);
+  --shadow: 0 18px 40px rgba(0, 0, 0, 0.3);
+}
 
-def inject_styles() -> None:
-    """Inject global CSS styles into the Streamlit app."""
+div[data-testid="stAppViewContainer"] {
+  background:
+    radial-gradient(1200px 400px at 20% 0%, rgba(224, 128, 80, 0.08), transparent),
+    radial-gradient(900px 300px at 90% 10%, rgba(80, 140, 120, 0.06), transparent),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-dark) 100%);
+}
+
+div[data-testid="stSidebar"] {
+  background: rgba(30, 30, 30, 0.95);
+  border-right: 1px solid var(--stroke);
+}
+
+.app-hero {
+  background: rgba(40, 40, 40, 0.75);
+}
+
+.detail-panel {
+  background: rgba(40, 40, 40, 0.85);
+}
+
+.result-tag {
+  background: var(--accent-soft);
+  color: var(--ink);
+  border: 1px solid rgba(224, 128, 80, 0.3);
+}
+
+mark {
+  background: #665030 !important;
+  color: #fff !important;
+}
+</style>
+"""
+
+KEYBOARD_SHORTCUTS_JS = """
+<script>
+(function() {
+    // Avoid duplicate listeners
+    if (window.litrisKeyboardInit) return;
+    window.litrisKeyboardInit = true;
+
+    let focusedCardIndex = 0;
+
+    function getResultCards() {
+        return document.querySelectorAll('.result-card');
+    }
+
+    function highlightCard(index) {
+        const cards = getResultCards();
+        cards.forEach((card, i) => {
+            card.style.outline = i === index ? '2px solid var(--accent)' : 'none';
+        });
+        if (cards[index]) {
+            cards[index].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
+
+    document.addEventListener('keydown', function(e) {
+        // Skip if typing in input/textarea
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+            if (e.key === 'Escape') {
+                e.target.blur();
+            }
+            return;
+        }
+
+        const cards = getResultCards();
+
+        switch(e.key) {
+            case '/':
+                // Focus search input
+                e.preventDefault();
+                const searchInput = document.querySelector('input[type="text"]');
+                if (searchInput) searchInput.focus();
+                break;
+            case 'j':
+                // Next result
+                if (cards.length > 0) {
+                    focusedCardIndex = Math.min(focusedCardIndex + 1, cards.length - 1);
+                    highlightCard(focusedCardIndex);
+                }
+                break;
+            case 'k':
+                // Previous result
+                if (cards.length > 0) {
+                    focusedCardIndex = Math.max(focusedCardIndex - 1, 0);
+                    highlightCard(focusedCardIndex);
+                }
+                break;
+            case 'Escape':
+                // Clear highlight
+                cards.forEach(card => card.style.outline = 'none');
+                focusedCardIndex = 0;
+                break;
+        }
+    });
+})();
+</script>
+"""
+
+
+def inject_styles(dark_mode: bool = False) -> None:
+    """Inject global CSS styles into the Streamlit app.
+
+    Args:
+        dark_mode: If True, apply dark theme overrides.
+    """
     st.markdown(STYLE, unsafe_allow_html=True)
+    if dark_mode:
+        st.markdown(STYLE_DARK, unsafe_allow_html=True)
+    # Inject keyboard shortcuts JavaScript
+    st.markdown(KEYBOARD_SHORTCUTS_JS, unsafe_allow_html=True)
 
 
 @st.cache_resource(show_spinner=False)
@@ -353,27 +482,42 @@ def normalize_chunk_filter(selected: Iterable[str]) -> list[ChunkType] | None:
     return cast(list[ChunkType], selected_list)
 
 
+def sort_results(results: list[EnrichedResult], sort_key: str) -> list[EnrichedResult]:
+    """Sort results list based on selected key."""
+    if sort_key == "year_desc":
+        return sorted(results, key=lambda r: (r.year is None, -(r.year or 0)))
+    if sort_key == "year_asc":
+        return sorted(results, key=lambda r: (r.year is None, r.year or 0))
+    if sort_key == "title_asc":
+        return sorted(results, key=lambda r: (not (r.title or ""), (r.title or "").lower()))
+    if sort_key == "title_desc":
+        return sorted(
+            results,
+            key=lambda r: (not (r.title or ""), (r.title or "").lower()),
+            reverse=True,
+        )
+    return results
+
+
 def resolve_detail_markdown(
     engine: SearchEngine,
     result: EnrichedResult,
-    include_extraction: bool,
+    detail_extraction: bool,
 ) -> str:
     """Build the detail panel markdown for a selected result."""
     paper_data = result.paper_data or {}
     extraction = result.extraction_data or None
 
-    if include_extraction and not extraction:
-        combined = engine.get_paper(result.paper_id) or {}
-        paper_data = combined.get("paper", paper_data)
-        extraction = combined.get("extraction")
-
-    if not paper_data:
+    if detail_extraction:
+        if not extraction:
+            combined = engine.get_paper(result.paper_id) or {}
+            paper_data = combined.get("paper", paper_data)
+            extraction = combined.get("extraction")
+    elif not paper_data:
         combined = engine.get_paper(result.paper_id) or {}
         paper_data = combined.get("paper", {})
-        if include_extraction:
-            extraction = combined.get("extraction")
 
-    return format_paper_detail(paper_data, extraction)
+    return format_paper_detail(paper_data, extraction if detail_extraction else None)
 
 
 def save_export(
@@ -404,6 +548,48 @@ def sanitize_csv_field(field: str) -> str:
     return field
 
 
+def highlight_query_terms(text: str, query: str) -> str:
+    """Highlight query terms in text with HTML spans.
+
+    Args:
+        text: The text to highlight (will be HTML escaped).
+        query: The search query to extract terms from.
+
+    Returns:
+        HTML-safe string with matched terms wrapped in highlight spans.
+    """
+    import re
+
+    if not text or not query:
+        return escape(text) if text else ""
+
+    # Tokenize query into words (3+ chars to avoid highlighting common words)
+    query_terms = [term.lower() for term in re.findall(r"\b\w{3,}\b", query)]
+    if not query_terms:
+        return escape(text)
+
+    # Build a pattern that matches any of the query terms (case-insensitive)
+    # Sort by length descending to match longer terms first
+    query_terms = sorted(set(query_terms), key=len, reverse=True)
+    pattern = r"\b(" + "|".join(re.escape(term) for term in query_terms) + r")\b"
+
+    # Split text into parts, preserving matched terms
+    parts = []
+    last_end = 0
+    for match in re.finditer(pattern, text, re.IGNORECASE):
+        # Add text before match (escaped)
+        if match.start() > last_end:
+            parts.append(escape(text[last_end : match.start()]))
+        # Add highlighted match
+        parts.append(f'<mark style="background:#ffe066;padding:0 2px;">{escape(match.group())}</mark>')
+        last_end = match.end()
+    # Add remaining text
+    if last_end < len(text):
+        parts.append(escape(text[last_end:]))
+
+    return "".join(parts)
+
+
 def escape_bibtex(text: str) -> str:
     """Escape special BibTeX characters."""
     if not text:
@@ -423,6 +609,147 @@ def escape_bibtex(text: str) -> str:
     for old, new in replacements:
         text = text.replace(old, new)
     return text
+
+
+def format_author_list(paper: dict) -> list[str]:
+    """Format author list from structured metadata."""
+    authors = paper.get("authors")
+    if isinstance(authors, list) and authors:
+        formatted = []
+        for author in authors:
+            first = str(author.get("first_name") or "").strip()
+            last = str(author.get("last_name") or "").strip()
+            full = str(author.get("full_name") or "").strip()
+            if first and last:
+                name = f"{last}, {first}"
+            else:
+                name = last or first or full
+            if name:
+                formatted.append(name)
+        if formatted:
+            return formatted
+
+    author_string = str(paper.get("author_string") or "").strip()
+    return [author_string] if author_string else []
+
+
+def format_citation(paper: dict, result: EnrichedResult, style: str) -> str:
+    """Format a citation string for the selected paper."""
+    title = paper.get("title") or result.title or "Untitled"
+    year = paper.get("publication_year") or result.year or "n.d."
+    journal = paper.get("journal") or ""
+    volume = paper.get("volume") or ""
+    issue = paper.get("issue") or ""
+    pages = paper.get("pages") or ""
+    doi = paper.get("doi") or ""
+    url = paper.get("url") or ""
+
+    authors = format_author_list(paper)
+    if not authors and result.authors:
+        authors = [result.authors]
+
+    if style == "APA":
+        if not authors:
+            author_text = "Unknown"
+        elif len(authors) == 1:
+            author_text = authors[0]
+        elif len(authors) == 2:
+            author_text = f"{authors[0]} & {authors[1]}"
+        else:
+            author_text = ", ".join(authors[:-1]) + f", & {authors[-1]}"
+        parts = [f"{author_text} ({year}).", f"{title}."]
+        if journal:
+            journal_bits = [journal]
+            if volume:
+                journal_bits.append(volume)
+            if issue:
+                journal_bits[-1] = f"{journal_bits[-1]}({issue})"
+            if pages:
+                journal_bits.append(pages)
+            parts.append(" ".join(journal_bits) + ".")
+        if doi:
+            parts.append(f"https://doi.org/{doi}")
+        elif url:
+            parts.append(url)
+        return " ".join(parts)
+
+    if style == "MLA":
+        if not authors:
+            author_text = "Unknown"
+        elif len(authors) == 1:
+            author_text = authors[0]
+        elif len(authors) == 2:
+            author_text = f"{authors[0]} and {authors[1]}"
+        else:
+            author_text = f"{authors[0]}, et al."
+        parts = [f'{author_text}. "{title}."']
+        if journal:
+            parts.append(journal)
+        if volume:
+            parts.append(f"vol. {volume}")
+        if issue:
+            parts.append(f"no. {issue}")
+        if year:
+            parts.append(str(year))
+        if pages:
+            parts.append(f"pp. {pages}")
+        if doi:
+            parts.append(doi)
+        return ", ".join(parts) + "."
+
+    if style == "Chicago":
+        if not authors:
+            author_text = "Unknown"
+        elif len(authors) == 1:
+            author_text = authors[0]
+        elif len(authors) == 2:
+            author_text = f"{authors[0]} and {authors[1]}"
+        else:
+            author_text = ", ".join(authors[:-1]) + f", and {authors[-1]}"
+        parts = [f'{author_text}. "{title}."']
+        if journal:
+            parts.append(journal)
+        if volume:
+            vol_issue = volume
+            if issue:
+                vol_issue = f"{vol_issue}, no. {issue}"
+            parts.append(vol_issue)
+        if year:
+            parts.append(f"({year})")
+        if pages:
+            parts.append(f": {pages}")
+        citation = " ".join(parts).replace(" )", ")").strip()
+        if doi:
+            citation += f". https://doi.org/{doi}."
+        return citation
+
+    if style == "BibTeX":
+        author_text = " and ".join(authors) if authors else "Unknown"
+        entry_type = "article" if result.item_type == "journalArticle" else "misc"
+        cite_key = "citation"
+        if authors:
+            cite_key = authors[0].split(",")[0].replace(" ", "")
+        cite_key = "".join(c for c in f"{cite_key}{year}" if c.isalnum())
+        lines = [f"@{entry_type}{{{cite_key},"]
+        lines.append(f"  title = {{{escape_bibtex(title)}}},")
+        if author_text:
+            lines.append(f"  author = {{{escape_bibtex(author_text)}}},")
+        if year:
+            lines.append(f"  year = {{{year}}},")
+        if journal:
+            lines.append(f"  journal = {{{escape_bibtex(journal)}}},")
+        if volume:
+            lines.append(f"  volume = {{{volume}}},")
+        if issue:
+            lines.append(f"  number = {{{issue}}},")
+        if pages:
+            lines.append(f"  pages = {{{pages}}},")
+        if doi:
+            lines.append(f"  doi = {{{doi}}},")
+        lines.append("}")
+        return "\n".join(lines)
+
+    return title
 
 
 def results_to_csv(results: list[EnrichedResult]) -> str:
@@ -755,6 +1082,79 @@ def render_build_controls(config_path: str | None = None) -> None:
                 st.session_state.pop("confirm_rebuild", None)
 
 
+def render_active_filters(
+    chunk_types: list[str],
+    collections: list[str],
+    item_types: list[str],
+    use_year_filter: bool,
+    year_range: tuple[int, int],
+    year_bounds: tuple[int, int],
+    deduplicate: bool,
+    metadata_only: bool = False,
+) -> bool:
+    """Render active filter chips and reset button above results.
+
+    Args:
+        chunk_types: Selected chunk types.
+        collections: Selected collections.
+        item_types: Selected item types.
+        use_year_filter: Whether year filter is active.
+        year_range: Selected (min, max) year range.
+        year_bounds: Full available (min, max) year range.
+        deduplicate: Whether deduplication is enabled.
+        metadata_only: Whether metadata-only search is active.
+
+    Returns:
+        True if reset was requested, False otherwise.
+    """
+    active_filters = []
+
+    # Check if chunk types are restricted (not all selected) - skip in metadata-only mode
+    if not metadata_only and chunk_types and len(chunk_types) < len(CHUNK_TYPES):
+        active_filters.append(f"Chunks: {', '.join(chunk_types)}")
+
+    # Check collections
+    if collections:
+        if len(collections) <= 2:
+            active_filters.append(f"Collections: {', '.join(collections)}")
+        else:
+            active_filters.append(f"Collections: {len(collections)} selected")
+
+    # Check item types
+    if item_types:
+        if len(item_types) <= 2:
+            active_filters.append(f"Types: {', '.join(item_types)}")
+        else:
+            active_filters.append(f"Types: {len(item_types)} selected")
+
+    # Check year filter
+    if use_year_filter and year_range != year_bounds:
+        active_filters.append(f"Years: {year_range[0]}-{year_range[1]}")
+
+    # Check deduplicate (only show if disabled, since default is True)
+    if not deduplicate:
+        active_filters.append("Duplicates: shown")
+
+    if not active_filters:
+        return False
+
+    # Render as styled chips
+    chips_html = " ".join(
+        f'<span class="result-tag" style="margin-right: 6px;">{escape(f)}</span>'
+        for f in active_filters
+    )
+    st.markdown(
+        f'<div style="margin-bottom: 12px;"><strong>Active filters:</strong> {chips_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Reset button
+    if st.button("Clear all filters", use_container_width=False, type="secondary"):
+        return True
+
+    return False
+
+
 def main() -> None:
     """Main UI entry point."""
     st.set_page_config(
@@ -762,17 +1162,23 @@ def main() -> None:
         layout="wide",
         initial_sidebar_state="expanded",
     )
-    inject_styles()
+
+    # Dark mode toggle (must be before inject_styles)
+    dark_mode = st.sidebar.toggle(
+        "Dark mode",
+        value=st.session_state.get("dark_mode", False),
+        key="dark_mode",
+    )
+    inject_styles(dark_mode=dark_mode)
     render_header()
 
     # Check if index exists before trying to load
-    index_exists, index_dir, has_embeddings = check_index_exists(config_path or None)
-
     config_path = st.sidebar.text_input(
         "Config path (optional)",
         value="",
         help="Leave blank to auto-detect config.yaml.",
     )
+    index_exists, index_dir, has_embeddings = check_index_exists(config_path or None)
 
     # Show build controls in sidebar regardless of index state
     with st.sidebar:
@@ -797,35 +1203,104 @@ def main() -> None:
         st.subheader("Filters")
         filter_options = load_filter_options(engine)
 
-        chunk_types = st.multiselect(
-            "Chunk types",
-            options=CHUNK_TYPES,
-            default=CHUNK_TYPES,
+        # Handle reset request from active filters display
+        if st.session_state.get("reset_filters"):
+            st.session_state.pop("reset_filters", None)
+            st.session_state.pop("filter_chunk_types", None)
+            st.session_state.pop("filter_collections", None)
+            st.session_state.pop("filter_item_types", None)
+            st.session_state.pop("filter_use_year", None)
+            st.session_state.pop("filter_year_range", None)
+            st.session_state.pop("filter_deduplicate", None)
+            st.rerun()
+
+        # Only show chunk type filter for semantic search (not metadata-only)
+        if not st.session_state.get("metadata_only", False):
+            chunk_types = st.multiselect(
+                "Chunk types",
+                options=CHUNK_TYPES,
+                default=st.session_state.get("filter_chunk_types", CHUNK_TYPES),
+                key="filter_chunk_types",
+            )
+        else:
+            chunk_types = CHUNK_TYPES  # Use all types, but don't show filter
+        sort_label = st.selectbox(
+            "Sort results",
+            options=list(SORT_OPTIONS.keys()),
+            index=list(SORT_OPTIONS.keys()).index(
+                st.session_state.get("sort_label", "Relevance")
+            ),
+            key="sort_label",
         )
-        collections = st.multiselect(
+        sort_key = SORT_OPTIONS.get(sort_label, "relevance")
+
+        # Collection filter with search and counts
+        coll_search = st.text_input(
+            "Search collections",
+            value="",
+            placeholder="Type to filter...",
+            key="coll_search",
+        )
+        all_collections = filter_options["collections"]
+        summary = st.session_state.get("summary", {})
+        coll_counts = summary.get("papers_by_collection", {})
+
+        # Filter collections by search and add counts
+        if coll_search:
+            search_lower = coll_search.lower()
+            filtered_colls = [c for c in all_collections if search_lower in c.lower()]
+        else:
+            filtered_colls = all_collections
+
+        # Format options with counts
+        coll_options_display = []
+        for c in filtered_colls:
+            count = coll_counts.get(c, 0)
+            coll_options_display.append(f"{c} ({count})" if count else c)
+
+        # Map display names back to actual collection names
+        display_to_name = {
+            f"{c} ({coll_counts.get(c, 0)})" if coll_counts.get(c) else c: c
+            for c in filtered_colls
+        }
+
+        selected_display = st.multiselect(
             "Collections",
-            options=filter_options["collections"],
+            options=coll_options_display,
+            default=[
+                f"{c} ({coll_counts.get(c, 0)})" if coll_counts.get(c) else c
+                for c in st.session_state.get("filter_collections", [])
+                if c in filtered_colls
+            ],
         )
+        collections = [display_to_name.get(d, d) for d in selected_display]
+        st.session_state["filter_collections"] = collections
         item_types = st.multiselect(
             "Item types",
             options=filter_options["item_types"],
+            default=st.session_state.get("filter_item_types", []),
+            key="filter_item_types",
         )
 
         year_min, year_max = filter_options["year_range"]
         year_filter_available = year_min is not None and year_max is not None
-        use_year_filter = st.checkbox(
-            "Filter by year",
-            value=year_filter_available,
-            disabled=not year_filter_available,
-        )
         selected_year_min = year_min or 1900
         selected_year_max = year_max or 2100
+        year_bounds = (selected_year_min, selected_year_max)
+
+        use_year_filter = st.checkbox(
+            "Filter by year",
+            value=st.session_state.get("filter_use_year", year_filter_available),
+            disabled=not year_filter_available,
+            key="filter_use_year",
+        )
         year_range = st.slider(
             "Year range",
             min_value=selected_year_min,
             max_value=selected_year_max,
-            value=(selected_year_min, selected_year_max),
+            value=st.session_state.get("filter_year_range", year_bounds),
             disabled=not use_year_filter or not year_filter_available,
+            key="filter_year_range",
         )
 
         top_k = st.slider(
@@ -835,12 +1310,13 @@ def main() -> None:
             value=DEFAULT_TOP_K,
         )
         include_extraction = st.checkbox(
-            "Include extraction in results",
+            "Include extraction in results list",
             value=False,
         )
         deduplicate_papers = st.checkbox(
             "Deduplicate by paper",
-            value=True,
+            value=st.session_state.get("filter_deduplicate", True),
+            key="filter_deduplicate",
         )
 
         with st.expander("Index summary", expanded=False):
@@ -859,12 +1335,49 @@ def main() -> None:
         render_index_summary(engine, full_view=True)
 
     with search_tab:
+        if not has_embeddings:
+            st.warning(
+                "Embeddings not found. Semantic search is disabled. "
+                "Use metadata-only search or rebuild embeddings from the sidebar."
+            )
+        metadata_only_default = st.session_state.get("metadata_only", False)
+        metadata_only_disabled = False
+        if not has_embeddings:
+            metadata_only_default = True
+            metadata_only_disabled = True
         metadata_only = st.toggle(
             "Metadata-only search",
-            value=st.session_state.get("metadata_only", False),
+            value=metadata_only_default,
             help="Search by title/author metadata without semantic embeddings.",
+            disabled=metadata_only_disabled,
         )
+        if not has_embeddings:
+            metadata_only = True
         st.session_state["metadata_only"] = metadata_only
+
+        # Recent queries
+        if "query_history" not in st.session_state:
+            st.session_state["query_history"] = []
+
+        query_history = st.session_state["query_history"]
+        if query_history:
+            hist_cols = st.columns([0.7, 0.3])
+            with hist_cols[0]:
+                selected_query = st.selectbox(
+                    "Recent queries",
+                    options=[""] + query_history,
+                    index=0,
+                    key="recent_query_select",
+                    label_visibility="collapsed",
+                    placeholder="Recent queries...",
+                )
+                if selected_query:
+                    st.session_state["last_query"] = selected_query
+                    st.rerun()
+            with hist_cols[1]:
+                if st.button("Clear history", use_container_width=True):
+                    st.session_state["query_history"] = []
+                    st.rerun()
 
         with st.form("search_form", clear_on_submit=False):
             title_query = ""
@@ -918,6 +1431,7 @@ def main() -> None:
                                 top_k=top_k,
                                 match_label=match_label,
                             )
+                            results = sort_results(results, sort_key)
                         except Exception as e:
                             st.error(f"Metadata search failed: {e}")
                             results = []
@@ -925,6 +1439,8 @@ def main() -> None:
                     st.session_state["last_query"] = search_label.strip()
                     st.session_state["metadata_title"] = title_text
                     st.session_state["metadata_author"] = author_text
+                    st.session_state["selected_ids"] = set()  # Clear selection on new search
+                    st.session_state["results_page"] = 0  # Reset to first page
                     st.session_state["selected_paper_id"] = (
                         results[0].paper_id if results else None
                     )
@@ -952,11 +1468,20 @@ def main() -> None:
                                 include_extraction=include_extraction,
                                 deduplicate_papers=deduplicate_papers,
                             )
+                            results = sort_results(results, sort_key)
                         except Exception as e:
                             st.error(f"Search failed: {e}")
                             results = []
                     st.session_state["search_results"] = results
                     st.session_state["last_query"] = query_text
+                    # Add to query history (dedupe, limit 10)
+                    history = st.session_state.get("query_history", [])
+                    if query_text in history:
+                        history.remove(query_text)
+                    history.insert(0, query_text)
+                    st.session_state["query_history"] = history[:10]
+                    st.session_state["selected_ids"] = set()  # Clear selection on new search
+                    st.session_state["results_page"] = 0  # Reset to first page
                     st.session_state["selected_paper_id"] = (
                         results[0].paper_id if results else None
                     )
@@ -965,11 +1490,53 @@ def main() -> None:
                     st.session_state.pop("pdf_export_bytes", None)
                     st.session_state.pop("pdf_export_name", None)
 
-        results = st.session_state.get("search_results", [])
+        # Handle quick filter trigger - re-run search with current query and updated filters
+        if st.session_state.pop("trigger_search", False):
+            last_query = st.session_state.get("last_query", "")
+            if last_query and not metadata_only:
+                with st.spinner("Applying filters..."):
+                    try:
+                        results = execute_search(
+                            engine=engine,
+                            query=last_query,
+                            top_k=top_k,
+                            chunk_types=normalize_chunk_filter(chunk_types),
+                            year_min=year_range[0] if use_year_filter else None,
+                            year_max=year_range[1] if use_year_filter else None,
+                            collections=collections or None,
+                            item_types=item_types or None,
+                            include_extraction=include_extraction,
+                            deduplicate_papers=deduplicate_papers,
+                        )
+                        st.session_state["search_results"] = results
+                        st.session_state["selected_ids"] = set()
+                        st.session_state["results_page"] = 0
+                    except Exception as e:
+                        st.error(f"Filter search failed: {e}")
+
+        results = sort_results(
+            st.session_state.get("search_results", []),
+            sort_key,
+        )
         last_query = st.session_state.get("last_query", "")
 
         if results:
             st.markdown(f"**{len(results)} results** for `{last_query}`")
+
+            # Show active filters and reset option
+            if render_active_filters(
+                chunk_types=chunk_types,
+                collections=collections,
+                item_types=item_types,
+                use_year_filter=use_year_filter,
+                year_range=year_range,
+                year_bounds=year_bounds,
+                deduplicate=deduplicate_papers,
+                metadata_only=metadata_only,
+            ):
+                st.session_state["reset_filters"] = True
+                st.rerun()
+
         elif last_query:
             # Search was run but no results found
             st.warning(f"No results found for: `{last_query}`")
@@ -1002,6 +1569,37 @@ def main() -> None:
         with export_col:
             st.subheader("Results")
 
+            # Selection controls
+            if "selected_ids" not in st.session_state:
+                st.session_state["selected_ids"] = set()
+
+            sel_cols = st.columns([0.3, 0.3, 0.4])
+            with sel_cols[0]:
+                if st.button("Select all", use_container_width=True):
+                    # Clear checkbox widget keys so they reinitialize from selected_ids
+                    for key in list(st.session_state.keys()):
+                        if key.startswith("sel_"):
+                            del st.session_state[key]
+                    st.session_state["selected_ids"] = {r.paper_id for r in results}
+                    st.rerun()
+            with sel_cols[1]:
+                if st.button("Clear selection", use_container_width=True):
+                    # Clear checkbox widget keys so they reinitialize from selected_ids
+                    for key in list(st.session_state.keys()):
+                        if key.startswith("sel_"):
+                            del st.session_state[key]
+                    st.session_state["selected_ids"] = set()
+                    st.rerun()
+            with sel_cols[2]:
+                num_selected = len(st.session_state["selected_ids"] & {r.paper_id for r in results})
+                if num_selected > 0:
+                    st.caption(f"{num_selected} of {len(results)} selected")
+
+            # Determine which results to export
+            selected_ids = st.session_state["selected_ids"]
+            export_results = [r for r in results if r.paper_id in selected_ids] if selected_ids else results
+            export_label = f" ({len(export_results)} selected)" if selected_ids else ""
+
             # Export options
             export_format = st.selectbox(
                 "Export format",
@@ -1012,16 +1610,16 @@ def main() -> None:
 
             export_cols = st.columns(2)
             with export_cols[0]:
-                if st.button("Save to disk", use_container_width=True):
+                if st.button(f"Save to disk{export_label}", use_container_width=True):
                     if export_format in ("csv", "bibtex"):
                         # Handle CSV/BibTeX separately
                         query_slug = st.session_state.get("last_query", "search")[:30].replace(" ", "-")
                         date_str = datetime.now().strftime("%Y-%m-%d")
                         if export_format == "csv":
-                            content = results_to_csv(results)
+                            content = results_to_csv(export_results)
                             filename = f"{date_str}_{query_slug}.csv"
                         else:
-                            content = results_to_bibtex(results)
+                            content = results_to_bibtex(export_results)
                             filename = f"{date_str}_{query_slug}.bib"
                         export_path = results_dir / filename
                         results_dir.mkdir(parents=True, exist_ok=True)
@@ -1029,7 +1627,7 @@ def main() -> None:
                         st.success(f"Saved to {export_path}")
                     else:
                         export_path = save_export(
-                            results=results,
+                            results=export_results,
                             query=st.session_state.get("last_query", "search"),
                             export_format=cast(OutputFormat, export_format),
                             results_dir=results_dir,
@@ -1043,27 +1641,27 @@ def main() -> None:
                 date_str = datetime.now().strftime("%Y-%m-%d")
 
                 if export_format == "csv":
-                    content = results_to_csv(results)
+                    content = results_to_csv(export_results)
                     st.download_button(
-                        "Download CSV",
+                        f"Download CSV{export_label}",
                         data=content,
                         file_name=f"{date_str}_{query_slug}.csv",
                         mime="text/csv",
                         use_container_width=True,
                     )
                 elif export_format == "bibtex":
-                    content = results_to_bibtex(results)
+                    content = results_to_bibtex(export_results)
                     st.download_button(
-                        "Download BibTeX",
+                        f"Download BibTeX{export_label}",
                         data=content,
                         file_name=f"{date_str}_{query_slug}.bib",
                         mime="application/x-bibtex",
                         use_container_width=True,
                     )
                 elif export_format == "pdf":
-                    if st.button("Prepare PDF", use_container_width=True, key="prepare_pdf"):
+                    if st.button(f"Prepare PDF{export_label}", use_container_width=True, key="prepare_pdf"):
                         temp_path = save_export(
-                            results=results,
+                            results=export_results,
                             query=st.session_state.get("last_query", "search"),
                             export_format="pdf",
                             results_dir=results_dir,
@@ -1085,7 +1683,7 @@ def main() -> None:
                         )
                 else:
                     content = format_results(
-                        results=results,
+                        results=export_results,
                         query=st.session_state.get("last_query", "search"),
                         output_format=cast(OutputFormat, export_format),
                         include_extraction=include_extraction,
@@ -1098,15 +1696,52 @@ def main() -> None:
                         use_container_width=True,
                     )
 
-            for idx, result in enumerate(results, 1):
+            # Pagination controls
+            PAGE_SIZE = 10
+            total_results = len(results)
+            total_pages = max(1, (total_results + PAGE_SIZE - 1) // PAGE_SIZE)
+
+            if "results_page" not in st.session_state:
+                st.session_state["results_page"] = 0
+
+            current_page = st.session_state["results_page"]
+            # Clamp to valid range
+            if current_page >= total_pages:
+                current_page = total_pages - 1
+                st.session_state["results_page"] = current_page
+
+            start_idx = current_page * PAGE_SIZE
+            end_idx = min(start_idx + PAGE_SIZE, total_results)
+            page_results = results[start_idx:end_idx]
+
+            if total_pages > 1:
+                pg_cols = st.columns([0.3, 0.4, 0.3])
+                with pg_cols[0]:
+                    if st.button("Prev", disabled=current_page == 0, use_container_width=True):
+                        st.session_state["results_page"] = current_page - 1
+                        st.rerun()
+                with pg_cols[1]:
+                    st.caption(f"Page {current_page + 1} of {total_pages} ({start_idx + 1}-{end_idx} of {total_results})")
+                with pg_cols[2]:
+                    if st.button("Next", disabled=current_page >= total_pages - 1, use_container_width=True):
+                        st.session_state["results_page"] = current_page + 1
+                        st.rerun()
+
+            for idx, result in enumerate(page_results, start_idx + 1):
                 year_label = f" ({result.year})" if result.year else ""
                 authors = escape(result.authors or "Unknown")
                 title = escape(result.title)
                 chunk_label = escape(result.chunk_type)
                 item_label = escape(result.item_type or "unknown")
-                matched = escape(result.matched_text.strip())
-                if len(matched) > 280:
-                    matched = matched[:280] + "..."
+                matched_full = result.matched_text.strip()
+                is_truncated = len(matched_full) > 280
+                matched_display = matched_full[:280] + "..." if is_truncated else matched_full
+
+                # Highlight query terms for semantic search (not metadata search)
+                if last_query and not st.session_state.get("metadata_only", False):
+                    matched = highlight_query_terms(matched_display, last_query)
+                else:
+                    matched = escape(matched_display)
                 card_html = f"""
                 <div class="result-card" style="animation-delay: {idx * 70}ms;">
                   <div class="result-title">{idx}. {title}{year_label}</div>
@@ -1119,22 +1754,72 @@ def main() -> None:
                 </div>
                 """
                 st.markdown(card_html, unsafe_allow_html=True)
-                button_cols = st.columns([0.4, 0.6])
+
+                # Expand option for truncated text
+                if is_truncated:
+                    with st.expander("Show full matched text", expanded=False):
+                        # Limit expansion to 1000 chars for very long chunks
+                        full_display = matched_full[:1000] + "..." if len(matched_full) > 1000 else matched_full
+                        if last_query and not st.session_state.get("metadata_only", False):
+                            st.markdown(highlight_query_terms(full_display, last_query), unsafe_allow_html=True)
+                        else:
+                            st.text(full_display)
+                button_cols = st.columns([0.15, 0.35, 0.5])
                 with button_cols[0]:
+                    is_selected = result.paper_id in st.session_state["selected_ids"]
+                    if st.checkbox("", value=is_selected, key=f"sel_{result.paper_id}_{idx}", label_visibility="collapsed"):
+                        st.session_state["selected_ids"].add(result.paper_id)
+                    else:
+                        st.session_state["selected_ids"].discard(result.paper_id)
+                with button_cols[1]:
                     if st.button("Focus", key=f"focus_{result.paper_id}_{idx}"):
                         st.session_state["selected_paper_id"] = result.paper_id
-                with button_cols[1]:
+                with button_cols[2]:
                     if result.collections:
                         st.caption(", ".join(result.collections))
+
+                # Quick filter buttons
+                filter_cols = st.columns([0.25, 0.25, 0.5])
+                with filter_cols[0]:
+                    if result.year and st.button(f"Year: {result.year}", key=f"qf_year_{result.paper_id}_{idx}", type="secondary"):
+                        st.session_state["filter_use_year"] = True
+                        st.session_state["filter_year_range"] = (result.year, result.year)
+                        st.session_state["trigger_search"] = True
+                        st.rerun()
+                with filter_cols[1]:
+                    if result.item_type and st.button(f"Type: {result.item_type[:12]}", key=f"qf_type_{result.paper_id}_{idx}", type="secondary"):
+                        current_types = list(st.session_state.get("filter_item_types", []))
+                        if result.item_type not in current_types:
+                            current_types.append(result.item_type)
+                            st.session_state["filter_item_types"] = current_types
+                            st.session_state["trigger_search"] = True
+                            st.rerun()
+                with filter_cols[2]:
+                    if result.collections:
+                        first_coll = result.collections[0]
+                        coll_label = first_coll[:15] + "..." if len(first_coll) > 15 else first_coll
+                        if st.button(f"Coll: {coll_label}", key=f"qf_coll_{result.paper_id}_{idx}", type="secondary"):
+                            current_colls = list(st.session_state.get("filter_collections", []))
+                            if first_coll not in current_colls:
+                                current_colls.append(first_coll)
+                                st.session_state["filter_collections"] = current_colls
+                                st.session_state["trigger_search"] = True
+                                st.rerun()
 
         with detail_col:
             st.subheader("Detail")
             selected_id = st.session_state.get("selected_paper_id")
             selected = next((r for r in results if r.paper_id == selected_id), results[0])
+            detail_extraction = st.toggle(
+                "Load extraction for focused paper",
+                value=st.session_state.get("detail_extraction", False),
+                help="Fetch extraction data only for the focused paper.",
+            )
+            st.session_state["detail_extraction"] = detail_extraction
             detail_md = resolve_detail_markdown(
                 engine=engine,
                 result=selected,
-                include_extraction=include_extraction,
+                detail_extraction=detail_extraction,
             )
             matched_preview = escape(selected.matched_text[:320])
             st.markdown(
@@ -1149,6 +1834,49 @@ def main() -> None:
                 unsafe_allow_html=True,
             )
             st.markdown(detail_md)
+
+            # Clickable DOI and URL links
+            paper = selected.paper_data or {}
+            doi = paper.get("doi")
+            url = paper.get("url")
+            if doi or url:
+                link_cols = st.columns(2)
+                with link_cols[0]:
+                    if doi:
+                        doi_url = f"https://doi.org/{doi}" if not doi.startswith("http") else doi
+                        st.markdown(f"[Open DOI]({doi_url})")
+                with link_cols[1]:
+                    if url:
+                        st.markdown(f"[Open URL]({url})")
+
+            st.subheader("Citation")
+            citation_format = st.selectbox(
+                "Format",
+                ["APA", "MLA", "Chicago", "BibTeX"],
+                key="citation_format",
+            )
+            citation_text = format_citation(
+                selected.paper_data or {},
+                selected,
+                citation_format,
+            )
+            code_lang = "bibtex" if citation_format == "BibTeX" else "text"
+            st.code(citation_text, language=code_lang)
+            if st.button("Copy citation", key="copy_citation"):
+                st.session_state["citation_copy_pending"] = citation_text
+                if hasattr(st, "toast"):
+                    st.toast("Citation copied to clipboard.")
+                else:
+                    st.success("Citation copied to clipboard.")
+            copy_pending = st.session_state.get("citation_copy_pending")
+            if copy_pending:
+                import streamlit.components.v1 as components
+
+                components.html(
+                    f"<script>navigator.clipboard.writeText({json.dumps(copy_pending)});</script>",
+                    height=0,
+                )
+                st.session_state.pop("citation_copy_pending", None)
 
             # PDF actions
             pdf_path_str = selected.paper_data.get("pdf_path", "")
