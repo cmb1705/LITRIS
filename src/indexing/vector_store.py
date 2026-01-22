@@ -170,10 +170,10 @@ class VectorStore:
             where_clauses.append({"chunk_type": {"$in": chunk_types}})
 
         if year_min is not None:
-            where_clauses.append({"year": {"$gte": str(year_min)}})
+            where_clauses.append({"year": {"$gte": year_min}})
 
         if year_max is not None:
-            where_clauses.append({"year": {"$lte": str(year_max)}})
+            where_clauses.append({"year": {"$lte": year_max}})
 
         if item_types:
             where_clauses.append({"item_type": {"$in": item_types}})
