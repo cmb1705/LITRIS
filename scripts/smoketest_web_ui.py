@@ -95,8 +95,8 @@ def test_helper_functions() -> bool:
     print("  escape_bibtex: OK")
 
     # Test check_index_exists
-    exists, path = check_index_exists()
-    print(f"  check_index_exists: OK (exists={exists}, path={path})")
+    exists, path, has_embeddings = check_index_exists()
+    print(f"  check_index_exists: OK (exists={exists}, path={path}, embeddings={has_embeddings})")
 
     return True
 

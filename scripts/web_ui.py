@@ -203,6 +203,7 @@ def load_engine(config_path: str | None) -> tuple[SearchEngine, Config, Path, Pa
     config = Config.load(config_path)
     index_dir = project_root / "data" / "index"
     results_dir = project_root / "data" / "query_results"
+    chroma_dir = config.get_chroma_path()
 
     if not index_dir.exists():
         raise FileNotFoundError(
@@ -212,7 +213,7 @@ def load_engine(config_path: str | None) -> tuple[SearchEngine, Config, Path, Pa
 
     engine = SearchEngine(
         index_dir=index_dir,
-        chroma_dir=index_dir / "chroma",
+        chroma_dir=chroma_dir,
         embedding_model=config.embeddings.model,
     )
     return engine, config, index_dir, results_dir
@@ -261,6 +262,87 @@ def execute_search(
         include_extraction=include_extraction,
         deduplicate_papers=deduplicate_papers,
     )
+
+
+def metadata_results_to_enriched(
+    papers: list[dict],
+    match_label: str,
+) -> list[EnrichedResult]:
+    """Convert metadata-only search results into enriched results."""
+    enriched = []
+    for paper in papers:
+        year_value = paper.get("publication_year")
+        year = int(year_value) if year_value and str(year_value).isdigit() else None
+        authors = paper.get("author_string", "") or ""
+        if not authors and isinstance(paper.get("authors"), list):
+            author_names = []
+            for author in paper["authors"]:
+                first = str(author.get("first_name") or "").strip()
+                last = str(author.get("last_name") or "").strip()
+                full = str(author.get("full_name") or "").strip()
+                name = f"{first} {last}".strip() if first or last else full
+                if name:
+                    author_names.append(name)
+            authors = ", ".join(author_names)
+        if not authors:
+            authors = "Unknown"
+
+        enriched.append(
+            EnrichedResult(
+                paper_id=paper.get("paper_id", ""),
+                title=paper.get("title", "Unknown"),
+                authors=authors,
+                year=year,
+                collections=paper.get("collections", []) or [],
+                item_type=paper.get("item_type", "") or "",
+                chunk_type="metadata",
+                matched_text=match_label,
+                score=1.0,
+                paper_data=paper,
+                extraction_data={},
+            )
+        )
+    return enriched
+
+
+def execute_metadata_search(
+    engine: SearchEngine,
+    title_contains: str | None,
+    author_contains: str | None,
+    year_min: int | None,
+    year_max: int | None,
+    collections: list[str] | None,
+    item_types: list[str] | None,
+    top_k: int,
+    match_label: str,
+) -> list[EnrichedResult]:
+    """Run a metadata-only search and normalize results."""
+    collection_filter = collections[0] if collections and len(collections) == 1 else None
+    item_type_filter = item_types[0] if item_types and len(item_types) == 1 else None
+
+    results = engine.search_by_metadata(
+        title_contains=title_contains,
+        author_contains=author_contains,
+        year_min=year_min,
+        year_max=year_max,
+        collection=collection_filter,
+        item_type=item_type_filter,
+    )
+
+    if collections and collection_filter is None:
+        results = [
+            paper
+            for paper in results
+            if any(c in (paper.get("collections", []) or []) for c in collections)
+        ]
+    if item_types and item_type_filter is None:
+        results = [
+            paper
+            for paper in results
+            if paper.get("item_type") in item_types
+        ]
+
+    return metadata_results_to_enriched(results[:top_k], match_label)
 
 
 def normalize_chunk_filter(selected: Iterable[str]) -> list[ChunkType] | None:
@@ -399,8 +481,34 @@ def results_to_bibtex(results: list[EnrichedResult]) -> str:
         item_type = result.item_type or "misc"
         bibtex_type = bibtex_type_map.get(item_type, "misc")
 
-        # Generate citation key
-        author_part = result.authors.split(",")[0].split()[-1] if result.authors else "Unknown"
+        # Build author list (prefer structured authors when available)
+        authors_value = result.authors or ""
+        author_part = "Unknown"
+        authors = paper.get("authors")
+        if isinstance(authors, list) and authors:
+            formatted_authors = []
+            for author in authors:
+                first = str(author.get("first_name") or "").strip()
+                last = str(author.get("last_name") or "").strip()
+                full = str(author.get("full_name") or "").strip()
+                if first and last:
+                    name = f"{last}, {first}"
+                else:
+                    name = last or first or full
+                if not name:
+                    continue
+                formatted_authors.append(name)
+                if author_part == "Unknown":
+                    author_part = (last or first or full).replace(",", " ").split()[-1] if (last or first or full) else "Unknown"
+            if formatted_authors:
+                authors_value = " and ".join(formatted_authors)
+        if author_part == "Unknown" and authors_value:
+            candidate = authors_value.split("and")[0].strip()
+            if "," in candidate:
+                author_part = candidate.split(",")[0].strip() or "Unknown"
+            else:
+                author_part = candidate.split()[-1] if candidate else "Unknown"
+
         year_part = result.year or "nd"
         cite_key = f"{author_part}{year_part}".replace(" ", "")
         cite_key = "".join(c for c in cite_key if c.isalnum())
@@ -408,8 +516,8 @@ def results_to_bibtex(results: list[EnrichedResult]) -> str:
         lines = [f"@{bibtex_type}{{{cite_key},"]
         lines.append(f'  title = {{{escape_bibtex(result.title)}}},')
 
-        if result.authors:
-            lines.append(f'  author = {{{escape_bibtex(result.authors)}}},')
+        if authors_value:
+            lines.append(f'  author = {{{escape_bibtex(authors_value)}}},')
         if result.year:
             lines.append(f"  year = {{{result.year}}},")
         if journal := paper.get("journal"):
@@ -435,23 +543,42 @@ def find_similar_papers(
     return engine.search_similar_papers(paper_id=paper_id, top_k=top_k)
 
 
-def check_index_exists() -> tuple[bool, Path]:
-    """Check if the index directory exists and has required files."""
+def check_index_exists(config_path: str | None = None) -> tuple[bool, Path, bool]:
+    """Check if the index directory exists and has required files.
+
+    Args:
+        config_path: Optional path to config.yaml to derive storage paths.
+
+    Returns:
+        Tuple of (index_exists, index_dir, has_embeddings).
+        index_exists is True if papers.json exists.
+        has_embeddings is True if chroma directory exists.
+    """
+    # Try to load config to get storage paths
     index_dir = project_root / "data" / "index"
-    required_files = ["papers.json", "extractions.json"]
-    chroma_dir = index_dir / "chroma"
+    chroma_dir: Path | None = None
+
+    if config_path:
+        try:
+            config = Config.load(config_path)
+            chroma_dir = config.get_chroma_path()
+        except Exception:
+            pass  # Fall back to default paths
+
+    if chroma_dir is None:
+        chroma_dir = index_dir / "chroma"
 
     if not index_dir.exists():
-        return False, index_dir
+        return False, index_dir, False
 
-    for fname in required_files:
-        if not (index_dir / fname).exists():
-            return False, index_dir
+    # Only papers.json is strictly required
+    if not (index_dir / "papers.json").exists():
+        return False, index_dir, False
 
-    if not chroma_dir.exists():
-        return False, index_dir
+    # Check if embeddings are available (optional)
+    has_embeddings = chroma_dir.exists()
 
-    return True, index_dir
+    return True, index_dir, has_embeddings
 
 
 def render_no_index_message() -> None:
@@ -467,7 +594,7 @@ def render_no_index_message() -> None:
    ```
 3. **Refresh this page** after the build completes
 
-See the [documentation](docs/guides/getting-started.md) for detailed setup instructions.
+See the [documentation](docs/usage.md) for detailed setup instructions.
     """)
 
 
@@ -526,10 +653,26 @@ def render_index_summary(engine: SearchEngine, full_view: bool = False) -> None:
         st.caption("Top collections: " + ", ".join(f"{c}({n})" for c, n in top_3))
 
 
-def render_build_controls() -> None:
-    """Render index build/rebuild controls in an expander."""
+def render_build_controls(config_path: str | None = None) -> None:
+    """Render index build/rebuild controls in an expander.
+
+    Args:
+        config_path: Optional config file path to pass to build_index.py.
+    """
+    import shutil
+
     with st.expander("Index Build Controls", expanded=False):
         st.caption("Build or rebuild the literature index from your reference source.")
+
+        # Configurable timeout (in hours)
+        timeout_hours = st.slider(
+            "Build timeout (hours)",
+            min_value=1,
+            max_value=12,
+            value=2,
+            help="Maximum time to wait for build/rebuild to complete. Increase for large libraries.",
+        )
+        timeout_seconds = timeout_hours * 3600
 
         col1, col2 = st.columns(2)
         with col1:
@@ -539,17 +682,22 @@ def render_build_controls() -> None:
             if st.button("Rebuild Index", use_container_width=True):
                 st.session_state["confirm_rebuild"] = True
 
+        # Build command with optional config
+        build_cmd = [sys.executable, str(project_root / "scripts" / "build_index.py")]
+        if config_path:
+            build_cmd.extend(["--config", config_path])
+
         if st.session_state.get("confirm_build"):
             st.warning("This will build the index. Proceed?")
             if st.button("Confirm Build"):
                 with st.spinner("Building index... This may take a while."):
                     try:
                         result = subprocess.run(
-                            [sys.executable, str(project_root / "scripts" / "build_index.py")],
+                            build_cmd,
                             capture_output=True,
                             text=True,
                             cwd=str(project_root),
-                            timeout=3600,
+                            timeout=timeout_seconds,
                         )
                         if result.returncode == 0:
                             st.success("Index built successfully!")
@@ -562,7 +710,7 @@ def render_build_controls() -> None:
                             st.error("Build failed.")
                             st.code(result.stderr[-2000:] if len(result.stderr) > 2000 else result.stderr)
                     except subprocess.TimeoutExpired:
-                        st.error("Build timed out after 1 hour.")
+                        st.error(f"Build timed out after {timeout_hours} hour(s).")
                     except Exception as e:
                         st.error(f"Build error: {e}")
                 st.session_state.pop("confirm_build", None)
@@ -574,12 +722,20 @@ def render_build_controls() -> None:
             if st.button("Confirm Rebuild (Destructive)"):
                 with st.spinner("Rebuilding index... This may take a while."):
                     try:
+                        # Delete existing index directory first
+                        index_dir = project_root / "data" / "index"
+                        if index_dir.exists():
+                            shutil.rmtree(index_dir)
+                            st.info("Cleared existing index directory.")
+
+                        # Rebuild with reset checkpoint and embeddings
+                        rebuild_cmd = build_cmd + ["--reset-checkpoint", "--rebuild-embeddings"]
                         result = subprocess.run(
-                            [sys.executable, str(project_root / "scripts" / "build_index.py"), "--force"],
+                            rebuild_cmd,
                             capture_output=True,
                             text=True,
                             cwd=str(project_root),
-                            timeout=3600,
+                            timeout=timeout_seconds,
                         )
                         if result.returncode == 0:
                             st.success("Index rebuilt successfully!")
@@ -591,7 +747,7 @@ def render_build_controls() -> None:
                             st.error("Rebuild failed.")
                             st.code(result.stderr[-2000:] if len(result.stderr) > 2000 else result.stderr)
                     except subprocess.TimeoutExpired:
-                        st.error("Rebuild timed out after 1 hour.")
+                        st.error(f"Rebuild timed out after {timeout_hours} hour(s).")
                     except Exception as e:
                         st.error(f"Rebuild error: {e}")
                 st.session_state.pop("confirm_rebuild", None)
@@ -610,7 +766,7 @@ def main() -> None:
     render_header()
 
     # Check if index exists before trying to load
-    index_exists, index_dir = check_index_exists()
+    index_exists, index_dir, has_embeddings = check_index_exists(config_path or None)
 
     config_path = st.sidebar.text_input(
         "Config path (optional)",
@@ -620,7 +776,7 @@ def main() -> None:
 
     # Show build controls in sidebar regardless of index state
     with st.sidebar:
-        render_build_controls()
+        render_build_controls(config_path=config_path or None)
 
     if not index_exists:
         render_no_index_message()
@@ -703,45 +859,111 @@ def main() -> None:
         render_index_summary(engine, full_view=True)
 
     with search_tab:
+        metadata_only = st.toggle(
+            "Metadata-only search",
+            value=st.session_state.get("metadata_only", False),
+            help="Search by title/author metadata without semantic embeddings.",
+        )
+        st.session_state["metadata_only"] = metadata_only
+
         with st.form("search_form", clear_on_submit=False):
-            query = st.text_input(
-                "Search query",
-                value=st.session_state.get("last_query", ""),
-                placeholder="Enter a research question or concept",
-            )
+            title_query = ""
+            author_query = ""
+            query = ""
+            if metadata_only:
+                title_query = st.text_input(
+                    "Title contains",
+                    value=st.session_state.get("metadata_title", ""),
+                    placeholder="e.g., neural network",
+                )
+                author_query = st.text_input(
+                    "Author contains",
+                    value=st.session_state.get("metadata_author", ""),
+                    placeholder="e.g., Smith",
+                )
+            else:
+                query = st.text_input(
+                    "Search query",
+                    value=st.session_state.get("last_query", ""),
+                    placeholder="Enter a research question or concept",
+                )
             submitted = st.form_submit_button("Run search", type="primary")
 
         if submitted:
-            query_text = query.strip()
-            if not query_text:
-                st.warning("Enter a query to search.")
-            elif len(query_text) < 3:
-                st.warning("Query too short. Enter at least 3 characters.")
+            if metadata_only:
+                title_text = title_query.strip()
+                author_text = author_query.strip()
+                if not title_text and not author_text:
+                    st.warning("Enter a title or author to search.")
+                else:
+                    match_parts = []
+                    if title_text:
+                        match_parts.append(f"title: {title_text}")
+                    if author_text:
+                        match_parts.append(f"author: {author_text}")
+                    match_label = "Metadata match"
+                    if match_parts:
+                        match_label = f"Metadata match ({', '.join(match_parts)})"
+                    search_label = "metadata " + " | ".join(match_parts)
+                    with st.spinner("Running metadata search..."):
+                        try:
+                            results = execute_metadata_search(
+                                engine=engine,
+                                title_contains=title_text or None,
+                                author_contains=author_text or None,
+                                year_min=year_range[0] if use_year_filter else None,
+                                year_max=year_range[1] if use_year_filter else None,
+                                collections=collections or None,
+                                item_types=item_types or None,
+                                top_k=top_k,
+                                match_label=match_label,
+                            )
+                        except Exception as e:
+                            st.error(f"Metadata search failed: {e}")
+                            results = []
+                    st.session_state["search_results"] = results
+                    st.session_state["last_query"] = search_label.strip()
+                    st.session_state["metadata_title"] = title_text
+                    st.session_state["metadata_author"] = author_text
+                    st.session_state["selected_paper_id"] = (
+                        results[0].paper_id if results else None
+                    )
+                    st.session_state.pop("similar_results", None)
+                    st.session_state.pop("pdf_export_bytes", None)
+                    st.session_state.pop("pdf_export_name", None)
             else:
-                with st.spinner("Running semantic search..."):
-                    try:
-                        results = execute_search(
-                            engine=engine,
-                            query=query_text,
-                            top_k=top_k,
-                            chunk_types=normalize_chunk_filter(chunk_types),
-                            year_min=year_range[0] if use_year_filter else None,
-                            year_max=year_range[1] if use_year_filter else None,
-                            collections=collections or None,
-                            item_types=item_types or None,
-                            include_extraction=include_extraction,
-                            deduplicate_papers=deduplicate_papers,
-                        )
-                    except Exception as e:
-                        st.error(f"Search failed: {e}")
-                        results = []
-                st.session_state["search_results"] = results
-                st.session_state["last_query"] = query_text
-                st.session_state["selected_paper_id"] = (
-                    results[0].paper_id if results else None
-                )
-                # Clear similar results when new search is run
-                st.session_state.pop("similar_results", None)
+                query_text = query.strip()
+                if not query_text:
+                    st.warning("Enter a query to search.")
+                elif len(query_text) < 3:
+                    st.warning("Query too short. Enter at least 3 characters.")
+                else:
+                    with st.spinner("Running semantic search..."):
+                        try:
+                            results = execute_search(
+                                engine=engine,
+                                query=query_text,
+                                top_k=top_k,
+                                chunk_types=normalize_chunk_filter(chunk_types),
+                                year_min=year_range[0] if use_year_filter else None,
+                                year_max=year_range[1] if use_year_filter else None,
+                                collections=collections or None,
+                                item_types=item_types or None,
+                                include_extraction=include_extraction,
+                                deduplicate_papers=deduplicate_papers,
+                            )
+                        except Exception as e:
+                            st.error(f"Search failed: {e}")
+                            results = []
+                    st.session_state["search_results"] = results
+                    st.session_state["last_query"] = query_text
+                    st.session_state["selected_paper_id"] = (
+                        results[0].paper_id if results else None
+                    )
+                    # Clear similar results when new search is run
+                    st.session_state.pop("similar_results", None)
+                    st.session_state.pop("pdf_export_bytes", None)
+                    st.session_state.pop("pdf_export_name", None)
 
         results = st.session_state.get("search_results", [])
         last_query = st.session_state.get("last_query", "")
@@ -839,19 +1061,25 @@ def main() -> None:
                         use_container_width=True,
                     )
                 elif export_format == "pdf":
-                    # Generate PDF and offer download
-                    temp_path = save_export(
-                        results=results,
-                        query=st.session_state.get("last_query", "search"),
-                        export_format="pdf",
-                        results_dir=results_dir,
-                        include_extraction=include_extraction,
-                    )
-                    if temp_path.exists():
+                    if st.button("Prepare PDF", use_container_width=True, key="prepare_pdf"):
+                        temp_path = save_export(
+                            results=results,
+                            query=st.session_state.get("last_query", "search"),
+                            export_format="pdf",
+                            results_dir=results_dir,
+                            include_extraction=include_extraction,
+                        )
+                        if temp_path.exists():
+                            st.session_state["pdf_export_bytes"] = temp_path.read_bytes()
+                            st.session_state["pdf_export_name"] = temp_path.name
+
+                    pdf_bytes = st.session_state.get("pdf_export_bytes")
+                    pdf_name = st.session_state.get("pdf_export_name", "results.pdf")
+                    if pdf_bytes:
                         st.download_button(
                             "Download PDF",
-                            data=temp_path.read_bytes(),
-                            file_name=temp_path.name,
+                            data=pdf_bytes,
+                            file_name=pdf_name,
                             mime="application/pdf",
                             use_container_width=True,
                         )
