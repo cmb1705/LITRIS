@@ -14,8 +14,19 @@ from pathlib import Path
 from typing import Iterable, cast
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 project_root = Path(__file__).resolve().parent.parent
+
+# Optional: Citation network visualization
+PYVIS_AVAILABLE = False
+try:
+    from pyvis.network import Network
+    import networkx as nx
+
+    PYVIS_AVAILABLE = True
+except ImportError:
+    pass
 sys.path.insert(0, str(project_root))
 
 from src.config import Config
@@ -548,6 +559,64 @@ def sanitize_csv_field(field: str) -> str:
     return field
 
 
+def sanitize_filename_slug(value: str, max_length: int = 30) -> str:
+    """Sanitize user-provided string for safe filename slugs."""
+    import re
+
+    if not value:
+        return "search"
+
+    slug = value.strip().replace(" ", "-")
+    slug = re.sub(r"[^A-Za-z0-9-]+", "-", slug)
+    slug = re.sub(r"-{2,}", "-", slug)
+    slug = slug.strip("-")
+    if not slug:
+        slug = "search"
+    return slug[:max_length]
+
+
+def is_safe_http_url(value: str) -> bool:
+    """Return True for http(s) URLs with a network location."""
+    if not value:
+        return False
+    from urllib.parse import urlparse
+
+    parsed = urlparse(value.strip())
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def normalize_doi_url(doi: str) -> str | None:
+    """Normalize DOI to a safe URL or return None if invalid."""
+    import re
+    from urllib.parse import urlparse
+
+    if not doi:
+        return None
+
+    text = doi.strip()
+    lower = text.lower()
+    if lower.startswith("doi:"):
+        text = text[4:].strip()
+        lower = text.lower()
+
+    if lower.startswith(("http://", "https://")):
+        if not is_safe_http_url(text):
+            return None
+        parsed = urlparse(text)
+        if parsed.netloc.lower() not in ("doi.org", "dx.doi.org"):
+            return None
+        return text
+
+    if lower.startswith(("doi.org/", "dx.doi.org/")):
+        candidate = f"https://{text}"
+        return candidate if is_safe_http_url(candidate) else None
+
+    if not re.match(r"^10\\.\\d{4,9}/[-._;()/:A-Za-z0-9]+$", text):
+        return None
+
+    return f"https://doi.org/{text}"
+
+
 def highlight_query_terms(text: str, query: str) -> str:
     """Highlight query terms in text with HTML spans.
 
@@ -868,6 +937,135 @@ def find_similar_papers(
 ) -> list[EnrichedResult]:
     """Find papers similar to the given paper."""
     return engine.search_similar_papers(paper_id=paper_id, top_k=top_k)
+
+
+def build_similarity_network(
+    center_paper: EnrichedResult,
+    similar_papers: list[EnrichedResult],
+    dark_mode: bool = False,
+) -> str | None:
+    """Build an interactive similarity network visualization.
+
+    Args:
+        center_paper: The focal paper at the center of the network.
+        similar_papers: List of similar papers to display as connected nodes.
+        dark_mode: If True, use dark theme colors.
+
+    Returns:
+        HTML string of the network visualization, or None if pyvis unavailable.
+    """
+    if not PYVIS_AVAILABLE:
+        return None
+
+    # Create NetworkX graph
+    G = nx.Graph()
+
+    # Add center node
+    center_label = center_paper.title[:40] + "..." if len(center_paper.title) > 40 else center_paper.title
+    center_year = f" ({center_paper.year})" if center_paper.year else ""
+    G.add_node(
+        center_paper.paper_id,
+        label=center_label,
+        title=f"{center_paper.title}{center_year}\n{center_paper.authors}",
+        size=30,
+        color="#e08050",  # Accent color
+        font={"color": "#ffffff" if dark_mode else "#1f1b17"},
+    )
+
+    # Add similar papers as connected nodes
+    for sim in similar_papers:
+        sim_label = sim.title[:30] + "..." if len(sim.title) > 30 else sim.title
+        sim_year = f" ({sim.year})" if sim.year else ""
+        # Size based on similarity score
+        node_size = 15 + int(sim.score * 15)
+        G.add_node(
+            sim.paper_id,
+            label=sim_label,
+            title=f"{sim.title}{sim_year}\n{sim.authors}\nSimilarity: {sim.score:.3f}",
+            size=node_size,
+            color="#508c78" if dark_mode else "#4a8c6a",
+            font={"color": "#e8e8e8" if dark_mode else "#1f1b17"},
+        )
+        # Edge weight based on similarity
+        G.add_edge(
+            center_paper.paper_id,
+            sim.paper_id,
+            value=sim.score,
+            title=f"Similarity: {sim.score:.3f}",
+        )
+
+    # Create PyVis network
+    net = Network(
+        height="400px",
+        width="100%",
+        bgcolor="#1a1a1a" if dark_mode else "#f6f1ea",
+        font_color="#e8e8e8" if dark_mode else "#1f1b17",
+        directed=False,
+    )
+
+    # Configure physics for nice layout
+    net.set_options("""
+    {
+        "physics": {
+            "barnesHut": {
+                "gravitationalConstant": -3000,
+                "centralGravity": 0.3,
+                "springLength": 150,
+                "springConstant": 0.05,
+                "damping": 0.09
+            }
+        },
+        "interaction": {
+            "hover": true,
+            "tooltipDelay": 100
+        }
+    }
+    """)
+
+    # Convert from NetworkX
+    net.from_nx(G)
+
+    # Generate HTML
+    return net.generate_html()
+
+
+def render_similarity_network(
+    engine: SearchEngine,
+    paper: EnrichedResult,
+    num_similar: int,
+    dark_mode: bool,
+) -> None:
+    """Render the similarity network visualization in Streamlit.
+
+    Args:
+        engine: SearchEngine instance for finding similar papers.
+        paper: The focal paper to build the network around.
+        num_similar: Number of similar papers to include.
+        dark_mode: If True, use dark theme colors.
+    """
+    if not PYVIS_AVAILABLE:
+        st.warning(
+            "Network visualization requires pyvis. "
+            "Install with: pip install pyvis networkx"
+        )
+        return
+
+    with st.spinner("Building similarity network..."):
+        similar = find_similar_papers(engine, paper.paper_id, num_similar)
+
+    if not similar:
+        st.info("No similar papers found to build network.")
+        return
+
+    html = build_similarity_network(paper, similar, dark_mode)
+    if html:
+        components.html(html, height=420, scrolling=False)
+        st.caption(
+            f"Network shows {len(similar)} papers similar to the focused paper. "
+            "Hover over nodes for details. Drag to rearrange."
+        )
+    else:
+        st.error("Failed to generate network visualization.")
 
 
 def check_index_exists(config_path: str | None = None) -> tuple[bool, Path, bool]:
@@ -1242,6 +1440,7 @@ def main() -> None:
             key="coll_search",
         )
         all_collections = filter_options["collections"]
+        selected_colls = list(st.session_state.get("filter_collections", []))
         summary = st.session_state.get("summary", {})
         coll_counts = summary.get("papers_by_collection", {})
 
@@ -1252,16 +1451,23 @@ def main() -> None:
         else:
             filtered_colls = all_collections
 
+        hidden_selected = [c for c in selected_colls if c not in filtered_colls]
+        if hidden_selected:
+            st.caption(f"{len(hidden_selected)} selected collection(s) hidden by search filter.")
+
+        # Include selected collections even if filtered out
+        colls_for_options = list(dict.fromkeys(selected_colls + filtered_colls))
+
         # Format options with counts
         coll_options_display = []
-        for c in filtered_colls:
+        for c in colls_for_options:
             count = coll_counts.get(c, 0)
             coll_options_display.append(f"{c} ({count})" if count else c)
 
         # Map display names back to actual collection names
         display_to_name = {
             f"{c} ({coll_counts.get(c, 0)})" if coll_counts.get(c) else c: c
-            for c in filtered_colls
+            for c in colls_for_options
         }
 
         selected_display = st.multiselect(
@@ -1269,8 +1475,8 @@ def main() -> None:
             options=coll_options_display,
             default=[
                 f"{c} ({coll_counts.get(c, 0)})" if coll_counts.get(c) else c
-                for c in st.session_state.get("filter_collections", [])
-                if c in filtered_colls
+                for c in selected_colls
+                if c in colls_for_options
             ],
         )
         collections = [display_to_name.get(d, d) for d in selected_display]
@@ -1493,7 +1699,43 @@ def main() -> None:
         # Handle quick filter trigger - re-run search with current query and updated filters
         if st.session_state.pop("trigger_search", False):
             last_query = st.session_state.get("last_query", "")
-            if last_query and not metadata_only:
+            if metadata_only:
+                title_text = st.session_state.get("metadata_title", "").strip()
+                author_text = st.session_state.get("metadata_author", "").strip()
+                if title_text or author_text:
+                    match_parts = []
+                    if title_text:
+                        match_parts.append(f"title: {title_text}")
+                    if author_text:
+                        match_parts.append(f"author: {author_text}")
+                    match_label = "Metadata match"
+                    if match_parts:
+                        match_label = f"Metadata match ({', '.join(match_parts)})"
+                    with st.spinner("Applying filters..."):
+                        try:
+                            results = execute_metadata_search(
+                                engine=engine,
+                                title_contains=title_text or None,
+                                author_contains=author_text or None,
+                                year_min=year_range[0] if use_year_filter else None,
+                                year_max=year_range[1] if use_year_filter else None,
+                                collections=collections or None,
+                                item_types=item_types or None,
+                                top_k=top_k,
+                                match_label=match_label,
+                            )
+                            results = sort_results(results, sort_key)
+                            st.session_state["search_results"] = results
+                            st.session_state["selected_ids"] = set()
+                            st.session_state["results_page"] = 0
+                            st.session_state["selected_paper_id"] = (
+                                results[0].paper_id if results else None
+                            )
+                        except Exception as e:
+                            st.error(f"Filter search failed: {e}")
+                else:
+                    st.warning("Enter a title or author to search.")
+            elif last_query:
                 with st.spinner("Applying filters..."):
                     try:
                         results = execute_search(
@@ -1613,7 +1855,9 @@ def main() -> None:
                 if st.button(f"Save to disk{export_label}", use_container_width=True):
                     if export_format in ("csv", "bibtex"):
                         # Handle CSV/BibTeX separately
-                        query_slug = st.session_state.get("last_query", "search")[:30].replace(" ", "-")
+                        query_slug = sanitize_filename_slug(
+                            st.session_state.get("last_query", "search")
+                        )
                         date_str = datetime.now().strftime("%Y-%m-%d")
                         if export_format == "csv":
                             content = results_to_csv(export_results)
@@ -1637,7 +1881,9 @@ def main() -> None:
 
             with export_cols[1]:
                 # Direct download button
-                query_slug = st.session_state.get("last_query", "search")[:30].replace(" ", "-")
+                query_slug = sanitize_filename_slug(
+                    st.session_state.get("last_query", "search")
+                )
                 date_str = datetime.now().strftime("%Y-%m-%d")
 
                 if export_format == "csv":
@@ -1837,17 +2083,23 @@ def main() -> None:
 
             # Clickable DOI and URL links
             paper = selected.paper_data or {}
-            doi = paper.get("doi")
-            url = paper.get("url")
-            if doi or url:
+            doi_text = str(paper.get("doi") or "").strip()
+            url_text = str(paper.get("url") or "").strip()
+            if doi_text or url_text:
                 link_cols = st.columns(2)
                 with link_cols[0]:
-                    if doi:
-                        doi_url = f"https://doi.org/{doi}" if not doi.startswith("http") else doi
-                        st.markdown(f"[Open DOI]({doi_url})")
+                    if doi_text:
+                        doi_url = normalize_doi_url(doi_text)
+                        if doi_url:
+                            st.markdown(f"[Open DOI]({doi_url})")
+                        else:
+                            st.caption("DOI omitted (invalid format).")
                 with link_cols[1]:
-                    if url:
-                        st.markdown(f"[Open URL]({url})")
+                    if url_text:
+                        if is_safe_http_url(url_text):
+                            st.markdown(f"[Open URL]({url_text})")
+                        else:
+                            st.caption("URL omitted (invalid scheme).")
 
             st.subheader("Citation")
             citation_format = st.selectbox(
@@ -1918,6 +2170,30 @@ def main() -> None:
                             st.session_state["selected_paper_id"] = sim.paper_id
                             st.session_state.pop("similar_results", None)
                             st.rerun()
+
+            # Similarity network visualization
+            with st.expander("Similarity Network", expanded=False):
+                if PYVIS_AVAILABLE:
+                    net_similar = st.slider(
+                        "Papers in network",
+                        3,
+                        15,
+                        7,
+                        key="network_k",
+                        help="Number of similar papers to show in the network.",
+                    )
+                    if st.button("Build Network", use_container_width=True):
+                        render_similarity_network(
+                            engine=engine,
+                            paper=selected,
+                            num_similar=net_similar,
+                            dark_mode=dark_mode,
+                        )
+                else:
+                    st.info(
+                        "Network visualization requires pyvis. "
+                        "Install with: `pip install pyvis networkx`"
+                    )
 
             # Formatted output preview
             if st.checkbox("Show formatted output preview", value=False):

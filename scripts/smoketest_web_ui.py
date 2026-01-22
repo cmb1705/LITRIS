@@ -183,9 +183,13 @@ def test_ui_layout_functions() -> bool:
             resolve_detail_markdown,
             save_export,
             find_similar_papers,
+            build_similarity_network,
+            render_similarity_network,
+            PYVIS_AVAILABLE,
             main,
         )
         print("  All UI functions defined: OK")
+        print(f"  PYVIS_AVAILABLE: {PYVIS_AVAILABLE}")
         return True
     except ImportError as e:
         print(f"  UI functions: FAIL ({e})")
