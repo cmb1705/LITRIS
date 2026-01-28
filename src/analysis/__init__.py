@@ -7,6 +7,12 @@ from src.analysis.gap_detection import (
     load_gap_report,
     save_gap_report,
 )
+from src.analysis.research_questions import (
+    QuestionScope,
+    QuestionStyle,
+    ResearchQuestionConfig,
+    build_prompts_from_gap_report,
+)
 
 try:
     from src.analysis.llm_client import LLMClient
@@ -46,6 +52,11 @@ __all__ = [
     "load_gap_report",
     "format_gap_report_markdown",
     "save_gap_report",
+    # Research question generation
+    "ResearchQuestionConfig",
+    "QuestionStyle",
+    "QuestionScope",
+    "build_prompts_from_gap_report",
 ]
 
 if LLMClient is not None:
