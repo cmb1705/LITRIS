@@ -220,7 +220,20 @@ data/
 
 # Local configuration with absolute paths
 .mcp.json
+
+# Claude Code local configuration (machine-specific)
+.claude/*.local.*
 .claude/settings.local.json
+
+# Security - never track these patterns
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json
+*_secret*
+*.credentials
 
 # Windows artifacts
 nul
