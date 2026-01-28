@@ -1,8 +1,8 @@
 """Tests for reference database interfaces."""
 
-import pytest
 from pathlib import Path
-from datetime import datetime
+
+import pytest
 
 from src.references.base import BaseReferenceDB
 from src.references.factory import create_reference_db, get_available_providers

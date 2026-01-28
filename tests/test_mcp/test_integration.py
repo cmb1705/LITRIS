@@ -1,10 +1,10 @@
 """Integration tests for MCP server functionality."""
 
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from src.mcp.adapters import LitrisAdapter
-from src.mcp.validators import ValidationError
 
 
 class TestFilteredSearches:

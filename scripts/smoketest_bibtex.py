@@ -95,7 +95,7 @@ def test_author_parsing():
     print("Testing Author Parsing")
     print("=" * 60)
 
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
         bib_file = Path(tmpdir) / "test.bib"
         bib_file.write_text("@article{test, title={Test}}", encoding="utf-8")
@@ -131,7 +131,7 @@ def test_entry_type_mapping():
     print("Testing Entry Type Mapping")
     print("=" * 60)
 
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
         bib_file = Path(tmpdir) / "references.bib"
         bib_file.write_text(SAMPLE_BIBTEX, encoding="utf-8")
@@ -169,7 +169,7 @@ def test_metadata_extraction():
     print("Testing Metadata Extraction")
     print("=" * 60)
 
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
         bib_file = Path(tmpdir) / "references.bib"
         bib_file.write_text(SAMPLE_BIBTEX, encoding="utf-8")
@@ -223,7 +223,7 @@ def test_pdf_discovery():
     print("Testing PDF Discovery")
     print("=" * 60)
 
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
 
@@ -261,7 +261,7 @@ def test_factory():
     print("Testing Factory Integration")
     print("=" * 60)
 
-    
+
     providers = get_available_providers()
     print(f"  Available providers: {providers}")
     bibtex_available = "bibtex" in providers
@@ -290,7 +290,7 @@ def test_filter_papers():
     print("Testing Paper Filtering")
     print("=" * 60)
 
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
         bib_file = Path(tmpdir) / "references.bib"
         bib_file.write_text(SAMPLE_BIBTEX, encoding="utf-8")

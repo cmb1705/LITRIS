@@ -10,10 +10,9 @@ EndNote XML format reference:
 import hashlib
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
 from src.references.base import BaseReferenceDB, ReferenceProvider
 from src.utils.logging_config import get_logger
@@ -125,7 +124,7 @@ class EndNoteReferenceDB(BaseReferenceDB):
             return records
 
         except ET.ParseError as e:
-            raise ValueError(f"Failed to parse EndNote XML: {e}")
+            raise ValueError(f"Failed to parse EndNote XML: {e}") from e
 
     def _get_text(self, element: ET.Element | None, default: str = "") -> str:
         """Extract text from an element, handling style tags.
@@ -203,7 +202,7 @@ class EndNoteReferenceDB(BaseReferenceDB):
         # Secondary authors (editors)
         secondary = contributors.find("secondary-authors")
         if secondary is not None:
-            for i, author_elem in enumerate(secondary.findall("author")):
+            for _i, author_elem in enumerate(secondary.findall("author")):
                 author_text = self._get_text(author_elem)
                 if author_text:
                     first, last = self._split_author_name(author_text)

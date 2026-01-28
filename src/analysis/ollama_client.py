@@ -88,11 +88,11 @@ class OllamaLLMClient(BaseLLMClient):
             try:
                 import ollama
                 self.client = ollama.Client(host=self.host)
-            except ImportError:
+            except ImportError as e:
                 raise ImportError(
                     "Ollama package not installed. "
                     "Install with: pip install ollama"
-                )
+                ) from e
 
     @property
     def provider(self) -> str:

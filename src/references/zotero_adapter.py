@@ -4,9 +4,8 @@ This adapter wraps the existing ZoteroDatabase implementation
 to conform to the BaseReferenceDB interface.
 """
 
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from pathlib import Path
-from typing import Callable
 
 from src.references.base import BaseReferenceDB, ReferenceProvider
 from src.zotero.database import ZoteroDatabase

@@ -1,6 +1,5 @@
 """Tests for PDF extraction and text cleaning."""
 
-from pathlib import Path
 
 import pymupdf
 import pytest

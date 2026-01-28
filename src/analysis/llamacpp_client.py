@@ -98,11 +98,11 @@ class LlamaCppLLMClient(BaseLLMClient):
                     verbose=self.verbose,
                 )
                 logger.info("Model loaded successfully")
-            except ImportError:
+            except ImportError as e:
                 raise ImportError(
                     "llama-cpp-python package not installed. "
                     "Install with: pip install llama-cpp-python"
-                )
+                ) from e
 
     @property
     def provider(self) -> str:

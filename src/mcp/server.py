@@ -9,21 +9,21 @@ import os
 import signal
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any
-import uuid
 
 from mcp.server.fastmcp import FastMCP
 
 from src.mcp.adapters import LitrisAdapter
 from src.mcp.validators import (
     ValidationError,
-    validate_query,
+    validate_chunk_types,
     validate_paper_id,
+    validate_query,
+    validate_recency_boost,
     validate_top_k,
     validate_year,
-    validate_chunk_types,
-    validate_recency_boost,
 )
 from src.utils.logging_config import get_logger, setup_logging
 
@@ -304,7 +304,8 @@ async def litris_save_query(
 
     try:
         from datetime import datetime
-        from src.query.retrieval import slugify_query, _get_pdf_css
+
+        from src.query.retrieval import _get_pdf_css, slugify_query
 
         # Determine output directory
         output_dir = Path("data/query_results")

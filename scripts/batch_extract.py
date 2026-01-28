@@ -23,8 +23,6 @@ from src.analysis.batch_client import BatchExtractionClient
 from src.config import Config
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
-from src.indexing.structured_store import StructuredStore
-from src.utils.checkpoint import CheckpointManager
 from src.utils.deduplication import extract_existing_dois, filter_by_doi
 from src.utils.file_utils import safe_read_json, safe_write_json
 from src.utils.logging_config import setup_logging
@@ -266,7 +264,7 @@ def cmd_wait(args, logger):
         progress_callback=progress_callback,
     )
 
-    print(f"\nBatch completed!")
+    print("\nBatch completed!")
     print(f"Successful: {status.completed_requests}")
     print(f"Failed: {status.failed_requests}")
 
@@ -292,9 +290,9 @@ def cmd_collect(args, logger):
     # Load existing data
     existing_papers = safe_read_json(index_dir / "papers.json", default={})
     if isinstance(existing_papers, dict) and "papers" in existing_papers:
-        papers_dict = {p["paper_id"]: p for p in existing_papers["papers"]}
+        _papers_dict = {p["paper_id"]: p for p in existing_papers["papers"]}
     else:
-        papers_dict = {}
+        _papers_dict = {}
 
     existing_extractions = safe_read_json(index_dir / "extractions.json", default={})
     if isinstance(existing_extractions, dict) and "extractions" in existing_extractions:

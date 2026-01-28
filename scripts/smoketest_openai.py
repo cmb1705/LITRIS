@@ -48,7 +48,7 @@ def test_openai_cli_mode():
             """,
         )
 
-        print(f"\nResult:")
+        print("\nResult:")
         print(f"  Success: {result.success}")
         print(f"  Duration: {result.duration_seconds:.2f}s")
 
@@ -115,7 +115,7 @@ def test_openai_api_mode():
             """,
         )
 
-        print(f"\nResult:")
+        print("\nResult:")
         print(f"  Success: {result.success}")
         print(f"  Duration: {result.duration_seconds:.2f}s")
 

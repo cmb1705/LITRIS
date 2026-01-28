@@ -3,12 +3,9 @@
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
-from src.analysis.schemas import PaperExtraction
 from src.utils.file_utils import safe_read_json, safe_write_json
 from src.utils.logging_config import get_logger
-from src.zotero.models import PaperMetadata
 
 logger = get_logger(__name__)
 

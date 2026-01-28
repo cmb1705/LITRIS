@@ -30,7 +30,7 @@ def test_imports() -> bool:
         return True  # Don't fail, just note it's not installed
 
     try:
-        from src.query.search import SearchEngine, EnrichedResult
+        from src.query.search import EnrichedResult, SearchEngine
         print("  SearchEngine: OK")
     except ImportError as e:
         print(f"  SearchEngine: FAIL ({e})")
@@ -38,8 +38,8 @@ def test_imports() -> bool:
 
     try:
         from src.query.retrieval import (
-            format_results,
             format_paper_detail,
+            format_results,
             format_summary,
             save_results,
         )
@@ -71,12 +71,12 @@ def test_helper_functions() -> bool:
     # Import the web_ui module
     try:
         from scripts.web_ui import (
-            sanitize_csv_field,
+            check_index_exists,
             escape_bibtex,
             highlight_query_terms,
-            results_to_csv,
             results_to_bibtex,
-            check_index_exists,
+            results_to_csv,
+            sanitize_csv_field,
         )
         print("  imports: OK")
     except ImportError as e:
@@ -121,7 +121,7 @@ def test_mock_results() -> bool:
         print("  SKIPPED (streamlit not installed)")
         return True
 
-    from scripts.web_ui import results_to_csv, results_to_bibtex
+    from scripts.web_ui import results_to_bibtex, results_to_csv
     from src.query.search import EnrichedResult
 
     # Create mock result
@@ -172,21 +172,21 @@ def test_ui_layout_functions() -> bool:
 
     try:
         from scripts.web_ui import (
+            PYVIS_AVAILABLE,
+            build_similarity_network,
+            execute_search,
+            find_similar_papers,
             inject_styles,
+            load_filter_options,
+            main,
+            render_active_filters,
+            render_build_controls,
             render_header,
             render_index_summary,
             render_no_index_message,
-            render_build_controls,
-            render_active_filters,
-            load_filter_options,
-            execute_search,
+            render_similarity_network,
             resolve_detail_markdown,
             save_export,
-            find_similar_papers,
-            build_similarity_network,
-            render_similarity_network,
-            PYVIS_AVAILABLE,
-            main,
         )
         print("  All UI functions defined: OK")
         print(f"  PYVIS_AVAILABLE: {PYVIS_AVAILABLE}")

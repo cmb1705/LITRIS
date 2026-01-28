@@ -1,9 +1,9 @@
 """Abstract base class for reference database interfaces."""
 
 from abc import ABC, abstractmethod
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Literal
 
 from src.zotero.models import Author, PaperMetadata
 

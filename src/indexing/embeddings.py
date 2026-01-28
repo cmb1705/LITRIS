@@ -1,7 +1,6 @@
 """Embedding generation for semantic search."""
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Literal
 
 try:
@@ -309,7 +308,7 @@ class EmbeddingGenerator:
             convert_to_numpy=True,
         )
 
-        for chunk, embedding in zip(chunks, embeddings):
+        for chunk, embedding in zip(chunks, embeddings, strict=True):
             chunk.embedding = embedding.tolist()
 
         logger.info(f"Generated {len(chunks)} embeddings")

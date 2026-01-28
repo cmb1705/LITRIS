@@ -82,11 +82,11 @@ class GeminiLLMClient(BaseLLMClient):
             try:
                 from google import genai
                 self.client = genai.Client(api_key=api_key)
-            except ImportError:
+            except ImportError as e:
                 raise ImportError(
                     "Google Gen AI package not installed. "
                     "Install with: pip install google-genai"
-                )
+                ) from e
 
     @property
     def provider(self) -> LLMProvider:

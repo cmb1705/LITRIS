@@ -1,9 +1,9 @@
 """Tests for multi-provider LLM support."""
 
-import pytest
-from unittest.mock import MagicMock, patch
 
-from src.analysis.base_llm import BaseLLMClient, ExtractionMode
+import pytest
+
+from src.analysis.base_llm import BaseLLMClient
 from src.analysis.llm_factory import (
     create_llm_client,
     get_available_providers,
@@ -451,8 +451,8 @@ class TestLocalLLMCostComparison:
 
     def test_local_cheaper_than_openai(self):
         """Local inference should be cheaper (free) than OpenAI."""
-        from src.analysis.openai_client import OpenAILLMClient
         from src.analysis.llamacpp_client import LlamaCppLLMClient
+        from src.analysis.openai_client import OpenAILLMClient
 
         openai_client = OpenAILLMClient.__new__(OpenAILLMClient)
         openai_client.model = "gpt-5.2"
@@ -676,8 +676,8 @@ class TestBackwardCompatibility:
 
     def test_llm_client_import(self):
         """LLMClient should still be importable from llm_client module."""
-        from src.analysis.llm_client import LLMClient
         from src.analysis.anthropic_client import AnthropicLLMClient
+        from src.analysis.llm_client import LLMClient
 
         # LLMClient should be an alias for AnthropicLLMClient
         assert LLMClient is AnthropicLLMClient

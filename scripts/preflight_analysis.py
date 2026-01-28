@@ -314,13 +314,13 @@ def main():
 
     if new_papers:
         print("\n  # Dry run to verify:")
-        print(f"  python scripts/build_index.py --dedupe-by-doi --dry-run")
+        print("  python scripts/build_index.py --dedupe-by-doi --dry-run")
 
         print("\n  # For Batch API extraction:")
-        print(f"  python scripts/batch_extract.py submit --dedupe-by-doi")
+        print("  python scripts/batch_extract.py submit --dedupe-by-doi")
 
         print("\n  # For CLI extraction (uses subscription):")
-        print(f"  python scripts/build_index.py --dedupe-by-doi --mode cli")
+        print("  python scripts/build_index.py --dedupe-by-doi --mode cli")
     else:
         print("\n  No new papers to process. Index is up to date.")
 

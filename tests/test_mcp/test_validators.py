@@ -4,12 +4,12 @@ import pytest
 
 from src.mcp.validators import (
     ValidationError,
-    validate_query,
+    validate_chunk_types,
     validate_paper_id,
+    validate_query,
+    validate_recency_boost,
     validate_top_k,
     validate_year,
-    validate_chunk_types,
-    validate_recency_boost,
 )
 
 

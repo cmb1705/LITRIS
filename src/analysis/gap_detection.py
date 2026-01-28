@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
-
-import re
 
 from src.utils.file_utils import safe_read_json, safe_write_json
 
@@ -264,7 +263,7 @@ def _filter_papers(
     collections: list[str] | None,
 ) -> list[dict]:
     if not collections:
-        return [p for p in papers]
+        return list(papers)
 
     selected = []
     for paper in papers:

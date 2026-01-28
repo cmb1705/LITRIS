@@ -63,7 +63,7 @@ class ProgressTracker:
             return None
 
         try:
-            with open(self.progress_file, "r", encoding="utf-8") as f:
+            with open(self.progress_file, encoding="utf-8") as f:
                 data = json.load(f)
 
             self._state = data

@@ -107,10 +107,10 @@ class OpenAILLMClient(BaseLLMClient):
             try:
                 from openai import OpenAI
                 self.client = OpenAI(api_key=api_key)
-            except ImportError:
+            except ImportError as e:
                 raise ImportError(
                     "OpenAI package not installed. Install with: pip install openai"
-                )
+                ) from e
         elif mode == "cli":
             self._verify_codex_cli()
             # Check if model is supported by CLI mode with ChatGPT auth
@@ -232,8 +232,8 @@ class OpenAILLMClient(BaseLLMClient):
                 logger.debug(f"Codex auth: {result.stdout.strip()}")
         except subprocess.TimeoutExpired:
             logger.warning("Timeout checking Codex CLI auth status")
-        except FileNotFoundError:
-            raise ValueError(f"Codex CLI not found at {self._codex_path}")
+        except FileNotFoundError as e:
+            raise ValueError(f"Codex CLI not found at {self._codex_path}") from e
 
     def extract(
         self,

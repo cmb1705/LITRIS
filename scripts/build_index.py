@@ -13,7 +13,7 @@ sys.path.insert(0, str(project_root))
 
 from tqdm import tqdm
 
-from src.analysis.cli_executor import AuthenticationError, ClaudeCliAuthenticator
+from src.analysis.cli_executor import ClaudeCliAuthenticator
 from src.analysis.schemas import PaperExtraction
 from src.analysis.section_extractor import SectionExtractor
 from src.config import Config
@@ -25,7 +25,6 @@ from src.utils.deduplication import (
     analyze_doi_overlap,
     extract_existing_dois,
     filter_by_doi,
-    normalize_doi,
 )
 from src.utils.file_utils import safe_read_json, safe_write_json
 from src.utils.logging_config import LogContext, setup_logging
@@ -522,19 +521,19 @@ def main():
         print(f"\n{'=' * 60}")
         print("DOI Overlap Analysis")
         print(f"{'=' * 60}")
-        print(f"\nExisting index:")
+        print("\nExisting index:")
         print(f"  Papers with DOIs: {analysis['existing_index_dois']}")
-        print(f"\nNew Zotero database:")
+        print("\nNew Zotero database:")
         print(f"  Total papers (with PDFs): {analysis['new_papers_total']}")
         print(f"  With DOIs: {analysis['new_with_doi']}")
         print(f"  Without DOIs: {analysis['new_without_doi']}")
-        print(f"\nOverlap analysis:")
+        print("\nOverlap analysis:")
         print(f"  Duplicates (DOI match): {analysis['duplicates_by_doi']}")
         print(f"  Genuinely new (with DOI): {analysis['genuinely_new_with_doi']}")
         print(f"  Total to process: {len(analysis['new_papers_filtered'])}")
 
         if analysis['duplicate_papers']:
-            print(f"\nDuplicate papers (will be skipped with --dedupe-by-doi):")
+            print("\nDuplicate papers (will be skipped with --dedupe-by-doi):")
             print("-" * 60)
             for i, p in enumerate(analysis['duplicate_papers'][:10], 1):
                 print(f"  {i}. {p.title[:55]}...")
@@ -633,7 +632,7 @@ def main():
     if args.dedupe_by_doi:
         existing_dois = extract_existing_dois(index_dir)
         if existing_dois:
-            papers_before = len(papers)
+            _papers_before = len(papers)
             papers, doi_duplicates = filter_by_doi(papers, existing_dois)
             doi_duplicate_count = len(doi_duplicates)
             if doi_duplicate_count > 0:
@@ -728,7 +727,7 @@ def main():
     # Initialize extractor settings
     provider = args.provider or config.extraction.provider
     mode = args.mode or config.extraction.mode
-    model = args.model or config.extraction.model
+    _model = args.model or config.extraction.model
 
     # Override config with CLI args
     if args.provider:

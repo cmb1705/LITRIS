@@ -66,8 +66,8 @@ def test_factory_integration(deps):
     try:
         from src.analysis.llm_factory import (
             get_available_providers,
-            get_provider_models,
             get_default_model,
+            get_provider_models,
         )
 
         providers = get_available_providers()
@@ -303,7 +303,7 @@ def test_llamacpp_client_init(deps):
 
         # Test that missing model_path raises appropriate error
         try:
-            client = create_llm_client(provider="llamacpp")
+            _client = create_llm_client(provider="llamacpp")
             print("  ERROR: Should have raised ValueError for missing model_path")
             return False
         except ValueError as e:
@@ -315,7 +315,7 @@ def test_llamacpp_client_init(deps):
 
         # Test with non-existent model file
         try:
-            client = create_llm_client(
+            _client = create_llm_client(
                 provider="llamacpp",
                 model_path="/nonexistent/model.gguf",
             )

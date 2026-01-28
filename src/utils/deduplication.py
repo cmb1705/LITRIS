@@ -1,6 +1,5 @@
 """DOI-based deduplication utilities for cross-database paper matching."""
 
-import re
 from pathlib import Path
 
 from src.utils.file_utils import safe_read_json

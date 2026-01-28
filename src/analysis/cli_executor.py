@@ -100,7 +100,7 @@ class ClaudeCliAuthenticator:
         # Credentials file with valid OAuth is next (CLI prefers this over API key)
         if self.creds_path.exists():
             try:
-                with open(self.creds_path, "r", encoding="utf-8") as f:
+                with open(self.creds_path, encoding="utf-8") as f:
                     creds = json.load(f)
                 if "claudeAiOauth" in creds:
                     oauth = creds["claudeAiOauth"]
@@ -129,7 +129,7 @@ class ClaudeCliAuthenticator:
         # Check for credentials file - CLI prefers this over API key
         if self.creds_path.exists():
             try:
-                with open(self.creds_path, "r", encoding="utf-8") as f:
+                with open(self.creds_path, encoding="utf-8") as f:
                     creds = json.load(f)
 
                 if "claudeAiOauth" in creds:
@@ -241,7 +241,7 @@ For more information, see: https://docs.anthropic.com/claude-code
             return True
 
         except Exception as e:
-            raise CliExecutionError(f"Failed to launch Claude CLI: {e}")
+            raise CliExecutionError(f"Failed to launch Claude CLI: {e}") from e
 
 
 class ClaudeCliExecutor:
@@ -316,10 +316,10 @@ class ClaudeCliExecutor:
             if result.returncode != 0:
                 raise CliExecutionError(f"Claude CLI returned error: {result.stderr}")
             logger.debug(f"Claude CLI version: {result.stdout.strip()}")
-        except subprocess.TimeoutExpired:
-            raise CliExecutionError("Claude CLI version check timed out")
-        except FileNotFoundError:
-            raise CliExecutionError("Claude CLI executable not found")
+        except subprocess.TimeoutExpired as e:
+            raise CliExecutionError("Claude CLI version check timed out") from e
+        except FileNotFoundError as e:
+            raise CliExecutionError("Claude CLI executable not found") from e
 
         return True
 
@@ -456,10 +456,10 @@ class ClaudeCliExecutor:
 
             return result.stdout
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             raise ExtractionTimeoutError(
                 f"Extraction timed out after {self.timeout} seconds"
-            )
+            ) from e
 
     def extract(
         self,
@@ -557,7 +557,7 @@ class ClaudeCliExecutor:
             env = os.environ.copy()
 
             # Execute with input from file
-            with open(input_file, "r", encoding="utf-8") as f:
+            with open(input_file, encoding="utf-8") as f:
                 result = subprocess.run(
                     cmd,
                     stdin=f,
@@ -606,10 +606,10 @@ class ClaudeCliExecutor:
             # Parse response
             return self._parse_response(result.stdout)
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             raise ExtractionTimeoutError(
                 f"Extraction timed out after {self.timeout} seconds"
-            )
+            ) from e
         finally:
             # Clean up temp file
             input_file.unlink(missing_ok=True)

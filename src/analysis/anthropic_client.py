@@ -3,15 +3,15 @@
 import json
 import time
 
-from anthropic import Anthropic, APIError, APIConnectionError, RateLimitError
+from anthropic import Anthropic, APIConnectionError, APIError, RateLimitError
 from pydantic import ValidationError
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode, LLMProvider
 from src.analysis.cli_executor import ClaudeCliExecutor, CliExecutionError
 from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
 from src.analysis.schemas import ExtractionResult, PaperExtraction
-from src.utils.secrets import get_anthropic_api_key
 from src.utils.logging_config import get_logger
+from src.utils.secrets import get_anthropic_api_key
 
 logger = get_logger(__name__)
 

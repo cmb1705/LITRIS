@@ -339,13 +339,13 @@ class OCRHandler:
                 method="ocr",
             )
 
-        except PDFInfoNotInstalledError:
+        except PDFInfoNotInstalledError as e:
             raise OCRError(
                 "Poppler not installed. Required for PDF to image conversion. "
                 "On Windows, download from: https://github.com/osber/poppler-windows"
-            )
+            ) from e
         except Exception as e:
-            raise OCRError(f"OCR extraction failed: {e}")
+            raise OCRError(f"OCR extraction failed: {e}") from e
 
     def extract_hybrid(
         self,

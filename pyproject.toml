@@ -90,6 +90,12 @@ ignore = [
     "E501",   # line too long (handled by formatter)
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# Scripts need sys.path manipulation before imports
+"scripts/*.py" = ["E402"]
+# Smoketest scripts intentionally import modules just to check availability
+"scripts/smoketest_*.py" = ["E402", "F401"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["src"]
 

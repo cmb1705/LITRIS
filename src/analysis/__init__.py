@@ -7,6 +7,7 @@ from src.analysis.gap_detection import (
     load_gap_report,
     save_gap_report,
 )
+
 try:
     from src.analysis.llm_client import LLMClient
 except ModuleNotFoundError:  # Optional dependencies may be unavailable in tests
@@ -22,6 +23,7 @@ from src.analysis.schemas import (
     SignificanceLevel,
     SupportType,
 )
+
 try:
     from src.analysis.section_extractor import ExtractionStats, SectionExtractor
 except ImportError:  # Optional dependencies may be unavailable in tests

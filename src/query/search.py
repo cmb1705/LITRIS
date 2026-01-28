@@ -2,11 +2,10 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
-from src.indexing.embeddings import CHUNK_TYPES, ChunkType, EmbeddingGenerator
+from src.indexing.embeddings import ChunkType, EmbeddingGenerator
 from src.indexing.structured_store import StructuredStore
-from src.indexing.vector_store import SearchResult, VectorStore
+from src.indexing.vector_store import VectorStore
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)

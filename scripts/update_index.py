@@ -381,21 +381,21 @@ def print_change_summary(changes: ChangeSet, verbose: bool = False):
 
     if verbose:
         if changes.new_items:
-            print(f"\nNew items (Zotero keys):")
+            print("\nNew items (Zotero keys):")
             for key in changes.new_items[:10]:
                 print(f"  + {key}")
             if len(changes.new_items) > 10:
                 print(f"  ... and {len(changes.new_items) - 10} more")
 
         if changes.modified_items:
-            print(f"\nModified items (paper IDs):")
+            print("\nModified items (paper IDs):")
             for pid in changes.modified_items[:10]:
                 print(f"  ~ {pid}")
             if len(changes.modified_items) > 10:
                 print(f"  ... and {len(changes.modified_items) - 10} more")
 
         if changes.deleted_items:
-            print(f"\nDeleted items (paper IDs):")
+            print("\nDeleted items (paper IDs):")
             for pid in changes.deleted_items[:10]:
                 print(f"  - {pid}")
             if len(changes.deleted_items) > 10:

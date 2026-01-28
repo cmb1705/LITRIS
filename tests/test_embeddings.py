@@ -13,7 +13,6 @@ from src.analysis.schemas import (
 )
 from src.indexing.embeddings import (
     CHUNK_TYPES,
-    ChunkType,
     EmbeddingChunk,
     EmbeddingGenerator,
 )
@@ -132,7 +131,7 @@ class TestEmbeddingGenerator:
         gen = EmbeddingGenerator()
         chunks = gen.create_chunks(sample_paper, sample_extraction)
 
-        chunk_types = set(c.chunk_type for c in chunks)
+        chunk_types = {c.chunk_type for c in chunks}
         # Should have most chunk types
         assert "abstract" in chunk_types
         assert "thesis" in chunk_types

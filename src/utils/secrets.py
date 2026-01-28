@@ -1,7 +1,6 @@
 """Helpers for securely loading secrets (e.g., API keys)."""
 
 import os
-from typing import Optional
 
 from src.utils.logging_config import get_logger
 
@@ -16,7 +15,7 @@ except Exception:  # pragma: no cover - optional dependency
 def get_anthropic_api_key(
     service_name: str = "litris",
     key_name: str = "ANTHROPIC_API_KEY",
-) -> Optional[str]:
+) -> str | None:
     """Return the Anthropic API key from env or OS keyring.
 
     Order:

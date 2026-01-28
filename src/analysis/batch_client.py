@@ -1,12 +1,11 @@
 """Anthropic Batch API client for paper extraction."""
 
 import json
-import os
 import time
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Iterator
 
 from anthropic import Anthropic
 

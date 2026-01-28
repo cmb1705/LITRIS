@@ -12,7 +12,6 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.analysis.schemas import PaperExtraction
 from src.utils.file_utils import safe_read_json, safe_write_json
 from src.utils.logging_config import setup_logging
 
@@ -101,13 +100,13 @@ class ExtractionValidator:
             result.warnings.append(f"Low confidence: {result.confidence:.2f}")
 
         # Check required fields
-        for field in self.REQUIRED_FIELDS:
-            value = extraction_data.get(field)
+        for field_name in self.REQUIRED_FIELDS:
+            value = extraction_data.get(field_name)
             has_value = self._has_meaningful_value(value)
-            result.field_coverage[field] = has_value
+            result.field_coverage[field_name] = has_value
 
             if not has_value:
-                result.issues.append(f"Missing required field: {field}")
+                result.issues.append(f"Missing required field: {field_name}")
                 result.valid = False
 
         # Check key_claims if required
@@ -119,15 +118,15 @@ class ExtractionValidator:
                 result.valid = False
 
         # Check recommended fields
-        for field in self.RECOMMENDED_FIELDS:
-            if field == "key_claims" and self.require_claims:
+        for field_name in self.RECOMMENDED_FIELDS:
+            if field_name == "key_claims" and self.require_claims:
                 continue
-            value = extraction_data.get(field)
+            value = extraction_data.get(field_name)
             has_value = self._has_meaningful_value(value)
-            result.field_coverage[field] = has_value
+            result.field_coverage[field_name] = has_value
 
             if not has_value:
-                result.warnings.append(f"Missing recommended field: {field}")
+                result.warnings.append(f"Missing recommended field: {field_name}")
 
         # Check methodology structure
         methodology = extraction_data.get("methodology", {})
@@ -204,11 +203,11 @@ class ExtractionValidator:
         for r in results:
             all_fields.update(r.field_coverage.keys())
 
-        for field in all_fields:
+        for field_name in all_fields:
             covered = sum(
-                1 for r in results if r.field_coverage.get(field, False)
+                1 for r in results if r.field_coverage.get(field_name, False)
             )
-            summary.field_coverage_rates[field] = covered / len(results) if results else 0
+            summary.field_coverage_rates[field_name] = covered / len(results) if results else 0
 
         # Common issues
         summary.common_issues = issue_counter.most_common(10)
@@ -311,9 +310,9 @@ def main():
     print(f"Average confidence: {summary.avg_confidence:.3f}")
 
     print("\nField Coverage Rates:")
-    for field, rate in sorted(summary.field_coverage_rates.items()):
+    for field_name, rate in sorted(summary.field_coverage_rates.items()):
         bar = "█" * int(rate * 20) + "░" * (20 - int(rate * 20))
-        print(f"  {field:20s} [{bar}] {rate*100:5.1f}%")
+        print(f"  {field_name:20s} [{bar}] {rate*100:5.1f}%")
 
     if summary.common_issues:
         print("\nMost Common Issues:")

@@ -11,7 +11,6 @@ sys.path.insert(0, str(project_root))
 
 from src.config import Config
 from src.query.retrieval import (
-    OutputFormat,
     convert_markdown_to_pdf,
     format_paper_detail,
     format_results,

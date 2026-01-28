@@ -15,8 +15,9 @@ import argparse
 import json
 import subprocess
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable, Set
+from typing import Any
 
 
 def _requirement_class():
@@ -42,7 +43,7 @@ def parse_requirements(paths: Iterable[Path]) -> list[Any]:
     """
     Requirement = _requirement_class()
     result: list[Any] = []
-    visited: Set[Path] = set()
+    visited: set[Path] = set()
 
     def _parse(path: Path) -> None:
         resolved = path.resolve()
@@ -140,7 +141,7 @@ def main() -> int:
     requirements = parse_requirements(requirement_paths)
     outdated = get_outdated()
 
-    targets: Set[str] = set()
+    targets: set[str] = set()
     for req in requirements:
         if is_pinned(req):
             continue

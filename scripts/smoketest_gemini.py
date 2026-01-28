@@ -118,7 +118,7 @@ def test_gemini_api():
             """,
         )
 
-        print(f"\nResult:")
+        print("\nResult:")
         print(f"  Success: {result.success}")
         print(f"  Duration: {result.duration_seconds:.2f}s")
 

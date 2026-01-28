@@ -1,15 +1,12 @@
 """Tests for search engine and result formatting."""
 
 import json
-from datetime import datetime
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.indexing.structured_store import StructuredStore
 from src.query.retrieval import (
-    OutputFormat,
     format_brief,
     format_json,
     format_markdown,

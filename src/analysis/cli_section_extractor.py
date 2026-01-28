@@ -1,8 +1,8 @@
 """CLI-based section extractor using Claude Code headless mode."""
 
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
 from tqdm import tqdm
 
@@ -14,7 +14,7 @@ from src.analysis.cli_executor import (
     RateLimitError,
 )
 from src.analysis.progress_tracker import ProgressTracker
-from src.analysis.prompts import EXTRACTION_PROMPT_VERSION, build_extraction_prompt
+from src.analysis.prompts import build_extraction_prompt
 from src.analysis.rate_limit_handler import RateLimitHandler
 from src.analysis.schemas import (
     KeyClaim,
@@ -190,7 +190,7 @@ class CliSectionExtractor:
                 if progress_callback:
                     progress_callback(i + 1, len(papers_to_process), metadata.title)
 
-            except RateLimitError as e:
+            except RateLimitError:
                 logger.warning(f"Rate limit hit at paper {paper_id}")
 
                 # Handle rate limit
@@ -243,7 +243,7 @@ class CliSectionExtractor:
         Returns:
             PaperExtraction object.
         """
-        now = datetime.now()
+        _now = datetime.now()
 
         # Parse methodology
         methodology_data = response.get("methodology", {})

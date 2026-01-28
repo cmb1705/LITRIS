@@ -4,13 +4,12 @@ Reads metadata from the Mendeley Desktop SQLite database and maps it to
 LITRIS PaperMetadata objects.
 """
 
-from collections import defaultdict
-from collections.abc import Generator
-from datetime import datetime
 import hashlib
-from pathlib import Path
 import sqlite3
-from typing import Callable
+from collections import defaultdict
+from collections.abc import Callable, Generator
+from datetime import datetime
+from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from src.references.base import BaseReferenceDB, ReferenceProvider

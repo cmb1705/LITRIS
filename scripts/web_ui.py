@@ -8,10 +8,11 @@ import io
 import json
 import subprocess
 import sys
+from collections.abc import Iterable
 from datetime import datetime
 from html import escape
 from pathlib import Path
-from typing import Iterable, cast
+from typing import cast
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -21,8 +22,8 @@ project_root = Path(__file__).resolve().parent.parent
 # Optional: Citation network visualization
 PYVIS_AVAILABLE = False
 try:
-    from pyvis.network import Network
     import networkx as nx
+    from pyvis.network import Network
 
     PYVIS_AVAILABLE = True
 except ImportError:

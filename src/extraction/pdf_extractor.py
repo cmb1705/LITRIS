@@ -116,9 +116,9 @@ class PDFExtractor:
                     raise PDFExtractionError(
                         f"Both PyMuPDF and OCR failed for {pdf_path}: "
                         f"PyMuPDF: {e}, OCR: {ocr_error}"
-                    )
+                    ) from ocr_error
             else:
-                raise PDFExtractionError(f"Failed to extract text from {pdf_path}: {e}")
+                raise PDFExtractionError(f"Failed to extract text from {pdf_path}: {e}") from e
         else:
             # Check if OCR fallback is needed
             if self.ocr_handler and self.ocr_handler.needs_ocr(text, page_count):

@@ -2,13 +2,12 @@
 
 import hashlib
 import json
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from typing import Callable
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode
 from src.analysis.llm_factory import create_llm_client

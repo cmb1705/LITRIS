@@ -1,6 +1,5 @@
 """Tests for MCP adapter layer."""
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from src.mcp.adapters import LitrisAdapter

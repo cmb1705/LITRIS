@@ -1,10 +1,8 @@
 """Tests for CLI-based LLM extraction."""
 
-import json
 import logging
 import os
 from datetime import datetime
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,9 +10,7 @@ import pytest
 from src.analysis.cli_executor import (
     ClaudeCliExecutor,
     CliExecutionError,
-    ExtractionTimeoutError,
     ParseError,
-    RateLimitError,
 )
 from src.analysis.progress_tracker import ProgressTracker
 from src.analysis.rate_limit_handler import RateLimitExceededError, RateLimitHandler
@@ -325,7 +321,6 @@ class TestCliSectionExtractor:
 
     def test_prompt_uses_full_name_and_year(self, tmp_path, monkeypatch):
         """Ensure prompt uses author full names and publication_year."""
-        from datetime import datetime
         from src.analysis.cli_section_extractor import CliSectionExtractor
         from src.zotero.models import PaperMetadata
 
@@ -390,7 +385,6 @@ class TestCliSectionExtractor:
             "extraction_confidence": 0.85,
         }
 
-        from datetime import datetime
         metadata = PaperMetadata(
             zotero_key="ABC123",
             zotero_item_id=1,
@@ -411,7 +405,6 @@ class TestCliSectionExtractor:
 
     def test_parse_response_minimal(self, tmp_path):
         """Test parsing minimal response."""
-        from datetime import datetime
         from src.analysis.cli_section_extractor import CliSectionExtractor
         from src.zotero.models import PaperMetadata
 
@@ -449,6 +442,6 @@ class TestCliIntegration:
         """Test that CLI is available (if installed)."""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
-        executor = ClaudeCliExecutor()
+        _executor = ClaudeCliExecutor()
         # This would pass if CLI is installed
         # In CI, this test is skipped

@@ -6,10 +6,9 @@ Extracts metadata from PDF properties and filename parsing.
 
 import hashlib
 import re
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
 from src.references.base import BaseReferenceDB, ReferenceProvider
 from src.utils.logging_config import get_logger

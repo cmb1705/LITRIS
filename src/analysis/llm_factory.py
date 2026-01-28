@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from src.analysis.base_llm import BaseLLMClient, ExtractionMode, LLMProvider
+from src.analysis.base_llm import BaseLLMClient, ExtractionMode
 
 # Provider type for configuration
 Provider = Literal["anthropic", "openai", "google", "ollama", "llamacpp"]

@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Literal
 
 from src.query.search import EnrichedResult
-from src.utils.file_utils import safe_write_json
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -357,7 +356,7 @@ def _results_to_html(
 
     for i, result in enumerate(results, 1):
         year_str = f" ({result.year})" if result.year else ""
-        html.append(f'<div class="result">')
+        html.append('<div class="result">')
         html.append(f'<p class="title">{i}. {result.title}{year_str}</p>')
         html.append(f'<p class="info"><b>Authors:</b> {result.authors or "Unknown"}</p>')
         html.append(f'<p class="info"><b>Score:</b> {result.score:.4f} | <b>Type:</b> {result.item_type} | <b>Match:</b> {result.chunk_type}</p>')
