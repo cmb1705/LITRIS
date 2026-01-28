@@ -259,9 +259,20 @@ KEYBOARD_SHORTCUTS_JS = """
     window.litrisKeyboardInit = true;
 
     let focusedCardIndex = 0;
+    let lastCardCount = 0;
 
     function getResultCards() {
         return document.querySelectorAll('.result-card');
+    }
+
+    function resetNavIfCardsChanged() {
+        const cards = getResultCards();
+        if (cards.length !== lastCardCount) {
+            focusedCardIndex = 0;
+            lastCardCount = cards.length;
+            // Clear any existing highlights
+            cards.forEach(card => card.style.outline = 'none');
+        }
     }
 
     function highlightCard(index) {
@@ -274,6 +285,10 @@ KEYBOARD_SHORTCUTS_JS = """
         }
     }
 
+    // Reset navigation when result cards change (new search)
+    const observer = new MutationObserver(resetNavIfCardsChanged);
+    observer.observe(document.body, { childList: true, subtree: true });
+
     document.addEventListener('keydown', function(e) {
         // Skip if typing in input/textarea
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
@@ -283,6 +298,8 @@ KEYBOARD_SHORTCUTS_JS = """
             return;
         }
 
+        // Check if cards changed before processing navigation
+        resetNavIfCardsChanged();
         const cards = getResultCards();
 
         switch(e.key) {
