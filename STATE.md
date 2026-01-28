@@ -79,7 +79,7 @@ All six MCP tools are implemented and working:
 | Command | Purpose |
 |---------|---------|
 | `/search <query>` | Search the literature index |
-| `/build` | Build/update the index from Zotero |
+| `/build` | Build/update the index from reference library |
 | `/review-paper <id>` | Review extraction quality |
 
 ### Hooks

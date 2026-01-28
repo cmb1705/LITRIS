@@ -14,7 +14,7 @@ Before starting, ensure you have:
 
 ### Initial Build
 
-Build the full index from your Zotero library:
+Build the full index from your reference library:
 
 ```bash
 # Test with a small sample first

@@ -117,7 +117,7 @@ When using Claude Code in this project, these slash commands are available:
 | Command | Description |
 |---------|-------------|
 | `/search <query>` | Search the literature index with semantic search |
-| `/build` | Build/update the index from Zotero library |
+| `/build` | Build/update the index from your reference library |
 | `/review-paper <id>` | Review extraction quality for a specific paper |
 
 ## Prerequisites
@@ -152,7 +152,7 @@ pip install -r requirements.txt
 
 # Configure paths
 cp config.yaml.example config.yaml
-# Edit config.yaml with your Zotero paths
+# Edit config.yaml with your reference source paths
 ```
 
 ## Docker

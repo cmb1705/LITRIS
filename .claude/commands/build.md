@@ -1,9 +1,9 @@
 ---
-description: Build the literature index from Zotero library
+description: Build the literature index from your reference library
 allowed-tools: Bash(python:*)
 ---
 
-Build the literature index from the Zotero library.
+Build the literature index from your reference library (Zotero, Mendeley, EndNote, Paperpile, BibTeX, or PDF folder).
 
 Execute the build_index.py script with appropriate options:
 - If no arguments provided, run a test build with --limit 10
