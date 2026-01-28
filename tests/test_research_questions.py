@@ -1,6 +1,7 @@
 """Tests for research question generation from gap analysis."""
 
 from src.analysis.research_questions import (
+    GeneratedQuestion,
     QuestionScope,
     QuestionStyle,
     ResearchQuestionConfig,
@@ -9,6 +10,11 @@ from src.analysis.research_questions import (
     build_prompts_from_gap_report,
     build_topic_gap_prompt,
     build_year_gap_prompt,
+    deduplicate_questions,
+    format_questions_markdown,
+    generate_questions_from_prompts,
+    parse_llm_response,
+    rank_questions,
 )
 
 
@@ -238,3 +244,248 @@ class TestStyleInstructions:
 
         assert "exploratory" in prompt.lower()
         assert "comparative" in prompt.lower()
+
+
+class TestParseLLMResponse:
+    """Tests for parsing LLM JSON responses."""
+
+    def test_parses_valid_json(self):
+        """Parses well-formed JSON response."""
+        response = '''
+        {
+            "questions": [
+                {
+                    "question": "How does network topology affect resilience?",
+                    "style": "causal",
+                    "rationale": "Understanding topology is key."
+                }
+            ]
+        }
+        '''
+        questions = parse_llm_response(response, "topic", "network resilience")
+
+        assert len(questions) == 1
+        assert questions[0].question == "How does network topology affect resilience?"
+        assert questions[0].style == "causal"
+        assert questions[0].gap_type == "topic"
+        assert questions[0].gap_label == "network resilience"
+
+    def test_handles_markdown_wrapped_json(self):
+        """Handles JSON wrapped in markdown code blocks."""
+        response = '''Here is the output:
+        ```json
+        {
+            "questions": [
+                {"question": "What are the key factors?", "style": "exploratory"}
+            ]
+        }
+        ```
+        '''
+        questions = parse_llm_response(response, "topic", "test")
+
+        assert len(questions) == 1
+        assert questions[0].question == "What are the key factors?"
+
+    def test_filters_non_questions(self):
+        """Filters entries that don't end with question mark."""
+        response = '''
+        {
+            "questions": [
+                {"question": "Valid question?", "style": "exploratory"},
+                {"question": "Not a question", "style": "exploratory"}
+            ]
+        }
+        '''
+        questions = parse_llm_response(response, "topic", "test")
+
+        assert len(questions) == 1
+        assert questions[0].question == "Valid question?"
+
+    def test_handles_invalid_json(self):
+        """Returns empty list for invalid JSON."""
+        questions = parse_llm_response("not json at all", "topic", "test")
+        assert questions == []
+
+
+class TestDeduplicateQuestions:
+    """Tests for question deduplication."""
+
+    def test_removes_similar_questions(self):
+        """Removes questions with high similarity."""
+        questions = [
+            GeneratedQuestion(
+                question="How does X affect Y?",
+                style="causal",
+                gap_type="topic",
+                gap_label="test",
+            ),
+            GeneratedQuestion(
+                question="How does X affect Y in the context?",
+                style="causal",
+                gap_type="topic",
+                gap_label="test",
+            ),
+        ]
+        deduplicated, removed = deduplicate_questions(questions, similarity_threshold=0.5)
+
+        assert len(deduplicated) == 1
+        assert removed == 1
+
+    def test_keeps_different_questions(self):
+        """Keeps questions that are sufficiently different."""
+        questions = [
+            GeneratedQuestion(
+                question="How does network topology affect resilience?",
+                style="causal",
+                gap_type="topic",
+                gap_label="networks",
+            ),
+            GeneratedQuestion(
+                question="What methodologies are used in citation analysis?",
+                style="exploratory",
+                gap_type="methodology",
+                gap_label="citation",
+            ),
+        ]
+        deduplicated, removed = deduplicate_questions(questions)
+
+        assert len(deduplicated) == 2
+        assert removed == 0
+
+    def test_handles_empty_list(self):
+        """Handles empty input gracefully."""
+        deduplicated, removed = deduplicate_questions([])
+        assert deduplicated == []
+        assert removed == 0
+
+
+class TestRankQuestions:
+    """Tests for question ranking."""
+
+    def test_ranks_by_combined_score(self):
+        """Questions are sorted by combined score."""
+        questions = [
+            GeneratedQuestion(
+                question="Short?",
+                style="descriptive",
+                gap_type="topic",
+                gap_label="test",
+            ),
+            GeneratedQuestion(
+                question="How does the implementation of graph neural networks compare to traditional methods for citation prediction tasks?",
+                style="causal",
+                gap_type="methodology",
+                gap_label="GNN",
+                rationale="Important comparison",
+                methodology_hints=["comparative study"],
+            ),
+        ]
+        ranked = rank_questions(questions)
+
+        # Second question should rank higher (better attributes)
+        assert ranked[0].question.startswith("How does")
+        assert ranked[0].combined_score > ranked[1].combined_score
+
+    def test_assigns_relevance_scores(self):
+        """Questions receive relevance scores."""
+        questions = [
+            GeneratedQuestion(
+                question="What are the key factors influencing network resilience?",
+                style="exploratory",
+                gap_type="topic",
+                gap_label="test",
+                rationale="This matters because...",
+            ),
+        ]
+        ranked = rank_questions(questions)
+
+        assert ranked[0].relevance_score > 0
+        assert ranked[0].relevance_score <= 1.0
+
+    def test_handles_empty_list(self):
+        """Handles empty input."""
+        ranked = rank_questions([])
+        assert ranked == []
+
+
+class TestGenerateQuestionsFromPrompts:
+    """Tests for the full generation pipeline."""
+
+    def test_generates_and_processes_questions(self):
+        """Full pipeline generates, dedupes, and ranks questions."""
+        prompts = [
+            {
+                "type": "topic",
+                "gap": {"label": "network resilience"},
+                "prompt": "Generate questions about network resilience.",
+            }
+        ]
+
+        def mock_llm(prompt):
+            return '''
+            {
+                "questions": [
+                    {"question": "How does topology affect resilience?", "style": "causal"},
+                    {"question": "What factors influence network stability?", "style": "exploratory"}
+                ]
+            }
+            '''
+
+        config = ResearchQuestionConfig()
+        result = generate_questions_from_prompts(prompts, mock_llm, config)
+
+        assert result.total_generated == 2
+        assert len(result.questions) >= 1
+        assert result.duplicates_removed >= 0
+        assert result.generation_errors == []
+
+    def test_handles_llm_errors(self):
+        """Captures errors from LLM calls."""
+        prompts = [
+            {
+                "type": "topic",
+                "gap": {"label": "test"},
+                "prompt": "test prompt",
+            }
+        ]
+
+        def failing_llm(prompt):
+            raise ValueError("API error")
+
+        config = ResearchQuestionConfig()
+        result = generate_questions_from_prompts(prompts, failing_llm, config)
+
+        assert len(result.generation_errors) == 1
+        assert "API error" in result.generation_errors[0]
+
+
+class TestFormatQuestionsMarkdown:
+    """Tests for markdown output formatting."""
+
+    def test_formats_result_as_markdown(self):
+        """Formats generation result as readable markdown."""
+        from src.analysis.research_questions import GenerationResult
+
+        result = GenerationResult(
+            questions=[
+                GeneratedQuestion(
+                    question="How does X affect Y?",
+                    style="causal",
+                    gap_type="topic",
+                    gap_label="test topic",
+                    rationale="Important question",
+                    combined_score=0.75,
+                )
+            ],
+            total_generated=2,
+            duplicates_removed=1,
+            generation_errors=[],
+        )
+        markdown = format_questions_markdown(result)
+
+        assert "# Generated Research Questions" in markdown
+        assert "Total generated:** 2" in markdown
+        assert "Duplicates removed:** 1" in markdown
+        assert "How does X affect Y?" in markdown
+        assert "causal" in markdown
+        assert "test topic" in markdown
