@@ -327,6 +327,84 @@ The Web UI provides:
 
 Keyboard shortcuts: `j`/`k` navigate results, `o` opens detail panel, `Esc` closes it.
 
+## Gap Analysis
+
+Identify underrepresented topics, methodologies, and temporal gaps in your literature:
+
+```bash
+# Generate gap analysis report
+python scripts/gap_analysis.py --index-dir data/index
+
+# Output as JSON
+python scripts/gap_analysis.py --output-format json
+
+# Filter to specific collections
+python scripts/gap_analysis.py --collections "PhD/Core" "Methods"
+```
+
+### Gap Analysis Options
+
+| Option | Description |
+| ------ | ----------- |
+| `--max-items N` | Maximum gaps per section (default: 10) |
+| `--min-count N` | Minimum count threshold (default: 2) |
+| `--quantile Q` | Quantile threshold (default: 0.2) |
+| `--include-abstracts` | Include abstracts in coverage estimation |
+
+Output saved to `data/out/experiments/gap_analysis/`.
+
+## Research Question Generation
+
+Generate research questions from gap analysis using LLMs:
+
+```bash
+# Generate from existing gap report
+python scripts/research_questions.py --gap-report data/out/experiments/gap_analysis/gap_report.json
+
+# Run gap analysis first, then generate
+python scripts/research_questions.py --index-dir data/index
+
+# Preview prompts without LLM call
+python scripts/research_questions.py --gap-report report.json --dry-run
+```
+
+### Generation Options
+
+| Option | Description |
+| ------ | ----------- |
+| `--provider` | LLM provider: anthropic, openai, google (default: anthropic) |
+| `--model` | Model override (default: provider's default) |
+| `--count N` | Questions per gap (default: 3) |
+| `--scope` | Question scope: narrow, moderate, broad (default: moderate) |
+| `--styles` | Allowed styles: exploratory, causal, comparative, evaluative, descriptive |
+| `--max-gaps N` | Maximum gaps to process (default: 5) |
+| `--dry-run` | Show prompts without calling LLM |
+| `--verbose` | Show detailed progress |
+
+### Example Workflows
+
+```bash
+# Generate narrow-scope causal questions
+python scripts/research_questions.py \
+  --gap-report report.json \
+  --scope narrow \
+  --styles causal comparative \
+  --count 5
+
+# Use OpenAI with specific model
+python scripts/research_questions.py \
+  --gap-report report.json \
+  --provider openai \
+  --model gpt-4o
+
+# JSON output for programmatic use
+python scripts/research_questions.py \
+  --index-dir data/index \
+  --output-format json
+```
+
+Output saved to `data/out/experiments/research_questions/`.
+
 ## Next Steps
 
 - See [Query Guide](query_guide.md) for search examples
