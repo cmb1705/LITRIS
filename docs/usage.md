@@ -405,6 +405,82 @@ python scripts/research_questions.py \
 
 Output saved to `data/out/experiments/research_questions/`.
 
+## LLM Council (Multi-Provider Consensus)
+
+The LLM Council enables consensus-based extraction by querying multiple providers
+in parallel and aggregating their responses. This improves extraction robustness
+by combining insights from different models.
+
+### Programmatic Usage
+
+```python
+from src.analysis.llm_council import LLMCouncil, CouncilConfig, ProviderConfig
+
+# Configure providers with reliability weights
+config = CouncilConfig(
+    providers=[
+        ProviderConfig(name="anthropic", weight=1.2),
+        ProviderConfig(name="openai", weight=1.0),
+        ProviderConfig(name="google", weight=0.8),
+    ],
+    min_responses=2,  # Need at least 2 responses for consensus
+    fallback_to_single=True,  # Use single response if threshold not met
+    parallel=True,  # Query providers simultaneously
+)
+
+# Create council and extract
+council = LLMCouncil(config)
+result = council.extract(
+    paper_id="paper123",
+    title="Paper Title",
+    authors="Author Name",
+    year=2024,
+    item_type="article",
+    text="Full paper text...",
+)
+
+if result.success:
+    consensus = result.consensus
+    print(f"Consensus confidence: {result.consensus_confidence:.2f}")
+    print(f"Providers responded: {len(result.provider_responses)}")
+    print(f"Total cost: ${result.total_cost:.4f}")
+```
+
+### Consensus Strategies
+
+The council uses field-specific strategies to build consensus:
+
+| Field Type | Strategy | Description |
+| ---------- | -------- | ----------- |
+| Text (thesis, conclusions) | Longest | Select most detailed response |
+| Lists (keywords, limitations) | Union | Combine all unique values |
+| Nested (methodology, findings) | Merge | Deduplicate and combine |
+| Numeric (confidence) | Weighted average | Average weighted by provider reliability |
+
+### Configuration Options
+
+| Option | Description |
+| ------ | ----------- |
+| `providers` | List of ProviderConfig with name, weight, timeout |
+| `min_responses` | Minimum successful responses for consensus (default: 2) |
+| `fallback_to_single` | Use single response if min not met (default: True) |
+| `parallel` | Query providers simultaneously (default: True) |
+| `timeout` | Overall timeout in seconds (default: 180) |
+
+### Provider Weights
+
+Provider weights affect consensus when combining extractions:
+
+- Higher weight = more influence on combined fields
+- Default weight: 1.0
+- Adjust based on provider reliability for your domain
+
+```python
+# Example: Trust Anthropic more for academic papers
+ProviderConfig(name="anthropic", weight=1.5)
+ProviderConfig(name="openai", weight=1.0)
+```
+
 ## Next Steps
 
 - See [Query Guide](query_guide.md) for search examples
