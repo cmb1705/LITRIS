@@ -61,8 +61,9 @@ class TestClaudeCliExecutor:
             cli_logger.propagate = original_cli_propagate
 
     def test_verify_auth_no_api_key(self, monkeypatch):
-        """Test auth check passes without API key."""
+        """Test auth check passes with OAuth token (no API key)."""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "test-oauth-token")
 
         with patch("shutil.which") as mock_which:
             mock_which.return_value = "/usr/bin/claude"
@@ -74,6 +75,7 @@ class TestClaudeCliExecutor:
                 result = executor.verify_authentication()
 
                 assert result is True
+                assert executor.authenticator.get_auth_method() == "oauth_token"
 
     def test_verify_auth_cli_not_found(self, monkeypatch):
         """Test error when CLI not in PATH."""
