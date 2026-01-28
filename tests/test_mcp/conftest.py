@@ -9,6 +9,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def mock_config_load():
+    """Auto-mock Config.load() to avoid needing config.yaml in CI."""
+    mock_config = MagicMock()
+    mock_config._project_root = Path("/tmp/litris-test")
+    mock_config.embeddings = MagicMock()
+    mock_config.embeddings.model = "all-MiniLM-L6-v2"
+
+    with patch("src.mcp.adapters.Config.load", return_value=mock_config):
+        yield mock_config
+
+
 @pytest.fixture
 def sample_paper_data() -> dict[str, Any]:
     """Sample paper metadata for testing."""
