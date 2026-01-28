@@ -1,10 +1,10 @@
 # Literature Review Indexing System (LITRIS)
 
-Build a semantic search index from a Zotero library, enabling AI-assisted literature review, citation support, and research gap identification.
+Build a semantic search index from your academic library, enabling AI-assisted literature review, citation support, and research gap identification.
 
 ## Overview
 
-LITRIS extracts structured insights from academic papers in a Zotero library using LLM analysis, then indexes them for semantic search. It enables:
+LITRIS extracts structured insights from academic papers using LLM analysis, then indexes them for semantic search. Works with Zotero, Mendeley, EndNote, Paperpile, BibTeX files, or plain PDF folders. It enables:
 
 - **Literature discovery** - Find papers relevant to research questions
 - **Citation support** - Retrieve metadata and key claims for academic writing
@@ -15,7 +15,8 @@ LITRIS extracts structured insights from academic papers in a Zotero library usi
 ## Architecture
 
 ```text
-Zotero SQLite --> Metadata Extraction --> Paper Records
+Reference Source --> Metadata Extraction --> Paper Records
+(Zotero/Mendeley/EndNote/Paperpile/BibTeX/PDF Folder)
       |
       v
 PDF Storage --> Text Extraction --> LLM Analysis --> Structured Extractions
