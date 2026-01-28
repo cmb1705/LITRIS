@@ -39,26 +39,46 @@ python scripts/build_index.py
 
 ### CLI Mode (Recommended)
 
-CLI mode uses Claude Code CLI for free extraction with a Max subscription:
+CLI mode uses your existing subscription for free extraction:
 
 ```bash
-# Verify CLI is set up
-claude --version
+# Anthropic (Claude Max subscription)
+claude --version  # Verify installed
+python scripts/build_index.py --mode cli --provider anthropic
 
-# Build using CLI mode
-python scripts/build_index.py --mode cli
+# OpenAI (ChatGPT Plus/Pro subscription)
+codex --version  # Verify installed
+python scripts/build_index.py --mode cli --provider openai
 ```
 
-### Batch API Mode
+### API Mode
 
-For faster bulk processing with API costs:
+For faster bulk processing with pay-per-use:
 
 ```bash
-# Set API key
+# Anthropic
 export ANTHROPIC_API_KEY=your_key_here
+python scripts/build_index.py --mode api --provider anthropic
 
-# Build using Batch API
-python scripts/build_index.py --mode api
+# OpenAI
+export OPENAI_API_KEY=your_key_here
+python scripts/build_index.py --mode api --provider openai
+
+# Google Gemini
+export GOOGLE_API_KEY=your_key_here
+python scripts/build_index.py --mode api --provider google
+```
+
+### Local LLM Mode
+
+For offline extraction using local models:
+
+```bash
+# Ollama (requires Ollama server running)
+python scripts/build_index.py --provider ollama --model llama3
+
+# llama.cpp (requires model file)
+python scripts/build_index.py --provider llamacpp --model-path ./models/llama-3.gguf
 ```
 
 ## Querying the Index
