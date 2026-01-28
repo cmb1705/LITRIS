@@ -51,7 +51,7 @@ All implementation phases complete. System is production-ready for research work
 
 ## MCP Integration (Complete)
 
-All five MCP tools are implemented and working:
+All six MCP tools are implemented and working:
 
 | Tool | Purpose | Status |
 |------|---------|--------|
@@ -60,6 +60,7 @@ All five MCP tools are implemented and working:
 | `litris_similar` | Find similar papers | Complete |
 | `litris_summary` | Index statistics | Complete |
 | `litris_collections` | List Zotero collections | Complete |
+| `litris_save_query` | Save search results to file | Complete |
 
 ---
 
@@ -185,4 +186,4 @@ LITRIS/
 
 ---
 
-Last Updated: 2026-01-22
+Last Updated: 2026-01-28

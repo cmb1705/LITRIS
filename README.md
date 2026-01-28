@@ -90,6 +90,7 @@ Direct tool access for Claude Code enables seamless research collaboration:
 | `litris_similar` | Find papers similar to a given paper |
 | `litris_summary` | Index coverage and statistics |
 | `litris_collections` | List available Zotero collections |
+| `litris_save_query` | Save search results to query_results/ folder |
 
 **Setup**: Configure `.mcp.json` in project root and enable in `.claude/settings.json`:
 
@@ -328,7 +329,11 @@ and saves exports to `data/query_results/`.
 | Semantic search | Query the index with natural language |
 | Filters | Year range, collections, item types, chunk types |
 | Quick filters | One-click common filters (Recent, Methods, etc.) |
+| Quick filter from metadata | Click year/type/collection in results to filter |
+| Sort options | Sort by relevance, year (newest/oldest), or title (A-Z/Z-A) |
 | Detail panel | Full extraction view with PDF access |
+| On-demand extraction | Load extraction only for focused paper (performance) |
+| One-click citation copy | Copy citation in APA, MLA, Chicago, or BibTeX format |
 | Similarity network | Interactive PyVis visualization of related papers |
 | Export | CSV, BibTeX, and PDF export formats |
 
@@ -418,8 +423,20 @@ python scripts/build_index.py --use-subscription
 |----------|-------------|
 | [STATE.md](STATE.md) | Implementation progress tracker |
 | [CLAUDE.md](CLAUDE.md) | Project memory for Claude Code |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines and development setup |
 | [Technical Specification](docs/proposals/completed/technical_specification.md) | Full system design (Phase 1) |
 | [MCP Technical Specification](docs/proposals/mcp_technical_specification.md) | MCP integration design |
+| [API Documentation](docs/sphinx/_build/html/index.html) | Sphinx-generated API reference |
+
+### Continuous Integration
+
+Pull requests trigger GitHub Actions CI (`.github/workflows/ci.yml`) which runs:
+
+- **pytest** across Python 3.10-3.12 on Ubuntu, Windows, and macOS
+- **mypy** type checking on src/
+- **pip-audit** security vulnerability scanning
+
+Pre-commit hooks (`.pre-commit-config.yaml`) enforce code quality on every commit.
 
 ## Cost Estimates
 

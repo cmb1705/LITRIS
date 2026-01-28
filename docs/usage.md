@@ -276,9 +276,36 @@ python scripts/build_index.py --provider pdffolder --folder-path ./papers/
 
 # Mendeley Desktop
 python scripts/build_index.py --provider mendeley --db-path mendeley.sqlite
+
+# EndNote XML export
+python scripts/build_index.py --provider endnote --xml-path library.xml
+
+# Paperpile BibTeX export
+python scripts/build_index.py --provider paperpile --bibtex-path paperpile.bib
 ```
 
 See [guides/alternative-sources.md](guides/alternative-sources.md) for detailed setup.
+
+## Web UI
+
+Launch the Streamlit search workbench:
+
+```bash
+python -m streamlit run scripts/web_ui.py
+```
+
+The Web UI provides:
+
+- **Semantic search** with natural language queries
+- **Filters** for year range, collections, item types, and chunk types
+- **Quick filters** for common searches (Recent, Methods, etc.)
+- **Sort options** by relevance, year, or title
+- **Detail panel** with full extraction and PDF access
+- **Similarity network** visualization using PyVis
+- **Export** to CSV, BibTeX, and PDF formats
+- **One-click citation copy** in APA, MLA, Chicago, or BibTeX
+
+Keyboard shortcuts: `j`/`k` navigate results, `o` opens detail panel, `Esc` closes it.
 
 ## Next Steps
 

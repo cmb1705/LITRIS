@@ -163,3 +163,37 @@ Enable in `.claude/settings.json`:
 Pipeline Architecture, Extraction Schema, API Usage Details, Common Operations,
 Verification Standards, Error Handling, Domain Context, Performance Targets,
 Development Workflow (8-step), Implementation Standards
+
+<!-- BEADS-RALPH-INTEGRATION-START -->
+## Beads Integration
+
+This project uses **beads** for persistent issue tracking with **ralph-loop** compatibility.
+
+### Context Recovery
+
+After compaction, `bd prime` runs automatically via SessionStart hook. If context seems missing:
+
+```bash
+bd prime
+```
+
+### Core Workflow
+
+1. **Start**: `bd ready` - Check available work
+2. **Claim**: `bd update <id> --status=in_progress`
+3. **Complete**: `bd close <id>`
+4. **Sync**: `bd sync --flush-only`
+
+### TodoWrite vs Beads
+
+- **TodoWrite**: Immediate, single-session visibility
+- **Beads**: Persistent, multi-session tracking
+
+### Session Close Protocol
+
+Before stopping:
+1. Update beads status for tasks worked on
+2. Create issues for discovered work
+3. Run `bd sync --flush-only`
+4. Verify with `bd status`
+<!-- BEADS-RALPH-INTEGRATION-END -->
