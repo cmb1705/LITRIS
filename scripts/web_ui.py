@@ -698,6 +698,46 @@ def escape_bibtex(text: str) -> str:
     return text
 
 
+def escape_markdown(text: str) -> str:
+    """Escape markdown special characters to prevent injection.
+
+    Prevents user-controlled text from being interpreted as markdown syntax,
+    which could allow link injection or formatting exploits.
+
+    Args:
+        text: Text to escape.
+
+    Returns:
+        Text with markdown special characters escaped.
+    """
+    if not text:
+        return ""
+    # Escape characters that could be interpreted as markdown
+    # Order matters: backslash first to avoid double-escaping
+    replacements = [
+        ("\\", "\\\\"),  # Backslash
+        ("`", "\\`"),  # Code
+        ("*", "\\*"),  # Bold/italic
+        ("_", "\\_"),  # Bold/italic
+        ("{", "\\{"),  # Curly braces
+        ("}", "\\}"),
+        ("[", "\\["),  # Links
+        ("]", "\\]"),
+        ("(", "\\("),  # Link URLs
+        (")", "\\)"),
+        ("#", "\\#"),  # Headers
+        ("+", "\\+"),  # Lists
+        ("-", "\\-"),  # Lists
+        (".", "\\."),  # Numbered lists (only at line start, but safer to escape)
+        ("!", "\\!"),  # Images
+        ("|", "\\|"),  # Tables
+        (">", "\\>"),  # Blockquotes
+    ]
+    for old, new in replacements:
+        text = text.replace(old, new)
+    return text
+
+
 def format_author_list(paper: dict) -> list[str]:
     """Format author list from structured metadata."""
     authors = paper.get("authors")
@@ -1790,7 +1830,9 @@ def main() -> None:
         search_error = st.session_state.get("search_error")
 
         if results:
-            st.markdown(f"**{len(results)} results** for `{last_query}`")
+            # Escape query to prevent markdown injection
+            safe_query = escape_markdown(last_query)
+            st.markdown(f"**{len(results)} results** for `{safe_query}`")
 
             # Show active filters and reset option
             if render_active_filters(
@@ -2193,8 +2235,11 @@ def main() -> None:
                 if "similar_results" in st.session_state:
                     for i, sim in enumerate(st.session_state["similar_results"], 1):
                         year_str = f" ({sim.year})" if sim.year else ""
-                        st.markdown(f"**{i}. {sim.title}{year_str}**")
-                        st.caption(f"{sim.authors} | Score: {sim.score:.3f}")
+                        # Escape markdown to prevent injection from title/authors
+                        safe_title = escape_markdown(sim.title) if sim.title else ""
+                        safe_authors = escape_markdown(sim.authors) if sim.authors else ""
+                        st.markdown(f"**{i}. {safe_title}{year_str}**")
+                        st.caption(f"{safe_authors} | Score: {sim.score:.3f}")
                         if st.button("Focus", key=f"sim_focus_{sim.paper_id}_{i}"):
                             st.session_state["selected_paper_id"] = sim.paper_id
                             st.session_state.pop("similar_results", None)
