@@ -10,14 +10,14 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.analysis.gap_detection import load_gap_report, GapDetectionConfig  # noqa: E402
+from src.analysis.gap_detection import GapDetectionConfig, load_gap_report  # noqa: E402
 from src.analysis.research_questions import (  # noqa: E402
     QuestionScope,
     QuestionStyle,
     ResearchQuestionConfig,
     build_prompts_from_gap_report,
-    generate_questions_from_prompts,
     format_questions_markdown,
+    generate_questions_from_prompts,
 )
 
 
@@ -72,8 +72,8 @@ def create_llm_caller(provider: str, model: str | None = None):
     elif provider == "google":
         try:
             import google.generativeai as genai
-        except ImportError:
-            raise ImportError("google-generativeai package required for Google provider")
+        except ImportError as err:
+            raise ImportError("google-generativeai package required for Google provider") from err
 
         model_name = model or "gemini-2.0-flash"
         gen_model = genai.GenerativeModel(model_name)

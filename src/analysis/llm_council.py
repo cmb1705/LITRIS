@@ -260,7 +260,7 @@ def aggregate_extractions(
         key_claims=_merge_key_claims([e.key_claims for e in extractions]),
         # Numeric - weighted average
         extraction_confidence=sum(
-            e.extraction_confidence * w for e, w in zip(extractions, weights)
+            e.extraction_confidence * w for e, w in zip(extractions, weights, strict=True)
         )
         / (sum(weights) if sum(weights) > 0 else 1),
     )
@@ -300,7 +300,7 @@ def calculate_consensus_confidence(
     if len(theses) > 1:
         # Simple check: do they start similarly?
         first_words = [t.split()[:5] for t in theses]
-        agreement = len(set(tuple(w) for w in first_words)) / len(first_words)
+        agreement = len({tuple(w) for w in first_words}) / len(first_words)
         agreement_scores.append(1 - agreement)  # Higher when more agreement
 
     # Check keyword overlap

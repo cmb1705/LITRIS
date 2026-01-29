@@ -480,6 +480,7 @@ class TestCLISelection:
         ):
             # Import dynamically to get fresh parse_args
             import importlib
+
             import scripts.query_index as qi
             importlib.reload(qi)
             args = qi.parse_args()
@@ -497,6 +498,7 @@ class TestCLISelection:
             ["query_index.py", "-q", "test", "--federated", "--indexes", "Lab1", "Lab2"],
         ):
             import importlib
+
             import scripts.query_index as qi
             importlib.reload(qi)
             args = qi.parse_args()
@@ -513,6 +515,7 @@ class TestCLISelection:
             ["query_index.py", "-q", "test", "--merge-strategy", "rerank"],
         ):
             import importlib
+
             import scripts.query_index as qi
             importlib.reload(qi)
             args = qi.parse_args()
@@ -525,6 +528,7 @@ class TestCLISelection:
 
         with mock_patch.object(sys, "argv", ["query_index.py", "--list-indexes"]):
             import importlib
+
             import scripts.query_index as qi
             importlib.reload(qi)
             args = qi.parse_args()

@@ -32,7 +32,7 @@ sys.path.insert(0, str(project_root))
 
 from src.config import Config
 from src.indexing.embeddings import CHUNK_TYPES, ChunkType
-from src.query.federated import FederatedResult, FederatedSearchEngine
+from src.query.federated import FederatedSearchEngine
 from src.query.retrieval import (
     OutputFormat,
     format_paper_detail,
