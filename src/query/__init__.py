@@ -1,5 +1,6 @@
 """Search and query interface module."""
 
+from src.query.federated import FederatedResult, FederatedSearchEngine
 from src.query.retrieval import (
     OutputFormat,
     format_brief,
@@ -14,6 +15,8 @@ from src.query.search import EnrichedResult, SearchEngine
 
 __all__ = [
     "EnrichedResult",
+    "FederatedResult",
+    "FederatedSearchEngine",
     "OutputFormat",
     "SearchEngine",
     "format_brief",
