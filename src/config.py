@@ -189,6 +189,68 @@ class ProcessingConfig(BaseModel):
     ocr_config: dict[str, Any] | None = None
 
 
+class FederatedIndexConfig(BaseModel):
+    """Configuration for a single federated index source.
+
+    Each federated index points to a separate LITRIS index directory that can be
+    searched alongside the primary index. All indexes must use compatible embedding
+    models and schema versions.
+    """
+
+    path: Path = Field(description="Path to index directory (must contain papers.json, extractions.json, chroma/)")
+    label: str = Field(description="Display name for this index in search results")
+    enabled: bool = Field(default=True, description="Whether to include this index in federated searches")
+    weight: float = Field(default=1.0, ge=0.0, le=2.0, description="Relevance weight for results from this index (0.0-2.0)")
+
+
+class FederatedSearchConfig(BaseModel):
+    """Configuration for multi-index federated search.
+
+    Federated search enables querying multiple LITRIS indexes simultaneously,
+    merging and ranking results across sources. Use cases include:
+    - Searching across multiple Zotero libraries
+    - Combining results from different research groups
+    - Keeping separate indexes for different domains while searching together
+
+    Compatibility Requirements:
+    - All indexes must use the same embedding model (e.g., all-MiniLM-L6-v2)
+    - Schema versions must be compatible (same major version)
+    - Primary index is always searched; federated indexes are additive
+
+    Example YAML:
+        federated:
+          enabled: true
+          merge_strategy: "interleave"
+          dedup_threshold: 0.95
+          indexes:
+            - path: "/data/colleague_index"
+              label: "Colleague Library"
+              weight: 1.0
+            - path: "/data/historical_index"
+              label: "Historical Archive"
+              weight: 0.8
+              enabled: false
+    """
+
+    enabled: bool = Field(default=False, description="Enable federated search across multiple indexes")
+    indexes: list[FederatedIndexConfig] = Field(default_factory=list, description="List of additional indexes to search")
+    merge_strategy: str = Field(
+        default="interleave",
+        description="How to merge results: 'interleave' (round-robin by score), 'concat' (primary first), 'rerank' (combined scoring)"
+    )
+    dedup_threshold: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        description="Similarity threshold for deduplication (0.95 = near-identical papers)"
+    )
+    max_results_per_index: int = Field(
+        default=50,
+        ge=1,
+        description="Maximum results to retrieve from each index before merging"
+    )
+
+
 class Config(BaseModel):
     """Main configuration class for the Literature Review system."""
 
@@ -198,6 +260,7 @@ class Config(BaseModel):
     embeddings: EmbeddingsConfig = Field(default_factory=EmbeddingsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
+    federated: FederatedSearchConfig = Field(default_factory=FederatedSearchConfig)
 
     _project_root: Path | None = None
 

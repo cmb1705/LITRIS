@@ -118,3 +118,45 @@ processing:
     dpi: 300
     # Tesseract language code (eng, deu, fra, etc.)
     lang: "eng"
+
+# =============================================================================
+# Federated Search Configuration (Optional)
+# =============================================================================
+# Search across multiple LITRIS indexes simultaneously. Useful for:
+# - Combining results from multiple Zotero libraries
+# - Searching across research group indexes
+# - Keeping separate indexes while searching together
+#
+# COMPATIBILITY REQUIREMENTS:
+# - All indexes must use the same embedding model
+# - Schema versions must be compatible (same major version)
+# - Primary index is always searched; federated indexes are additive
+federated:
+  # Enable federated search
+  enabled: false
+
+  # Merge strategy for combining results:
+  # - "interleave": Round-robin by score (recommended)
+  # - "concat": Primary index results first, then others
+  # - "rerank": Combined scoring across all indexes
+  merge_strategy: "interleave"
+
+  # Similarity threshold for deduplication (0.0-1.0)
+  # Papers with similarity >= threshold are considered duplicates
+  # 0.95 = near-identical papers (recommended)
+  dedup_threshold: 0.95
+
+  # Maximum results to retrieve from each index before merging
+  max_results_per_index: 50
+
+  # Additional indexes to search (add as needed)
+  # indexes:
+  #   - path: "/path/to/other/litris/index"
+  #     label: "Colleague Library"
+  #     enabled: true
+  #     weight: 1.0  # Relevance weight (0.0-2.0)
+  #
+  #   - path: "/data/historical_archive/index"
+  #     label: "Historical Archive"
+  #     enabled: true
+  #     weight: 0.8  # Lower weight for older papers
