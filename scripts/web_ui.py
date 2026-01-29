@@ -32,6 +32,7 @@ sys.path.insert(0, str(project_root))
 
 from src.config import Config
 from src.indexing.embeddings import CHUNK_TYPES, ChunkType
+from src.query.federated import FederatedResult, FederatedSearchEngine
 from src.query.retrieval import (
     OutputFormat,
     format_paper_detail,
@@ -349,14 +350,18 @@ def inject_styles(dark_mode: bool = False) -> None:
 
 
 @st.cache_resource(show_spinner=False)
-def load_engine(config_path: str | None) -> tuple[SearchEngine, Config, Path, Path]:
+def load_engine(
+    config_path: str | None,
+    use_federated: bool = False,
+) -> tuple[SearchEngine | FederatedSearchEngine, Config, Path, Path]:
     """Load config and initialize the search engine.
 
     Args:
         config_path: Optional path to config.yaml.
+        use_federated: Whether to use federated search engine.
 
     Returns:
-        Tuple of (SearchEngine, Config, index_dir, results_dir).
+        Tuple of (SearchEngine or FederatedSearchEngine, Config, index_dir, results_dir).
     """
     config = Config.load(config_path)
     index_dir = project_root / "data" / "index"
@@ -369,11 +374,19 @@ def load_engine(config_path: str | None) -> tuple[SearchEngine, Config, Path, Pa
             "Run scripts/build_index.py first to create the index."
         )
 
-    engine = SearchEngine(
-        index_dir=index_dir,
-        chroma_dir=chroma_dir,
-        embedding_model=config.embeddings.model,
-    )
+    # Use federated search if enabled in config or requested
+    if use_federated or config.federated.enabled:
+        engine = FederatedSearchEngine(
+            primary_index_dir=index_dir,
+            config=config.federated,
+            embedding_model=config.embeddings.model,
+        )
+    else:
+        engine = SearchEngine(
+            index_dir=index_dir,
+            chroma_dir=chroma_dir,
+            embedding_model=config.embeddings.model,
+        )
     return engine, config, index_dir, results_dir
 
 
@@ -1436,6 +1449,14 @@ def main() -> None:
     )
     index_exists, index_dir, has_embeddings = check_index_exists(config_path or None)
 
+    # Federated search toggle
+    use_federated = st.sidebar.checkbox(
+        "Federated search",
+        value=st.session_state.get("use_federated", False),
+        key="use_federated",
+        help="Search across multiple configured indexes simultaneously.",
+    )
+
     # Show build controls in sidebar regardless of index state
     with st.sidebar:
         render_build_controls(config_path=config_path or None)
@@ -1445,7 +1466,7 @@ def main() -> None:
         st.stop()
 
     try:
-        engine, _, _, results_dir = load_engine(config_path or None)
+        engine, _, _, results_dir = load_engine(config_path or None, use_federated)
     except FileNotFoundError as exc:
         render_no_index_message()
         st.caption(f"Details: {exc}")
@@ -1456,6 +1477,20 @@ def main() -> None:
         st.stop()
 
     st.session_state.setdefault("search_error", None)
+
+    # Show federated index info when enabled
+    if use_federated and hasattr(engine, "get_index_info"):
+        with st.sidebar:
+            with st.expander("Federated Indexes", expanded=False):
+                info = engine.get_index_info()
+                st.caption(f"Primary: {info['primary']['path']}")
+                st.caption(f"Strategy: {info['merge_strategy']}")
+                if info.get("indexes"):
+                    for idx in info["indexes"]:
+                        status = "active" if idx["loaded"] else "inactive"
+                        st.caption(f"- {idx['label']} ({status}, w={idx['weight']})")
+                else:
+                    st.caption("No federated indexes configured")
 
     with st.sidebar:
         st.subheader("Filters")
@@ -2059,6 +2094,11 @@ def main() -> None:
                     matched = highlight_query_terms(matched_display, last_query)
                 else:
                     matched = escape(matched_display)
+                # Show source index for federated results
+                source_tag = ""
+                if hasattr(result, "source_index") and result.source_index != "primary":
+                    source_tag = f'<span class="result-tag" style="background: #6366f1; color: white;">{escape(result.source_index)}</span>'
+
                 card_html = f"""
                 <div class="result-card" style="animation-delay: {idx * 70}ms;">
                   <div class="result-title">{idx}. {title}{year_label}</div>
@@ -2066,6 +2106,7 @@ def main() -> None:
                   <div class="result-tags">
                     <span class="result-tag">{chunk_label}</span>
                     <span class="result-tag">{item_label}</span>
+                    {source_tag}
                   </div>
                   <div class="matched-text">{matched}</div>
                 </div>

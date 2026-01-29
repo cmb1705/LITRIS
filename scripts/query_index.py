@@ -10,6 +10,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.config import Config
+from src.query.federated import FederatedSearchEngine
 from src.query.retrieval import (
     convert_markdown_to_pdf,
     format_paper_detail,
@@ -122,6 +123,29 @@ def parse_args():
         help="Convert an existing markdown report to PDF",
     )
 
+    # Federated search options
+    parser.add_argument(
+        "--federated",
+        action="store_true",
+        help="Enable federated search across multiple indexes",
+    )
+    parser.add_argument(
+        "--indexes",
+        nargs="+",
+        metavar="LABEL",
+        help="Specific federated indexes to search (by label). Default: all enabled",
+    )
+    parser.add_argument(
+        "--list-indexes",
+        action="store_true",
+        help="List all configured federated indexes",
+    )
+    parser.add_argument(
+        "--merge-strategy",
+        choices=["interleave", "concat", "rerank"],
+        help="Override merge strategy for this search",
+    )
+
     # Config
     parser.add_argument(
         "--config",
@@ -182,17 +206,63 @@ def main():
         logger.error("Run scripts/build_index.py first to create the index")
         return 1
 
-    # Initialize search engine
+    # Initialize search engine (regular or federated)
+    use_federated = args.federated or config.federated.enabled
     logger.info("Initializing search engine...")
+
     try:
-        engine = SearchEngine(
-            index_dir=index_dir,
-            chroma_dir=chroma_dir,
-            embedding_model=config.embeddings.model,
-        )
+        if use_federated:
+            # Apply CLI overrides to federated config
+            federated_config = config.federated.model_copy()
+            federated_config.enabled = True
+
+            if args.merge_strategy:
+                federated_config.merge_strategy = args.merge_strategy
+
+            if args.indexes:
+                # Enable only specified indexes
+                for idx_cfg in federated_config.indexes:
+                    idx_cfg.enabled = idx_cfg.label in args.indexes
+
+            engine = FederatedSearchEngine(
+                primary_index_dir=index_dir,
+                config=federated_config,
+                embedding_model=config.embeddings.model,
+            )
+            logger.info(
+                f"Federated search enabled with {len(engine.federated_engines)} indexes"
+            )
+        else:
+            engine = SearchEngine(
+                index_dir=index_dir,
+                chroma_dir=chroma_dir,
+                embedding_model=config.embeddings.model,
+            )
     except Exception as e:
         logger.error(f"Failed to initialize search engine: {e}")
         return 1
+
+    # Handle list-indexes command
+    if args.list_indexes:
+        if hasattr(engine, "get_index_info"):
+            info = engine.get_index_info()
+            print("Configured indexes:")
+            print(f"\n  Primary: {info['primary']['path']}")
+            if info.get("indexes"):
+                print("\n  Federated indexes:")
+                for idx in info["indexes"]:
+                    status = "loaded" if idx["loaded"] else "not loaded"
+                    enabled = "enabled" if idx["enabled"] else "disabled"
+                    print(f"    - {idx['label']}: {idx['path']}")
+                    print(f"      Status: {status}, {enabled}, weight={idx['weight']}")
+            else:
+                print("\n  No federated indexes configured")
+            print(f"\n  Merge strategy: {info['merge_strategy']}")
+            print(f"  Dedup threshold: {info['dedup_threshold']}")
+        else:
+            print("Primary index only (no federation configured)")
+            print(f"  Path: {index_dir}")
+        return 0
 
     # Handle special commands
     if args.summary:

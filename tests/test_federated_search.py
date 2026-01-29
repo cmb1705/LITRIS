@@ -464,3 +464,128 @@ class TestMergeStrategies:
 
             results = engine.search("test")
             assert results == []
+
+
+class TestCLISelection:
+    """Tests for CLI federated search selection."""
+
+    def test_parse_args_federated_flag(self):
+        """Test that --federated flag is parsed."""
+        import sys
+        from unittest.mock import patch as mock_patch
+
+        # Need to import after patching argv
+        with mock_patch.object(
+            sys, "argv", ["query_index.py", "-q", "test", "--federated"]
+        ):
+            # Import dynamically to get fresh parse_args
+            import importlib
+            import scripts.query_index as qi
+            importlib.reload(qi)
+            args = qi.parse_args()
+            assert args.federated is True
+            assert args.query == "test"
+
+    def test_parse_args_indexes_selection(self):
+        """Test that --indexes flag selects specific indexes."""
+        import sys
+        from unittest.mock import patch as mock_patch
+
+        with mock_patch.object(
+            sys,
+            "argv",
+            ["query_index.py", "-q", "test", "--federated", "--indexes", "Lab1", "Lab2"],
+        ):
+            import importlib
+            import scripts.query_index as qi
+            importlib.reload(qi)
+            args = qi.parse_args()
+            assert args.indexes == ["Lab1", "Lab2"]
+
+    def test_parse_args_merge_strategy_override(self):
+        """Test merge strategy override."""
+        import sys
+        from unittest.mock import patch as mock_patch
+
+        with mock_patch.object(
+            sys,
+            "argv",
+            ["query_index.py", "-q", "test", "--merge-strategy", "rerank"],
+        ):
+            import importlib
+            import scripts.query_index as qi
+            importlib.reload(qi)
+            args = qi.parse_args()
+            assert args.merge_strategy == "rerank"
+
+    def test_parse_args_list_indexes(self):
+        """Test --list-indexes flag."""
+        import sys
+        from unittest.mock import patch as mock_patch
+
+        with mock_patch.object(sys, "argv", ["query_index.py", "--list-indexes"]):
+            import importlib
+            import scripts.query_index as qi
+            importlib.reload(qi)
+            args = qi.parse_args()
+            assert args.list_indexes is True
+
+
+class TestIndexSelection:
+    """Tests for index selection behavior."""
+
+    def test_index_selection_filters_indexes(self):
+        """Selecting specific indexes disables others."""
+        config = FederatedSearchConfig(
+            enabled=True,
+            indexes=[
+                FederatedIndexConfig(
+                    path=Path("/test/lab1"),
+                    label="Lab1",
+                    enabled=True,
+                    weight=1.0,
+                ),
+                FederatedIndexConfig(
+                    path=Path("/test/lab2"),
+                    label="Lab2",
+                    enabled=True,
+                    weight=1.0,
+                ),
+                FederatedIndexConfig(
+                    path=Path("/test/lab3"),
+                    label="Lab3",
+                    enabled=True,
+                    weight=1.0,
+                ),
+            ],
+        )
+
+        # Simulate CLI index selection: enable only Lab1 and Lab2
+        selected = ["Lab1", "Lab2"]
+        for idx_cfg in config.indexes:
+            idx_cfg.enabled = idx_cfg.label in selected
+
+        assert config.indexes[0].enabled is True  # Lab1
+        assert config.indexes[1].enabled is True  # Lab2
+        assert config.indexes[2].enabled is False  # Lab3
+
+    def test_default_all_indexes_enabled(self):
+        """By default, all configured indexes are enabled."""
+        config = FederatedSearchConfig(
+            enabled=True,
+            indexes=[
+                FederatedIndexConfig(
+                    path=Path("/test/idx1"),
+                    label="Index1",
+                    enabled=True,
+                ),
+                FederatedIndexConfig(
+                    path=Path("/test/idx2"),
+                    label="Index2",
+                    enabled=True,
+                ),
+            ],
+        )
+
+        enabled_count = sum(1 for idx in config.indexes if idx.enabled)
+        assert enabled_count == 2
