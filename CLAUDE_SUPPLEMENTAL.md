@@ -175,13 +175,11 @@ Based on Zotero collections:
 
 ### Paper Types
 
-| Type | Count | Notes |
-|------|-------|-------|
-| Journal Articles | 518 | Primary source |
-| Books | 52 | Theoretical frameworks |
-| Preprints | 27 | Cutting-edge findings |
-| Conference Papers | 18 | Novel contributions |
-| Theses | 3 | Comprehensive analyses |
+| Type         | Count | Notes                          |
+|--------------|-------|--------------------------------|
+| Total Papers | 332   | See STATE.md for current stats |
+
+**Note:** Run `mcp__litris__litris_summary` or check STATE.md for current corpus statistics.
 
 ---
 

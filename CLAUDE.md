@@ -13,6 +13,14 @@
 - **Python**: 3.10+ with .venv
 - **Dependencies**: anthropic, pymupdf, chromadb, sentence-transformers, pydantic
 
+## Quick Start
+
+```bash
+pip install -r requirements.txt
+python scripts/build_index.py --limit 5  # Test extraction on 5 papers
+python scripts/query_index.py -q "network analysis"  # Search the index
+```
+
 ## Git Workflow
 
 - No attribution lines ("Generated with Claude Code", "Co-Authored-By")
