@@ -6,7 +6,6 @@ Links attachments to their new parent items and adds metadata.
 
 import random
 import sqlite3
-import string
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -45,8 +44,10 @@ class ParentItemCreator:
     - Adding tags
     """
 
-    # Valid characters for Zotero keys
-    KEY_CHARS = string.ascii_uppercase + string.digits
+    # Valid characters for Zotero keys (excludes 0, 1, I, O to avoid confusion)
+    # See: https://github.com/zotero/zotero/blob/master/chrome/content/zotero/xpcom/utilities.js
+    KEY_CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+    KEY_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ"  # First char must be a letter
 
     # Common item type IDs (may vary by Zotero version)
     ITEM_TYPE_NAMES = {
@@ -113,9 +114,18 @@ class ParentItemCreator:
         )
 
     def _generate_key(self) -> str:
-        """Generate a unique 8-character Zotero key."""
+        """Generate a unique 8-character Zotero key.
+
+        Keys must:
+        - Be 8 characters
+        - Start with a letter (not digit)
+        - Use only valid characters (no 0, 1, I, O)
+        """
         while True:
-            key = "".join(random.choices(self.KEY_CHARS, k=8))
+            # First char must be a letter, rest can be any valid char
+            first = random.choice(self.KEY_LETTERS)
+            rest = "".join(random.choices(self.KEY_CHARS, k=7))
+            key = first + rest
             if key not in self._existing_keys:
                 self._existing_keys.add(key)
                 return key

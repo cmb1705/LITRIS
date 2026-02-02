@@ -52,13 +52,68 @@ def normalize_title(title: str) -> str:
     """Normalize title for matching."""
     if not title:
         return ""
-    # Remove common prefixes/suffixes
-    normalized = title.lower().strip()
-    # Remove year patterns
     import re
-    normalized = re.sub(r"\s*\(\d{4}\)\s*$", "", normalized)
+
+    normalized = title.lower().strip()
+
+    # Remove trailing numbers in parentheses (citation counts)
+    normalized = re.sub(r"\s*\(\d+\)\s*$", "", normalized)
+
+    # Remove year patterns at start or end
     normalized = re.sub(r"^\d{4}\s*[-_]\s*", "", normalized)
+    normalized = re.sub(r"\s*[-–]\s*\d{4}\s*$", "", normalized)
+
+    # Remove "Author - Title" pattern prefix
+    if " - " in normalized:
+        parts = normalized.split(" - ", 1)
+        # If second part is longer, it's probably the title
+        if len(parts) == 2 and len(parts[1]) > len(parts[0]):
+            normalized = parts[1]
+
+    # Remove file extensions
+    normalized = re.sub(r"\.pdf$", "", normalized)
+
+    # Replace underscores with spaces
+    normalized = normalized.replace("_", " ")
+
+    # Normalize whitespace
+    normalized = " ".join(normalized.split())
+
     return normalized
+
+
+def extract_title_words(title: str) -> set:
+    """Extract key words from title for fuzzy matching."""
+    import re
+
+    if not title:
+        return set()
+
+    normalized = normalize_title(title)
+
+    # Remove common words
+    stopwords = {"the", "a", "an", "of", "and", "in", "on", "for", "to", "with", "ch", "chapter"}
+    words = set(re.findall(r"[a-z]+", normalized))
+    return words - stopwords
+
+
+def fuzzy_title_match(title1: str, title2: str, threshold: float = 0.5) -> bool:
+    """Check if titles are similar enough using word overlap."""
+    words1 = extract_title_words(title1)
+    words2 = extract_title_words(title2)
+
+    if not words1 or not words2:
+        return False
+
+    # Check word overlap
+    overlap = words1 & words2
+    min_words = min(len(words1), len(words2))
+
+    if min_words == 0:
+        return False
+
+    similarity = len(overlap) / min_words
+    return similarity >= threshold
 
 
 def update_report(
@@ -110,13 +165,18 @@ def update_report(
                 elif current_doi:
                     stats["already_had_doi"] += 1
 
-            # If still no DOI, try title matching
+            # If still no DOI, try title matching (exact substring or fuzzy)
             if not row.get("doi") and current_title:
                 normalized = normalize_title(current_title)
 
                 # Check DOI results by title
                 for title_key, entry in web_results["doi_by_title"].items():
-                    if normalized in title_key or title_key in normalized:
+                    title_match = (
+                        normalized in title_key
+                        or title_key in normalized
+                        or fuzzy_title_match(current_title, entry.get("title", ""))
+                    )
+                    if title_match:
                         row["doi"] = entry["doi"]
                         row["enrichment_source"] = "web_search_title_match"
                         row["enrichment_confidence"] = "0.85"
@@ -125,15 +185,26 @@ def update_report(
                             row["authors"] = entry["authors"]
                         if not row.get("year") and entry.get("year"):
                             row["year"] = str(entry["year"])
+                        # Also update title if current one is messy (contains year prefix)
+                        if entry.get("title") and (current_title.startswith("1") or current_title.startswith("2")):
+                            row["title"] = entry["title"]
                         stats["doi_added"] += 1
                         break
 
-            # If still no DOI but we have metadata, update other fields
-            if not row.get("doi") and current_title:
+            # Try to update metadata from metadata_only (books without DOIs)
+            if current_title:
                 normalized = normalize_title(current_title)
 
                 for title_key, entry in web_results["metadata_by_title"].items():
-                    if normalized in title_key or title_key in normalized:
+                    title_match = (
+                        normalized in title_key
+                        or title_key in normalized
+                        or fuzzy_title_match(current_title, entry.get("title", ""))
+                    )
+                    if title_match:
+                        # Update title if current one is messy
+                        if entry.get("title") and (current_title.startswith("1") or current_title.startswith("2") or " - " in current_title):
+                            row["title"] = entry["title"]
                         # Update year if missing
                         if not row.get("year") and entry.get("year"):
                             row["year"] = str(entry["year"])
