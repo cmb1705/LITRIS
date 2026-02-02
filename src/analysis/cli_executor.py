@@ -420,7 +420,7 @@ class ClaudeCliExecutor:
             )
 
             # Check for authentication errors
-            combined_output = (result.stdout + result.stderr).lower()
+            combined_output = ((result.stdout or "") + (result.stderr or "")).lower()
             if any(
                 x in combined_output
                 for x in ["invalid api key", "authentication", "unauthorized", "not authenticated"]
@@ -432,7 +432,9 @@ class ClaudeCliExecutor:
 
             # Check for rate limit
             if self._is_rate_limited(result.stdout, result.stderr):
-                reset_time = self._extract_reset_time(result.stdout + result.stderr)
+                reset_time = self._extract_reset_time(
+                    (result.stdout or "") + (result.stderr or "")
+                )
                 raise RateLimitError(
                     "Rate limit hit during extraction",
                     reset_time=reset_time,
@@ -565,10 +567,12 @@ class ClaudeCliExecutor:
                     text=True,
                     timeout=self.timeout,
                     env=env,
+                    encoding="utf-8",
+                    errors="replace",
                 )
 
             # Check for authentication errors in response
-            combined_output = (result.stdout + result.stderr).lower()
+            combined_output = ((result.stdout or "") + (result.stderr or "")).lower()
             if any(
                 x in combined_output
                 for x in ["invalid api key", "authentication", "unauthorized", "not authenticated"]
@@ -580,7 +584,9 @@ class ClaudeCliExecutor:
 
             # Check for rate limit
             if self._is_rate_limited(result.stdout, result.stderr):
-                reset_time = self._extract_reset_time(result.stdout + result.stderr)
+                reset_time = self._extract_reset_time(
+                    (result.stdout or "") + (result.stderr or "")
+                )
                 raise RateLimitError(
                     "Rate limit hit during extraction",
                     reset_time=reset_time,

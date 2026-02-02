@@ -1,7 +1,7 @@
 """Prompts for LLM-based paper extraction."""
 
 # Prompt version for tracking extraction compatibility
-EXTRACTION_PROMPT_VERSION = "1.1.1"
+EXTRACTION_PROMPT_VERSION = "1.2.0"  # Added discipline tag examples and lowercase guidance
 
 EXTRACTION_SYSTEM_PROMPT = """You are an expert academic research analyst specializing in extracting structured information from scholarly papers. Your task is to analyze the provided paper text and extract key information in a structured format.
 
@@ -64,7 +64,7 @@ Enum rules (use exact tokens only, no extra words or parentheses):
   "future_directions": ["Explicitly suggested future research directions"],
   "contribution_summary": "Brief summary of the paper's primary contribution to the field (1-2 sentences)",
   "keywords": ["5-10 searchable terms: concepts, methods, theories, phenomena studied"],
-  "discipline_tags": ["academic disciplines or subfields this paper contributes to"],
+  "discipline_tags": ["2-5 academic disciplines this paper contributes to. Use lowercase. Examples: 'scientometrics', 'bibliometrics', 'network science', 'science policy', 'information science', 'machine learning', 'complex systems', 'science and technology studies', 'research evaluation', 'computational social science', 'innovation studies', 'public administration', 'military studies', 'defense policy', 'organizational behavior', 'philosophy of science', 'history of science', 'sociology of science', 'economics of innovation', 'technology assessment', 'data science', 'artificial intelligence', 'epidemiology', 'statistical physics', 'graph theory'],
   "extraction_confidence": 0.0-1.0,
   "extraction_notes": "Notes about extraction quality, missing sections, or ambiguous content"
 }}
@@ -91,7 +91,7 @@ Extract the following information and return as JSON:
   "conclusions": "Main conclusions summarized (2-3 sentences)",
   "contribution_summary": "Brief summary of the paper's primary contribution to the field (1-2 sentences)",
   "keywords": ["5-10 searchable terms: concepts, methods, theories, phenomena studied"],
-  "discipline_tags": ["academic disciplines or subfields this paper contributes to"],
+  "discipline_tags": ["2-5 academic disciplines this paper contributes to. Use lowercase. Examples: 'scientometrics', 'bibliometrics', 'network science', 'science policy', 'information science', 'machine learning', 'complex systems', 'science and technology studies', 'research evaluation', 'computational social science', 'innovation studies', 'public administration', 'military studies', 'defense policy', 'organizational behavior', 'philosophy of science', 'history of science', 'sociology of science', 'economics of innovation', 'technology assessment', 'data science', 'artificial intelligence', 'epidemiology', 'statistical physics', 'graph theory'],
   "extraction_confidence": 0.0-1.0,
   "extraction_notes": "Notes about extraction quality, missing sections, or ambiguous content"
 }}

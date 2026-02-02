@@ -30,6 +30,30 @@ from src.analysis.schemas import (
 logger = logging.getLogger(__name__)
 
 
+def _normalize_discipline_tags(tags: list[str] | None) -> list[str]:
+    """Normalize discipline tags to lowercase and deduplicate.
+
+    Args:
+        tags: Raw discipline tags from union merge.
+
+    Returns:
+        Normalized, deduplicated list of discipline tags.
+    """
+    if not tags:
+        return []
+
+    normalized = []
+    seen = set()
+    for tag in tags:
+        if not isinstance(tag, str):
+            continue
+        clean = tag.lower().strip()
+        if clean and clean not in seen:
+            normalized.append(clean)
+            seen.add(clean)
+    return normalized
+
+
 class ConsensusStrategy(str, Enum):
     """Strategy for reaching consensus on a field."""
 
@@ -253,7 +277,7 @@ def aggregate_extractions(
         limitations=_union_lists([e.limitations for e in extractions]),
         future_directions=_union_lists([e.future_directions for e in extractions]),
         keywords=_union_lists([e.keywords for e in extractions]),
-        discipline_tags=_union_lists([e.discipline_tags for e in extractions]),
+        discipline_tags=_normalize_discipline_tags(_union_lists([e.discipline_tags for e in extractions])),
         # Nested objects
         methodology=_merge_methodology([e.methodology for e in extractions]),
         key_findings=_merge_key_findings([e.key_findings for e in extractions]),

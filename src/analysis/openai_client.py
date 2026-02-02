@@ -656,6 +656,17 @@ class OpenAILLMClient(BaseLLMClient):
             if list_field in data:
                 data[list_field] = _coerce_str_list(data.get(list_field))
 
+        # Normalize discipline_tags to lowercase for consistency
+        if "discipline_tags" in data and data["discipline_tags"]:
+            seen = set()
+            normalized = []
+            for tag in data["discipline_tags"]:
+                clean = tag.lower().strip() if isinstance(tag, str) else str(tag).lower().strip()
+                if clean and clean not in seen:
+                    normalized.append(clean)
+                    seen.add(clean)
+            data["discipline_tags"] = normalized
+
         # Normalize nested methodology fields
         if "methodology" in data:
             if not isinstance(data["methodology"], dict):
