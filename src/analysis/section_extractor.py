@@ -202,8 +202,14 @@ class SectionExtractor:
         mode: ExtractionMode = "api",
         model: str | None = None,
         max_tokens: int = 8192,
+        timeout: int | None = None,
         model_by_type: dict[str, str] | None = None,
         min_text_length: int = 100,
+        ocr_on_fail: bool = True,
+        skip_non_publications: bool = False,
+        min_publication_words: int = 500,
+        min_publication_pages: int = 2,
+        min_section_hits: int = 0,
         ocr_enabled: bool = False,
         ocr_config: dict | None = None,
         use_cache: bool = True,
@@ -218,8 +224,14 @@ class SectionExtractor:
             mode: LLM extraction mode.
             model: Model to use (None uses provider default).
             max_tokens: Maximum response tokens.
+            timeout: Request timeout in seconds (defaults to provider/client default).
             model_by_type: Optional mapping of extraction type to model name.
             min_text_length: Minimum text length to attempt extraction.
+            ocr_on_fail: Attempt OCR when initial text check fails.
+            skip_non_publications: Skip likely non-publication attachments.
+            min_publication_words: Minimum words for publication heuristic.
+            min_publication_pages: Minimum pages for publication heuristic.
+            min_section_hits: Minimum section markers for publication heuristic.
             ocr_enabled: Enable OCR fallback for scanned PDFs.
             ocr_config: Optional OCR handler config (tesseract_cmd, poppler_path, dpi, lang).
             use_cache: Enable extraction caching to skip unchanged papers.
@@ -228,7 +240,7 @@ class SectionExtractor:
         """
         self.pdf_extractor = PDFExtractor(
             cache_dir=cache_dir,
-            enable_ocr=ocr_enabled,
+            enable_ocr=ocr_enabled or ocr_on_fail,
             ocr_config=ocr_config,
         )
         self.text_cleaner = TextCleaner()
@@ -239,12 +251,18 @@ class SectionExtractor:
             mode=mode,
             model=model,
             max_tokens=max_tokens,
+            timeout=timeout if timeout is not None else 120,
             reasoning_effort=reasoning_effort,
         )
         self.max_tokens = max_tokens
         self.timeout = getattr(self.llm_client, "timeout", 120)
         self.reasoning_effort = reasoning_effort
         self.min_text_length = min_text_length
+        self.ocr_on_fail = ocr_on_fail
+        self.skip_non_publications = skip_non_publications
+        self.min_publication_words = min_publication_words
+        self.min_publication_pages = min_publication_pages
+        self.min_section_hits = min_section_hits
         self.model = self.llm_client.model  # Use resolved model from client
         self.mode = mode
         self.provider = provider
@@ -303,7 +321,9 @@ class SectionExtractor:
 
             # Extract text from PDF
             try:
-                text = self.pdf_extractor.extract_text(paper.pdf_path)
+                text, method = self.pdf_extractor.extract_text_with_method(
+                    paper.pdf_path
+                )
             except Exception as e:
                 logger.error(f"PDF extraction failed: {e}")
                 return ExtractionResult(
@@ -312,18 +332,80 @@ class SectionExtractor:
                     error=f"PDF extraction failed: {e}",
                 ), False
 
+            def evaluate_text(cleaned_text: str) -> tuple[bool, list[str]]:
+                """Evaluate text for extraction eligibility."""
+                valid = self.text_cleaner.is_valid_extraction(
+                    cleaned_text, min_words=self.min_text_length
+                )
+                reasons: list[str] = []
+                if self.skip_non_publications:
+                    stats = self.text_cleaner.get_stats(cleaned_text)
+                    if (
+                        self.min_publication_words > 0
+                        and stats.word_count < self.min_publication_words
+                    ):
+                        reasons.append(
+                            f"word_count<{self.min_publication_words} ({stats.word_count})"
+                        )
+                    if (
+                        self.min_publication_pages > 0
+                        and stats.page_count < self.min_publication_pages
+                    ):
+                        reasons.append(
+                            f"page_count<{self.min_publication_pages} ({stats.page_count})"
+                        )
+                    if self.min_section_hits > 0:
+                        section_hits = self.text_cleaner.count_section_markers(
+                            cleaned_text
+                        )
+                        if section_hits < self.min_section_hits:
+                            reasons.append(
+                                f"section_hits<{self.min_section_hits} ({section_hits})"
+                            )
+                return valid, reasons
+
             # Clean text
             text = self.text_cleaner.clean(text)
+            valid_text, non_pub_reasons = evaluate_text(text)
 
-            # Validate text
-            if not self.text_cleaner.is_valid_extraction(
-                text, min_words=self.min_text_length
+            # OCR fallback for low-quality text
+            if (
+                self.ocr_on_fail
+                and self.pdf_extractor.ocr_handler
+                and method == "pymupdf"
+                and (not valid_text or non_pub_reasons)
             ):
+                logger.info(
+                    f"Text check failed for {paper.paper_id}; attempting OCR fallback"
+                )
+                try:
+                    ocr_result = self.pdf_extractor.ocr_handler.extract_text(
+                        paper.pdf_path
+                    )
+                    text = self.text_cleaner.clean(ocr_result.text)
+                    valid_text, non_pub_reasons = evaluate_text(text)
+                except Exception as ocr_error:
+                    logger.warning(
+                        f"OCR fallback failed for {paper.paper_id}: {ocr_error}"
+                    )
+
+            if not valid_text:
                 logger.warning(f"Insufficient text content for paper {paper.paper_id}")
                 return ExtractionResult(
                     paper_id=paper.paper_id,
                     success=False,
                     error="Insufficient text content",
+                ), False
+
+            if non_pub_reasons:
+                reason_text = "; ".join(non_pub_reasons)
+                logger.warning(
+                    f"Likely non-publication for {paper.paper_id}: {reason_text}"
+                )
+                return ExtractionResult(
+                    paper_id=paper.paper_id,
+                    success=False,
+                    error=f"Likely non-publication: {reason_text}",
                 ), False
 
             # Truncate for LLM if needed
@@ -414,7 +496,13 @@ class SectionExtractor:
                 stats.total_output_tokens += result.output_tokens
                 stats.total_duration += result.duration_seconds
             else:
-                stats.failed += 1
+                if result.error and (
+                    result.error.startswith("Likely non-publication")
+                    or result.error.startswith("Insufficient text content")
+                ):
+                    stats.skipped += 1
+                else:
+                    stats.failed += 1
                 stats.total_duration += result.duration_seconds
 
             yield result
@@ -489,7 +577,13 @@ class SectionExtractor:
                         stats.total_output_tokens += result.output_tokens
                         stats.total_duration += result.duration_seconds
                     else:
-                        stats.failed += 1
+                        if result.error and (
+                            result.error.startswith("Likely non-publication")
+                            or result.error.startswith("Insufficient text content")
+                        ):
+                            stats.skipped += 1
+                        else:
+                            stats.failed += 1
                         stats.total_duration += result.duration_seconds
 
                 yield result

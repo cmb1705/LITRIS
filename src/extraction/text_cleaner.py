@@ -28,6 +28,10 @@ class TextCleaner:
     HYPHEN_LINEBREAK = re.compile(r"(\w)-\n(\w)")
     PAGE_NUMBERS = re.compile(r"^\s*\d+\s*$", re.MULTILINE)
     HEADER_FOOTER = re.compile(r"^.{0,80}(page \d+|^\d+$).{0,80}$", re.MULTILINE | re.IGNORECASE)
+    SECTION_MARKERS = re.compile(
+        r"\b(abstract|introduction|methods?|methodology|results?|discussion|conclusion|references|bibliography)\b",
+        re.IGNORECASE,
+    )
 
     def __init__(
         self,
@@ -128,6 +132,21 @@ class TextCleaner:
 
         stats = self.get_stats(text)
         return stats.word_count >= min_words
+
+    def count_section_markers(self, text: str) -> int:
+        """Count distinct academic section markers in text.
+
+        Args:
+            text: Extracted text.
+
+        Returns:
+            Number of distinct section markers found.
+        """
+        if not text:
+            return 0
+
+        matches = {m.lower() for m in self.SECTION_MARKERS.findall(text)}
+        return len(matches)
 
     def extract_sections(self, text: str) -> dict[str, str]:
         """Attempt to extract common sections from academic paper.

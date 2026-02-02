@@ -114,6 +114,10 @@ def _find_poppler() -> str | None:
             r"C:\poppler\Library\bin",
             r"C:\poppler\bin",
             os.path.expandvars(r"%LOCALAPPDATA%\poppler\Library\bin"),
+            # WinGet package location
+            os.path.expandvars(
+                r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\*Poppler*\poppler-*\Library\bin"
+            ),
         ]
 
     elif sys.platform == "darwin":
@@ -131,7 +135,16 @@ def _find_poppler() -> str | None:
 
     for path in common_paths:
         pdftoppm = os.path.join(path, "pdftoppm.exe" if sys.platform == "win32" else "pdftoppm")
-        if os.path.exists(pdftoppm):
+        if "*" in path:
+            import glob
+            matches = glob.glob(path)
+            for match in matches:
+                candidate = os.path.join(
+                    match, "pdftoppm.exe" if sys.platform == "win32" else "pdftoppm"
+                )
+                if os.path.exists(candidate):
+                    return match
+        elif os.path.exists(pdftoppm):
             return path
 
     return None

@@ -1,7 +1,7 @@
 """Prompts for LLM-based paper extraction."""
 
 # Prompt version for tracking extraction compatibility
-EXTRACTION_PROMPT_VERSION = "1.1.0"
+EXTRACTION_PROMPT_VERSION = "1.1.1"
 
 EXTRACTION_SYSTEM_PROMPT = """You are an expert academic research analyst specializing in extracting structured information from scholarly papers. Your task is to analyze the provided paper text and extract key information in a structured format.
 
@@ -27,6 +27,11 @@ PAPER TEXT:
 
 Extract the following information and return as JSON:
 
+Enum rules (use exact tokens only, no extra words or parentheses):
+- significance: high/medium/low
+- evidence_type: empirical/theoretical/methodological/case_study/survey/experimental/qualitative/quantitative/mixed
+- support_type: data/citation/logic/example/authority
+
 {{
   "thesis_statement": "The main thesis or central argument (1-2 sentences)",
   "research_questions": ["List of explicit research questions or objectives addressed"],
@@ -42,15 +47,15 @@ Extract the following information and return as JSON:
   "key_findings": [
     {{
       "finding": "Specific description of finding or result",
-      "evidence_type": "empirical/theoretical/methodological",
-      "significance": "high (novel/groundbreaking) / medium (confirms/extends) / low (minor/incremental)",
+      "evidence_type": "empirical/theoretical/methodological/case_study/survey/experimental/qualitative/quantitative/mixed",
+      "significance": "high/medium/low",
       "page_reference": "page number if identifiable (null otherwise)"
     }}
   ],
   "key_claims": [
     {{
       "claim": "The claim or argument statement",
-      "support_type": "data (empirical evidence) / citation (literature support) / logic (reasoning) / example (illustrative case)",
+      "support_type": "data/citation/logic/example/authority",
       "page_reference": "page number if identifiable (null otherwise)"
     }}
   ],
@@ -106,6 +111,11 @@ PAPER TEXT:
 
 Extract the following information and return as JSON:
 
+Enum rules (use exact tokens only, no extra words or parentheses):
+- significance: high/medium/low
+- evidence_type: empirical/theoretical/methodological/case_study/survey/experimental/qualitative/quantitative/mixed
+- support_type: data/citation/logic/example/authority
+
 {{
   "methodology": {{
     "approach": "qualitative/quantitative/mixed/theoretical/review",
@@ -118,15 +128,15 @@ Extract the following information and return as JSON:
   "key_findings": [
     {{
       "finding": "Specific description of finding or result",
-      "evidence_type": "empirical/theoretical/methodological",
-      "significance": "high (novel/groundbreaking) / medium (confirms/extends) / low (minor/incremental)",
+      "evidence_type": "empirical/theoretical/methodological/case_study/survey/experimental/qualitative/quantitative/mixed",
+      "significance": "high/medium/low",
       "page_reference": "page number if identifiable (null otherwise)"
     }}
   ],
   "key_claims": [
     {{
       "claim": "The claim or argument statement",
-      "support_type": "data (empirical evidence) / citation (literature support) / logic (reasoning) / example (illustrative case)",
+      "support_type": "data/citation/logic/example/authority",
       "page_reference": "page number if identifiable (null otherwise)"
     }}
   ],
@@ -183,6 +193,35 @@ def build_extraction_prompt(
         year=year or "Unknown",
         item_type=item_type,
         text=text,
+    )
+
+
+def build_cli_extraction_prompt(
+    title: str,
+    authors: str,
+    year: int | str | None,
+    item_type: str,
+) -> str:
+    """Build the extraction prompt for CLI mode (text provided separately via stdin).
+
+    For CLI mode, the paper text is passed via stdin to handle large documents,
+    so this prompt only includes the metadata and instructions.
+
+    Args:
+        title: Paper title.
+        authors: Author string.
+        year: Publication year.
+        item_type: Type of paper.
+
+    Returns:
+        Formatted prompt string (text placeholder indicates stdin input).
+    """
+    return EXTRACTION_USER_PROMPT.format(
+        title=title,
+        authors=authors,
+        year=year or "Unknown",
+        item_type=item_type,
+        text="[PAPER TEXT PROVIDED VIA STDIN - SEE BELOW]",
     )
 
 

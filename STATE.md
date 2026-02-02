@@ -172,6 +172,16 @@ LITRIS/
 - **Local LLM support**: Ollama and llama.cpp for offline extraction
 - **CI/CD pipeline**: GitHub Actions with pre-commit hooks
 
+### Recently Completed (February 2026)
+
+- **Non-publication filtering**: Skip fragments, forms, and notes based on word/page count and section markers
+- **OCR fallback on fail**: Automatically retry with OCR when initial text extraction produces poor results
+- **Skipped items reporting**: Generate JSON/CSV reports for items skipped during extraction
+- **OpenAI/Codex CLI support**: Full provider comparison with robust enum normalization for GPT responses
+- **Provider comparison script**: Side-by-side extraction quality comparison between Anthropic and OpenAI
+- **Improved prompt schema**: Explicit enum rules to improve LLM compliance with expected values
+- **Windows compatibility**: Fixed Unicode encoding in Codex CLI, WinGet Poppler path detection
+
 ---
 
 ## Dependencies
@@ -186,4 +196,4 @@ LITRIS/
 
 ---
 
-Last Updated: 2026-01-28
+Last Updated: 2026-02-02

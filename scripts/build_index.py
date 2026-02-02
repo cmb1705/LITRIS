@@ -374,6 +374,80 @@ def run_extraction(
     return paper_dicts, existing_extractions, results
 
 
+def write_skipped_report(
+    results: list,
+    paper_dicts: dict,
+    output_dir: Path,
+    logger,
+) -> tuple[Path | None, Path | None]:
+    """Write skipped items report for likely non-publications or low text."""
+    skip_prefixes = (
+        "Insufficient text content",
+        "Likely non-publication",
+        "No PDF available",
+    )
+
+    skipped_items = []
+    for result in results:
+        if result.success or not result.error:
+            continue
+        if not any(result.error.startswith(prefix) for prefix in skip_prefixes):
+            continue
+        paper = paper_dicts.get(result.paper_id, {})
+        skipped_items.append({
+            "paper_id": result.paper_id,
+            "title": paper.get("title"),
+            "zotero_key": paper.get("zotero_key"),
+            "item_type": paper.get("item_type"),
+            "publication_year": paper.get("publication_year"),
+            "pdf_path": paper.get("pdf_path"),
+            "reason": result.error,
+            "model": result.model_used,
+            "timestamp": result.timestamp.isoformat(),
+        })
+
+    if not skipped_items:
+        return None, None
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    json_path = output_dir / f"skipped_items_{timestamp}.json"
+    csv_path = output_dir / f"skipped_items_{timestamp}.csv"
+
+    safe_write_json(json_path, {
+        "generated_at": datetime.now().isoformat(),
+        "count": len(skipped_items),
+        "items": skipped_items,
+    })
+
+    import csv
+
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "paper_id",
+                "title",
+                "zotero_key",
+                "item_type",
+                "publication_year",
+                "pdf_path",
+                "reason",
+                "model",
+                "timestamp",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(skipped_items)
+
+    logger.info(
+        f"Skipped items report: {len(skipped_items)} entries "
+        f"({json_path.name}, {csv_path.name})"
+    )
+
+    return json_path, csv_path
+
+
 def run_embedding_generation(
     papers: list[PaperMetadata],
     extractions: dict[str, dict],
@@ -801,8 +875,14 @@ def main():
             mode=mode,
             model=config.extraction.model,
             max_tokens=config.extraction.max_tokens,
+            timeout=config.extraction.timeout,
             model_by_type=model_by_type,
             min_text_length=config.processing.min_text_length,
+            ocr_on_fail=config.processing.ocr_on_fail,
+            skip_non_publications=config.processing.skip_non_publications,
+            min_publication_words=config.processing.min_publication_words,
+            min_publication_pages=config.processing.min_publication_pages,
+            min_section_hits=config.processing.min_section_hits,
             ocr_enabled=config.processing.ocr_enabled,
             ocr_config=config.processing.ocr_config,
             use_cache=use_cache,
@@ -862,8 +942,14 @@ def main():
             mode=mode,
             model=config.extraction.model,
             max_tokens=config.extraction.max_tokens,
+            timeout=config.extraction.timeout,
             model_by_type=model_by_type,
             min_text_length=config.processing.min_text_length,
+            ocr_on_fail=config.processing.ocr_on_fail,
+            skip_non_publications=config.processing.skip_non_publications,
+            min_publication_words=config.processing.min_publication_words,
+            min_publication_pages=config.processing.min_publication_pages,
+            min_section_hits=config.processing.min_section_hits,
             ocr_enabled=config.processing.ocr_enabled,
             ocr_config=config.processing.ocr_config,
             use_cache=use_cache,
@@ -905,6 +991,12 @@ def main():
         successful = sum(1 for r in results if r.success)
         failed = sum(1 for r in results if not r.success)
         logger.info(f"Extraction: {successful} successful, {failed} failed")
+        write_skipped_report(
+            results,
+            paper_dicts,
+            project_root / "data" / "out" / "experiments" / "skipped_items",
+            logger,
+        )
     else:
         # Update paper dicts from existing
         paper_dicts = dict(existing_papers)

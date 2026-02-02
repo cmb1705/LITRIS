@@ -108,9 +108,26 @@ processing:
   # Requires Tesseract and Poppler installation
   ocr_enabled: false
 
+  # Attempt OCR when initial text checks fail (recommended for scanned books)
+  ocr_on_fail: true
+
   # Minimum text length (chars) to consider PDF extraction successful
   # PDFs with less text may be candidates for OCR
   min_text_length: 100
+
+  # Skip likely non-publication attachments (fragments, forms, notes)
+  # Uses simple heuristics on extracted text before LLM extraction
+  skip_non_publications: false
+
+  # Minimum words required to treat an attachment as a publication
+  min_publication_words: 500
+
+  # Minimum PDF pages required to treat an attachment as a publication
+  min_publication_pages: 2
+
+  # Minimum distinct academic section markers (abstract, introduction, references)
+  # Set to 0 to disable section marker checks
+  min_section_hits: 0
 
   # OCR-specific configuration (used when ocr_enabled is true)
   ocr_config:

@@ -9,6 +9,7 @@ References:
 """
 
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -405,6 +406,8 @@ class OpenAILLMClient(BaseLLMClient):
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
+                encoding="utf-8",
+                errors="replace",  # Replace unencodable chars instead of failing
             )
 
             if result.returncode != 0:
@@ -445,6 +448,275 @@ class OpenAILLMClient(BaseLLMClient):
 
         # Parse JSON
         data = json.loads(text)
+
+        def _coerce_str_list(value: object) -> list[str]:
+            """Coerce a value into a list of strings."""
+            if value is None:
+                return []
+            if isinstance(value, list):
+                items = []
+                for item in value:
+                    if item is None:
+                        continue
+                    text_item = str(item).strip()
+                    if text_item:
+                        items.append(text_item)
+                return items
+            if isinstance(value, str):
+                text = value.strip()
+                if not text:
+                    return []
+                parts = [p.strip() for p in re.split(r"[;,\n]+", text) if p.strip()]
+                return parts if parts else [text]
+            return [str(value).strip()]
+
+        def _normalize_enum(
+            value: object,
+            allowed: set[str],
+            synonyms: dict[str, str] | None = None,
+            default: str | None = None,
+        ) -> object:
+            """Normalize enum-like values to allowed strings."""
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                return default if default is not None else value
+            if not isinstance(value, str):
+                return value
+
+            raw = value.strip().strip('"').strip("'").lower()
+            if not raw:
+                return None
+            raw = re.sub(r"\s*\([^)]*\)", "", raw).strip()
+            if not raw:
+                return None
+            raw = raw.replace("&", "and").replace("\\", "/")
+
+            def _match(token: str) -> str | None:
+                token = token.strip()
+                if not token:
+                    return None
+                token = re.sub(r"[^\w\s/-]", " ", token)
+                token = token.replace("-", " ")
+                token = " ".join(token.split())
+                token_key = token.replace(" ", "_")
+                if token_key in allowed:
+                    return token_key
+                if token in allowed:
+                    return token
+                if synonyms:
+                    if token_key in synonyms:
+                        return synonyms[token_key]
+                    if token in synonyms:
+                        return synonyms[token]
+                return None
+
+            direct = _match(raw)
+            if direct:
+                return direct
+
+            for part in re.split(r"[/,;|]+", raw):
+                matched = _match(part)
+                if matched:
+                    return matched
+
+            raw_key = raw.replace(" ", "_")
+            for allowed_value in allowed:
+                if allowed_value in raw_key:
+                    return allowed_value
+
+            return default if default is not None else value
+
+        def _normalize_significance(value: object) -> object:
+            """Normalize significance values into high/medium/low."""
+            if isinstance(value, (int, float)):
+                score = float(value)
+                if score >= 0.67:
+                    return "high"
+                if score >= 0.34:
+                    return "medium"
+                return "low"
+            if isinstance(value, str):
+                numeric = value.strip()
+                if re.fullmatch(r"\d+(\.\d+)?", numeric):
+                    return _normalize_significance(float(numeric))
+            return _normalize_enum(
+                value,
+                {"high", "medium", "low"},
+                synonyms={
+                    "major": "high",
+                    "significant": "high",
+                    "substantial": "high",
+                    "strong": "high",
+                    "important": "high",
+                    "novel": "high",
+                    "groundbreaking": "high",
+                    "moderate": "medium",
+                    "mixed": "medium",
+                    "partial": "medium",
+                    "average": "medium",
+                    "minor": "low",
+                    "limited": "low",
+                    "small": "low",
+                    "weak": "low",
+                    "modest": "low",
+                    "incremental": "low",
+                    "preliminary": "low",
+                },
+                default="medium",
+            )
+
+        def _normalize_evidence_type(value: object) -> object:
+            """Normalize evidence_type values to allowed enum entries."""
+            return _normalize_enum(
+                value,
+                {
+                    "empirical",
+                    "theoretical",
+                    "methodological",
+                    "case_study",
+                    "survey",
+                    "experimental",
+                    "qualitative",
+                    "quantitative",
+                    "mixed",
+                },
+                synonyms={
+                    "empiric": "empirical",
+                    "data": "empirical",
+                    "evidence": "empirical",
+                    "theory": "theoretical",
+                    "methods": "methodological",
+                    "methodology": "methodological",
+                    "case": "case_study",
+                    "case_studies": "case_study",
+                    "case_study": "case_study",
+                    "case study": "case_study",
+                    "survey_based": "survey",
+                    "experiment": "experimental",
+                    "experiments": "experimental",
+                    "qual": "qualitative",
+                    "quant": "quantitative",
+                    "mixed_methods": "mixed",
+                    "mixed methods": "mixed",
+                },
+                default="empirical",
+            )
+
+        def _normalize_support_type(value: object) -> object:
+            """Normalize support_type values to allowed enum entries."""
+            return _normalize_enum(
+                value,
+                {"data", "citation", "logic", "example", "authority"},
+                synonyms={
+                    "empirical": "data",
+                    "empiric": "data",
+                    "experimental": "data",
+                    "quantitative": "data",
+                    "qualitative": "data",
+                    "survey": "data",
+                    "methodological": "data",
+                    "methodology": "data",
+                    "methods": "data",
+                    "evidence": "data",
+                    "data": "data",
+                    "citation": "citation",
+                    "cite": "citation",
+                    "reference": "citation",
+                    "references": "citation",
+                    "literature": "citation",
+                    "logic": "logic",
+                    "reasoning": "logic",
+                    "rationale": "logic",
+                    "argument": "logic",
+                    "theoretical": "logic",
+                    "theory": "logic",
+                    "example": "example",
+                    "case": "example",
+                    "case_study": "example",
+                    "case study": "example",
+                    "illustration": "example",
+                    "instance": "example",
+                    "authority": "authority",
+                    "expert": "authority",
+                    "expert_opinion": "authority",
+                    "consensus": "authority",
+                },
+                default="logic",
+            )
+
+        # Normalize list-like fields to avoid schema failures
+        for list_field in [
+            "research_questions",
+            "limitations",
+            "future_directions",
+            "keywords",
+            "discipline_tags",
+        ]:
+            if list_field in data:
+                data[list_field] = _coerce_str_list(data.get(list_field))
+
+        # Normalize nested methodology fields
+        if "methodology" in data:
+            if not isinstance(data["methodology"], dict):
+                data["methodology"] = {}
+            else:
+                methodology = data["methodology"]
+                methodology["data_sources"] = _coerce_str_list(
+                    methodology.get("data_sources")
+                )
+                methodology["analysis_methods"] = _coerce_str_list(
+                    methodology.get("analysis_methods")
+                )
+                for field in ["approach", "design", "sample_size", "time_period"]:
+                    if field in methodology and methodology[field] is not None:
+                        if not isinstance(methodology[field], str):
+                            methodology[field] = str(methodology[field])
+
+        # Normalize known enum fields to avoid validation failures
+        if isinstance(data.get("key_findings"), list):
+            normalized_findings = []
+            for finding in data["key_findings"]:
+                if isinstance(finding, str):
+                    finding = {"finding": finding}
+                if isinstance(finding, dict):
+                    if "finding" not in finding:
+                        for alt_key in ("result", "finding_text", "summary"):
+                            if alt_key in finding:
+                                finding["finding"] = finding[alt_key]
+                                break
+                    if "finding" not in finding:
+                        continue
+                    finding["significance"] = _normalize_significance(
+                        finding.get("significance")
+                    )
+                    finding["evidence_type"] = _normalize_evidence_type(
+                        finding.get("evidence_type")
+                    )
+                    normalized_findings.append(finding)
+            data["key_findings"] = normalized_findings
+
+        if isinstance(data.get("key_claims"), list):
+            normalized_claims = []
+            for claim in data["key_claims"]:
+                if isinstance(claim, str):
+                    claim = {"claim": claim}
+                if isinstance(claim, dict):
+                    if "claim" not in claim:
+                        for alt_key in ("statement", "claim_text", "text"):
+                            if alt_key in claim:
+                                claim["claim"] = claim[alt_key]
+                                break
+                    if "claim" not in claim:
+                        continue
+                    claim["support_type"] = _normalize_support_type(
+                        claim.get("support_type")
+                    )
+                    claim["strength"] = _normalize_significance(
+                        claim.get("strength")
+                    )
+                    normalized_claims.append(claim)
+            data["key_claims"] = normalized_claims
 
         # Handle nested methodology
         if "methodology" in data and isinstance(data["methodology"], dict):

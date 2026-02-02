@@ -185,7 +185,12 @@ class ProcessingConfig(BaseModel):
 
     batch_size: int = 10
     ocr_enabled: bool = False
+    ocr_on_fail: bool = True
     min_text_length: int = 100
+    skip_non_publications: bool = False
+    min_publication_words: int = 500
+    min_publication_pages: int = 2
+    min_section_hits: int = 0
     ocr_config: dict[str, Any] | None = None
 
 
@@ -284,8 +289,8 @@ class Config(BaseModel):
             FileNotFoundError: If config.yaml cannot be found.
             ValueError: If required configuration is missing or invalid.
         """
-        # Load environment variables from .env
-        load_dotenv()
+        # Load environment variables from .env (override system env vars)
+        load_dotenv(override=True)
 
         # Find config file
         if config_path is None:

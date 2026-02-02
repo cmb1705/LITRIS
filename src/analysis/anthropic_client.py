@@ -8,7 +8,11 @@ from pydantic import ValidationError
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode, LLMProvider
 from src.analysis.cli_executor import ClaudeCliExecutor, CliExecutionError
-from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
+from src.analysis.prompts import (
+    EXTRACTION_SYSTEM_PROMPT,
+    build_cli_extraction_prompt,
+    build_extraction_prompt,
+)
 from src.analysis.schemas import ExtractionResult, PaperExtraction
 from src.utils.logging_config import get_logger
 from src.utils.secrets import get_anthropic_api_key
@@ -120,18 +124,31 @@ class AnthropicLLMClient(BaseLLMClient):
         start_time = time.time()
 
         try:
-            prompt = prompt_override or build_extraction_prompt(
-                title=title,
-                authors=authors,
-                year=year,
-                item_type=item_type,
-                text=text,
-            )
-
             if self.mode == "api":
+                # API mode: build full prompt with text included
+                prompt = prompt_override or build_extraction_prompt(
+                    title=title,
+                    authors=authors,
+                    year=year,
+                    item_type=item_type,
+                    text=text,
+                )
                 response_text, input_tokens, output_tokens = self._call_api(prompt)
             else:
-                response_text, input_tokens, output_tokens = self._call_cli(prompt)
+                # CLI mode: use separate prompt and text for proper handling
+                # The cli_executor.extract() method writes text to temp file and
+                # passes prompt via -p flag, which handles large documents better
+                # Include system prompt in user prompt since CLI doesn't have separate system prompt
+                user_prompt = build_cli_extraction_prompt(
+                    title=title,
+                    authors=authors,
+                    year=year,
+                    item_type=item_type,
+                )
+                prompt = f"{EXTRACTION_SYSTEM_PROMPT}\n\n---\n\n{user_prompt}"
+                response_dict = self.cli_executor.extract(prompt, text)
+                response_text = json.dumps(response_dict)
+                input_tokens, output_tokens = 0, 0
 
             # Parse JSON response
             extraction = self._parse_response(response_text)

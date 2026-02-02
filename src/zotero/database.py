@@ -297,8 +297,15 @@ class ZoteroDatabase:
         if attachment_path.startswith("storage:"):
             filename = attachment_path[8:]  # Remove "storage:" prefix
 
-            # Security: Validate filename doesn't contain path traversal
-            if ".." in filename or filename.startswith("/") or filename.startswith("\\"):
+            # Security: Validate filename doesn't contain path traversal patterns
+            # Note: ".." alone is too aggressive - catches valid filenames like "paper..pdf"
+            if (
+                "../" in filename
+                or "..\\" in filename
+                or filename == ".."
+                or filename.startswith("/")
+                or filename.startswith("\\")
+            ):
                 logger.warning(
                     f"Potential path traversal detected in attachment path: {filename}"
                 )
