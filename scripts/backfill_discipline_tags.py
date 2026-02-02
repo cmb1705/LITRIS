@@ -14,8 +14,10 @@ import argparse
 import json
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -260,6 +262,12 @@ def main():
         action="store_true",
         help="Compare haiku vs sonnet on sample papers (no changes saved)",
     )
+    parser.add_argument(
+        "--parallel",
+        type=int,
+        default=1,
+        help="Number of parallel workers (default: 1, max recommended: 8)",
+    )
     args = parser.parse_args()
 
     extractions_path = args.data_dir / "extractions.json"
@@ -348,27 +356,49 @@ def main():
         log_info("Compare complete. No changes saved.")
         return
 
-    # Initialize executor (CLI uses default configured model)
-    executor = ClaudeCliExecutor()
-
     # Process papers
     updates = {}
     failed = 0
     success = 0
+    updates_lock = Lock()
 
-    with tqdm(missing, desc="Backfilling discipline tags") as pbar:
-        for paper_id in pbar:
-            tags = extract_discipline_tags(executor, paper_id, papers_meta)
-            if tags:
-                updates[paper_id] = tags
-                success += 1
-                pbar.set_postfix({"success": success, "failed": failed})
-            else:
-                failed += 1
-                pbar.set_postfix({"success": success, "failed": failed})
+    def process_paper(paper_id: str) -> tuple[str, list[str] | None]:
+        """Process a single paper (thread-safe)."""
+        # Each thread gets its own executor
+        executor = ClaudeCliExecutor()
+        tags = extract_discipline_tags(executor, paper_id, papers_meta)
+        return paper_id, tags
 
-            # Small delay between requests
-            time.sleep(0.1)
+    num_workers = max(1, min(args.parallel, 16))  # Cap at 16 workers
+    log_info(f"Processing with {num_workers} parallel worker(s)...")
+
+    if num_workers == 1:
+        # Sequential mode
+        with tqdm(missing, desc="Backfilling discipline tags") as pbar:
+            for paper_id in pbar:
+                _, tags = process_paper(paper_id)
+                if tags:
+                    updates[paper_id] = tags
+                    success += 1
+                else:
+                    failed += 1
+                pbar.set_postfix({"success": success, "failed": failed})
+    else:
+        # Parallel mode
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            futures = {executor.submit(process_paper, pid): pid for pid in missing}
+
+            with tqdm(total=len(missing), desc="Backfilling discipline tags") as pbar:
+                for future in as_completed(futures):
+                    paper_id, tags = future.result()
+                    with updates_lock:
+                        if tags:
+                            updates[paper_id] = tags
+                            success += 1
+                        else:
+                            failed += 1
+                        pbar.set_postfix({"success": success, "failed": failed})
+                    pbar.update(1)
 
     # Update store
     if updates:
