@@ -5,7 +5,6 @@ import os
 import platform
 import shutil
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 
@@ -532,44 +531,40 @@ class ClaudeCliExecutor:
             ParseError: If response cannot be parsed.
             CliExecutionError: For other CLI errors.
         """
-        # Write input to temp file to handle large texts
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".txt",
-            delete=False,
-            encoding="utf-8",
-        ) as f:
-            f.write(input_text)
-            input_file = Path(f.name)
+        # Combine prompt and text into a single message
+        # Replace placeholder if present, otherwise append text
+        placeholder = "[PAPER TEXT PROVIDED VIA STDIN - SEE BELOW]"
+        if placeholder in prompt:
+            combined_prompt = prompt.replace(placeholder, input_text)
+        else:
+            combined_prompt = f"{prompt}\n\nPAPER TEXT:\n{input_text}"
 
         try:
             # Build command
             # Use --print to get output only (no interactive mode)
             # Use --output-format json for structured output
+            # Send combined prompt via stdin (not via -p flag)
             cmd = [
                 self._cli_path,
                 "--print",
                 "--output-format",
                 self.output_format,
-                "-p",
-                prompt,
             ]
 
             # Set up environment - ensure OAuth token is passed if set
             env = os.environ.copy()
 
-            # Execute with input from file
-            with open(input_file, encoding="utf-8") as f:
-                result = subprocess.run(
-                    cmd,
-                    stdin=f,
-                    capture_output=True,
-                    text=True,
-                    timeout=self.timeout,
-                    env=env,
-                    encoding="utf-8",
-                    errors="replace",
-                )
+            # Execute with combined prompt via stdin
+            result = subprocess.run(
+                cmd,
+                input=combined_prompt,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                env=env,
+                encoding="utf-8",
+                errors="replace",
+            )
 
             # Check for authentication errors in response
             combined_output = ((result.stdout or "") + (result.stderr or "")).lower()
@@ -616,9 +611,6 @@ class ClaudeCliExecutor:
             raise ExtractionTimeoutError(
                 f"Extraction timed out after {self.timeout} seconds"
             ) from e
-        finally:
-            # Clean up temp file
-            input_file.unlink(missing_ok=True)
 
     def _is_rate_limited(self, stdout: str, stderr: str) -> bool:
         """Check if response indicates rate limiting.
@@ -666,11 +658,23 @@ class ClaudeCliExecutor:
     def _parse_response(self, output: str) -> dict:
         """Parse JSON response from CLI output.
 
+        Handles two formats:
+        1. Direct JSON response from Claude
+        2. CLI wrapper format (--output-format json) which wraps response in metadata
+
+        The CLI wrapper format looks like:
+        {
+            "type": "result",
+            "subtype": "success",
+            "result": "ACTUAL_RESPONSE_TEXT",
+            ...
+        }
+
         Args:
             output: Raw CLI output.
 
         Returns:
-            Parsed JSON as dict.
+            Parsed JSON as dict (the actual extraction data, not the wrapper).
 
         Raises:
             EmptyResponseError: If output is empty.
@@ -683,17 +687,69 @@ class ClaudeCliExecutor:
             raise EmptyResponseError("Cannot parse empty response")
 
         # Try direct JSON parse first
+        parsed = None
         try:
-            return json.loads(output)
+            parsed = json.loads(output)
         except json.JSONDecodeError:
             pass
 
-        # Try to find JSON block in response
-        # Look for content between ```json and ``` or { and }
+        # Check if this is a CLI wrapper format
+        if parsed and isinstance(parsed, dict) and "type" in parsed and "result" in parsed:
+            # Extract the actual result from the wrapper
+            result_text = parsed.get("result", "")
+            if not result_text:
+                raise EmptyResponseError("CLI returned empty result in wrapper")
+
+            # The result might be:
+            # 1. A JSON string that needs parsing
+            # 2. Already a dict (if CLI did nested parsing)
+            # 3. Plain text/markdown (need to extract JSON from it)
+            if isinstance(result_text, dict):
+                return result_text
+
+            # Try to parse result as JSON
+            try:
+                return json.loads(result_text)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+            # Try to find JSON in the result text (may be wrapped in markdown)
+            extracted = self._extract_json_from_text(result_text)
+            if extracted:
+                return extracted
+
+            raise ParseError(
+                f"Could not parse JSON from CLI result. Claude returned non-JSON content: {result_text[:200]}...",
+                raw_output=output,
+            )
+
+        # If we got a parsed dict that's NOT a wrapper, return it directly
+        if parsed and isinstance(parsed, dict):
+            return parsed
+
+        # Fallback: try to extract JSON from raw output
+        extracted = self._extract_json_from_text(output)
+        if extracted:
+            return extracted
+
+        raise ParseError(
+            "Could not parse JSON from CLI response",
+            raw_output=output,
+        )
+
+    def _extract_json_from_text(self, text: str) -> dict | None:
+        """Extract JSON object from text that may contain markdown or other content.
+
+        Args:
+            text: Text that may contain JSON.
+
+        Returns:
+            Parsed JSON dict or None if not found.
+        """
         import re
 
         # Try markdown code block
-        json_match = re.search(r"```json\s*(.*?)\s*```", output, re.DOTALL)
+        json_match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
         if json_match:
             try:
                 return json.loads(json_match.group(1))
@@ -701,14 +757,11 @@ class ClaudeCliExecutor:
                 pass
 
         # Try to find raw JSON object
-        json_match = re.search(r"\{.*\}", output, re.DOTALL)
+        json_match = re.search(r"\{.*\}", text, re.DOTALL)
         if json_match:
             try:
                 return json.loads(json_match.group(0))
             except json.JSONDecodeError:
                 pass
 
-        raise ParseError(
-            "Could not parse JSON from CLI response",
-            raw_output=output,
-        )
+        return None
