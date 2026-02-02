@@ -110,6 +110,16 @@ class OrphanMetadataExtractor:
             r"^(?P<year>\d{4})\s*-\s*(?P<authors>[^-]+)\s*-\s*(?P<title>.+)\.pdf$",
             re.IGNORECASE,
         ),
+        # Number_Year Author(s) - Title (e.g., "1_1999 Bowker_Star - Sorting Things Out")
+        re.compile(
+            r"^\d+[_\s]+(?P<year>\d{4})\s+(?P<authors>[^-]+)\s*-\s*(?P<title>.+)\.pdf$",
+            re.IGNORECASE,
+        ),
+        # Number_Year_Author_Title (e.g., "1_1999_Bowker_Title")
+        re.compile(
+            r"^\d+[_\s]+(?P<year>\d{4})[_\s]+(?P<authors>[^_]+)[_\s]+(?P<title>.+)\.pdf$",
+            re.IGNORECASE,
+        ),
         # Just title (fallback)
         re.compile(r"^(?P<title>.+)\.pdf$", re.IGNORECASE),
     ]

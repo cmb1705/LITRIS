@@ -70,14 +70,19 @@ class MetadataEnricher:
 
     Supports:
     - Crossref API for DOI lookup and title search
+    - Semantic Scholar API for academic paper search
+    - OpenAlex API for comprehensive academic metadata
     - Open Library API for ISBN lookup
     """
 
     CROSSREF_API_BASE = "https://api.crossref.org"
     OPENLIBRARY_API_BASE = "https://openlibrary.org"
+    SEMANTIC_SCHOLAR_API_BASE = "https://api.semanticscholar.org/graph/v1"
+    OPENALEX_API_BASE = "https://api.openalex.org"
 
     # Rate limiting
-    MIN_REQUEST_INTERVAL = 0.5  # seconds between requests
+    MIN_REQUEST_INTERVAL = 0.5  # seconds between requests (Crossref/OpenAlex)
+    SEMANTIC_SCHOLAR_INTERVAL = 1.1  # Semantic Scholar requires ~1 req/sec
 
     def __init__(
         self,
@@ -109,6 +114,55 @@ class MetadataEnricher:
         if elapsed < self.MIN_REQUEST_INTERVAL:
             time.sleep(self.MIN_REQUEST_INTERVAL - elapsed)
         self._last_request_time = time.time()
+
+    def _clean_title_for_search(self, title: str) -> str:
+        """Clean title for better API search results.
+
+        Removes common artifacts from filename-parsed titles:
+        - Leading numbers and underscores (e.g., "1_1999")
+        - Year prefixes/suffixes
+        - Author name prefixes (before first dash or colon)
+
+        Args:
+            title: Raw title string.
+
+        Returns:
+            Cleaned title suitable for API search.
+        """
+        if not title:
+            return ""
+
+        cleaned = title
+
+        # Remove leading number patterns like "1_", "01_", "1_1999"
+        cleaned = re.sub(r"^\d+[_\s]+", "", cleaned)
+
+        # Remove leading year patterns like "1999_", "1999 "
+        cleaned = re.sub(r"^(19|20)\d{2}[_\s]+", "", cleaned)
+
+        # Remove trailing year in parentheses or after dash
+        cleaned = re.sub(r"\s*[-–]\s*(19|20)\d{2}\s*$", "", cleaned)
+        cleaned = re.sub(r"\s*\((19|20)\d{2}\)\s*$", "", cleaned)
+
+        # If title has "Author - Title" pattern, extract just the title part
+        # Look for patterns like "Bowker_Star - Sorting Things Out"
+        if " - " in cleaned:
+            parts = cleaned.split(" - ", 1)
+            if len(parts) == 2:
+                # Check if first part looks like author names (short, has underscores/caps)
+                first_part = parts[0].strip()
+                second_part = parts[1].strip()
+                # If second part is longer and more title-like, use it
+                if len(second_part) > len(first_part) and len(second_part) > 10:
+                    cleaned = second_part
+
+        # Replace underscores with spaces
+        cleaned = cleaned.replace("_", " ")
+
+        # Normalize whitespace
+        cleaned = " ".join(cleaned.split())
+
+        return cleaned.strip()
 
     def _title_similarity(self, title1: str, title2: str) -> float:
         """Calculate similarity between two titles.
@@ -203,8 +257,13 @@ class MetadataEnricher:
         """
         self._rate_limit()
 
+        # Clean title for better matching
+        clean_title = self._clean_title_for_search(title)
+        if not clean_title:
+            clean_title = title
+
         # Build query
-        query_parts = [f'query.title="{title}"']
+        query_parts = [f'query.title="{clean_title}"']
         if author:
             # Extract last name for search
             author_parts = author.split()
@@ -227,9 +286,11 @@ class MetadataEnricher:
             if not items:
                 return None
 
-            # Find best match
+            # Find best match, preferring year-matched results
             best_match = None
             best_score = 0.0
+            best_year_match = None
+            best_year_score = 0.0
 
             for item in items:
                 item_title = ""
@@ -239,37 +300,353 @@ class MetadataEnricher:
                 if not item_title:
                     continue
 
-                score = self._title_similarity(title, item_title)
+                score = self._title_similarity(clean_title, item_title)
 
-                # Bonus for matching year
-                if year:
-                    item_year = None
-                    if item.get("published-print"):
-                        date_parts = item["published-print"].get("date-parts", [[]])
-                        if date_parts and date_parts[0]:
-                            item_year = date_parts[0][0]
-                    elif item.get("published-online"):
-                        date_parts = item["published-online"].get("date-parts", [[]])
-                        if date_parts and date_parts[0]:
-                            item_year = date_parts[0][0]
+                # Check year match
+                item_year = None
+                if item.get("published-print"):
+                    date_parts = item["published-print"].get("date-parts", [[]])
+                    if date_parts and date_parts[0]:
+                        item_year = date_parts[0][0]
+                elif item.get("published-online"):
+                    date_parts = item["published-online"].get("date-parts", [[]])
+                    if date_parts and date_parts[0]:
+                        item_year = date_parts[0][0]
 
-                    if item_year == year:
-                        score += 0.1  # Boost for year match
+                # Track best year-matched result separately
+                if year and item_year == year:
+                    if score > best_year_score:
+                        best_year_score = score
+                        best_year_match = item
 
                 if score > best_score:
                     best_score = score
                     best_match = item
 
-            if best_match and best_score >= self.title_match_threshold:
-                logger.info(f"Found match for '{title[:50]}...' (score: {best_score:.2f})")
+            # Prefer year-matched result if it's reasonably close in score
+            # This prevents matching wrong paper with same title from different year
+            if best_year_match and best_year_score >= self.title_match_threshold - 0.1:
+                logger.info(f"Found Crossref match for '{clean_title[:50]}...' (score: {best_year_score:.2f}, year-matched)")
+                return best_year_match
+            elif best_match and best_score >= self.title_match_threshold:
+                logger.info(f"Found Crossref match for '{clean_title[:50]}...' (score: {best_score:.2f})")
                 return best_match
             else:
-                logger.debug(f"No good match for '{title[:50]}...' (best score: {best_score:.2f})")
+                logger.debug(f"No Crossref match for '{clean_title[:50]}...' (best score: {best_score:.2f})")
                 return None
 
         except Exception as e:
             logger.warning(f"Failed to search Crossref for title: {e}")
             return None
+
+    def search_openalex(
+        self,
+        title: str,
+        author: str | None = None,
+        year: int | None = None,
+    ) -> dict | None:
+        """Search OpenAlex for a work by title.
+
+        OpenAlex often has better coverage than Crossref for books and older works.
+
+        Args:
+            title: Title to search for.
+            author: Optional author name to filter.
+            year: Optional publication year to filter.
+
+        Returns:
+            Best matching metadata dict or None.
+        """
+        self._rate_limit()
+
+        clean_title = self._clean_title_for_search(title)
+        if not clean_title:
+            clean_title = title
+
+        # Build search query
+        search_query = clean_title
+        if author:
+            # Extract last name
+            author_parts = author.split()
+            if author_parts:
+                last_name = author_parts[-1] if "," not in author else author.split(",")[0]
+                search_query = f"{clean_title} {last_name}"
+
+        params = {
+            "search": search_query,
+            "per-page": 5,
+            "mailto": self.email or "litris@example.com",
+        }
+
+        # Add year filter if available
+        if year:
+            params["filter"] = f"publication_year:{year}"
+
+        url = f"{self.OPENALEX_API_BASE}/works"
+
+        try:
+            response = self.session.get(url, params=params, timeout=30)
+            if response.status_code != 200:
+                logger.warning(f"OpenAlex search error: {response.status_code}")
+                return None
+
+            data = response.json()
+            results = data.get("results", [])
+
+            if not results:
+                return None
+
+            # Find best match, preferring year-matched results
+            best_match = None
+            best_score = 0.0
+            best_year_match = None
+            best_year_score = 0.0
+
+            for work in results:
+                work_title = work.get("display_name", "")
+                if not work_title:
+                    continue
+
+                score = self._title_similarity(clean_title, work_title)
+
+                # Track best year-matched result separately
+                if year and work.get("publication_year") == year:
+                    if score > best_year_score:
+                        best_year_score = score
+                        best_year_match = work
+
+                if score > best_score:
+                    best_score = score
+                    best_match = work
+
+            # Prefer year-matched result if it's reasonably close in score
+            if best_year_match and best_year_score >= self.title_match_threshold - 0.1:
+                logger.info(f"Found OpenAlex match for '{clean_title[:50]}...' (score: {best_year_score:.2f}, year-matched)")
+                return self._parse_openalex_work(best_year_match)
+            elif best_match and best_score >= self.title_match_threshold:
+                logger.info(f"Found OpenAlex match for '{clean_title[:50]}...' (score: {best_score:.2f})")
+                return self._parse_openalex_work(best_match)
+            else:
+                logger.debug(f"No OpenAlex match for '{clean_title[:50]}...' (best score: {best_score:.2f})")
+                return None
+
+        except Exception as e:
+            logger.warning(f"Failed to search OpenAlex for title: {e}")
+            return None
+
+    def _parse_openalex_work(self, work: dict) -> dict:
+        """Parse OpenAlex work into Crossref-compatible format.
+
+        Args:
+            work: OpenAlex work dictionary.
+
+        Returns:
+            Metadata in similar format to Crossref response.
+        """
+        result = {
+            "DOI": work.get("doi", "").replace("https://doi.org/", "") if work.get("doi") else None,
+            "title": [work.get("display_name")] if work.get("display_name") else [],
+            "author": [],
+            "publisher": None,
+            "container-title": [],
+            "volume": None,
+            "issue": None,
+            "page": None,
+            "abstract": None,
+            "ISSN": None,
+            "URL": work.get("id"),
+        }
+
+        # Publication year
+        if work.get("publication_year"):
+            result["published-print"] = {
+                "date-parts": [[work["publication_year"]]]
+            }
+
+        # Authors
+        for authorship in work.get("authorships", []):
+            author_info = authorship.get("author", {})
+            if author_info.get("display_name"):
+                name_parts = author_info["display_name"].rsplit(" ", 1)
+                if len(name_parts) == 2:
+                    result["author"].append({
+                        "given": name_parts[0],
+                        "family": name_parts[1],
+                    })
+                else:
+                    result["author"].append({"family": author_info["display_name"]})
+
+        # Venue/Journal
+        primary_location = work.get("primary_location", {})
+        source = primary_location.get("source", {})
+        if source.get("display_name"):
+            result["container-title"] = [source["display_name"]]
+            result["publisher"] = source.get("host_organization_name")
+
+        # Biblio info
+        biblio = work.get("biblio", {})
+        result["volume"] = biblio.get("volume")
+        result["issue"] = biblio.get("issue")
+        if biblio.get("first_page"):
+            result["page"] = biblio["first_page"]
+            if biblio.get("last_page"):
+                result["page"] = f"{biblio['first_page']}-{biblio['last_page']}"
+
+        return result
+
+    def search_semantic_scholar(
+        self,
+        title: str,
+        author: str | None = None,
+        year: int | None = None,
+    ) -> dict | None:
+        """Search Semantic Scholar for a paper by title.
+
+        Semantic Scholar has excellent coverage of academic papers.
+
+        Args:
+            title: Title to search for.
+            author: Optional author name to filter.
+            year: Optional publication year to filter.
+
+        Returns:
+            Best matching metadata dict or None.
+        """
+        # Semantic Scholar has stricter rate limits
+        elapsed = time.time() - self._last_request_time
+        if elapsed < self.SEMANTIC_SCHOLAR_INTERVAL:
+            time.sleep(self.SEMANTIC_SCHOLAR_INTERVAL - elapsed)
+        self._last_request_time = time.time()
+
+        clean_title = self._clean_title_for_search(title)
+        if not clean_title:
+            clean_title = title
+
+        # Build search query
+        search_query = clean_title
+        if author:
+            author_parts = author.split()
+            if author_parts:
+                last_name = author_parts[-1] if "," not in author else author.split(",")[0]
+                search_query = f"{clean_title} {last_name}"
+
+        params = {
+            "query": search_query,
+            "limit": 5,
+            "fields": "paperId,externalIds,title,authors,year,venue,abstract,publicationVenue",
+        }
+
+        # Add year filter
+        if year:
+            params["year"] = str(year)
+
+        url = f"{self.SEMANTIC_SCHOLAR_API_BASE}/paper/search"
+
+        try:
+            response = self.session.get(url, params=params, timeout=30)
+            if response.status_code != 200:
+                logger.warning(f"Semantic Scholar search error: {response.status_code}")
+                return None
+
+            data = response.json()
+            papers = data.get("data", [])
+
+            if not papers:
+                return None
+
+            # Find best match, preferring year-matched results
+            best_match = None
+            best_score = 0.0
+            best_year_match = None
+            best_year_score = 0.0
+
+            for paper in papers:
+                paper_title = paper.get("title", "")
+                if not paper_title:
+                    continue
+
+                score = self._title_similarity(clean_title, paper_title)
+
+                # Track best year-matched result separately
+                if year and paper.get("year") == year:
+                    if score > best_year_score:
+                        best_year_score = score
+                        best_year_match = paper
+
+                if score > best_score:
+                    best_score = score
+                    best_match = paper
+
+            # Prefer year-matched result if it's reasonably close in score
+            if best_year_match and best_year_score >= self.title_match_threshold - 0.1:
+                logger.info(f"Found Semantic Scholar match for '{clean_title[:50]}...' (score: {best_year_score:.2f}, year-matched)")
+                return self._parse_semantic_scholar_paper(best_year_match)
+            elif best_match and best_score >= self.title_match_threshold:
+                logger.info(f"Found Semantic Scholar match for '{clean_title[:50]}...' (score: {best_score:.2f})")
+                return self._parse_semantic_scholar_paper(best_match)
+            else:
+                logger.debug(f"No Semantic Scholar match for '{clean_title[:50]}...' (best score: {best_score:.2f})")
+                return None
+
+        except Exception as e:
+            logger.warning(f"Failed to search Semantic Scholar: {e}")
+            return None
+
+    def _parse_semantic_scholar_paper(self, paper: dict) -> dict:
+        """Parse Semantic Scholar paper into Crossref-compatible format.
+
+        Args:
+            paper: Semantic Scholar paper dictionary.
+
+        Returns:
+            Metadata in similar format to Crossref response.
+        """
+        result = {
+            "DOI": None,
+            "title": [paper.get("title")] if paper.get("title") else [],
+            "author": [],
+            "publisher": None,
+            "container-title": [],
+            "volume": None,
+            "issue": None,
+            "page": None,
+            "abstract": paper.get("abstract"),
+            "ISSN": None,
+            "URL": f"https://www.semanticscholar.org/paper/{paper.get('paperId')}",
+        }
+
+        # DOI from external IDs
+        external_ids = paper.get("externalIds", {})
+        if external_ids.get("DOI"):
+            result["DOI"] = external_ids["DOI"]
+
+        # Publication year
+        if paper.get("year"):
+            result["published-print"] = {
+                "date-parts": [[paper["year"]]]
+            }
+
+        # Authors
+        for author in paper.get("authors", []):
+            if author.get("name"):
+                name_parts = author["name"].rsplit(" ", 1)
+                if len(name_parts) == 2:
+                    result["author"].append({
+                        "given": name_parts[0],
+                        "family": name_parts[1],
+                    })
+                else:
+                    result["author"].append({"family": author["name"]})
+
+        # Venue/Journal
+        if paper.get("venue"):
+            result["container-title"] = [paper["venue"]]
+        elif paper.get("publicationVenue"):
+            venue = paper["publicationVenue"]
+            if venue.get("name"):
+                result["container-title"] = [venue["name"]]
+
+        return result
 
     def _parse_crossref_metadata(self, data: dict) -> dict:
         """Parse Crossref API response into standard format.
@@ -440,9 +817,11 @@ class MetadataEnricher:
                 result.enrichment_notes = f"Enriched via ISBN lookup: {extracted.isbn}"
                 return result
 
-        # Strategy 3: Title search
+        # Strategy 3: Title search (try multiple APIs)
         if extracted.title:
             first_author = extracted.authors[0] if extracted.authors else None
+
+            # 3a: Try Crossref title search
             data = self.search_by_title(
                 extracted.title,
                 author=first_author,
@@ -464,7 +843,57 @@ class MetadataEnricher:
                 result.url = parsed.get("url")
                 result.enrichment_source = "crossref_title_search"
                 result.enrichment_confidence = 0.75
-                result.enrichment_notes = f"Found via title search: {parsed.get('doi')}"
+                result.enrichment_notes = f"Found via Crossref title search: {parsed.get('doi')}"
+                return result
+
+            # 3b: Try OpenAlex search
+            data = self.search_openalex(
+                extracted.title,
+                author=first_author,
+                year=extracted.publication_year,
+            )
+            if data:
+                parsed = self._parse_crossref_metadata(data)
+                result.doi = parsed.get("doi")
+                result.title = parsed.get("title")
+                result.authors = parsed.get("authors")
+                result.publication_year = parsed.get("year")
+                result.journal = parsed.get("journal")
+                result.volume = parsed.get("volume")
+                result.issue = parsed.get("issue")
+                result.pages = parsed.get("pages")
+                result.publisher = parsed.get("publisher")
+                result.abstract = parsed.get("abstract")
+                result.issn = parsed.get("issn")
+                result.url = parsed.get("url")
+                result.enrichment_source = "openalex_title_search"
+                result.enrichment_confidence = 0.70
+                result.enrichment_notes = f"Found via OpenAlex title search: {parsed.get('doi')}"
+                return result
+
+            # 3c: Try Semantic Scholar search
+            data = self.search_semantic_scholar(
+                extracted.title,
+                author=first_author,
+                year=extracted.publication_year,
+            )
+            if data:
+                parsed = self._parse_crossref_metadata(data)
+                result.doi = parsed.get("doi")
+                result.title = parsed.get("title")
+                result.authors = parsed.get("authors")
+                result.publication_year = parsed.get("year")
+                result.journal = parsed.get("journal")
+                result.volume = parsed.get("volume")
+                result.issue = parsed.get("issue")
+                result.pages = parsed.get("pages")
+                result.publisher = parsed.get("publisher")
+                result.abstract = parsed.get("abstract")
+                result.issn = parsed.get("issn")
+                result.url = parsed.get("url")
+                result.enrichment_source = "semantic_scholar_title_search"
+                result.enrichment_confidence = 0.70
+                result.enrichment_notes = f"Found via Semantic Scholar: {parsed.get('doi')}"
                 return result
 
         # No enrichment possible
