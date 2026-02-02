@@ -44,8 +44,9 @@
 
 ## Agent Workflow
 
+- **Start new projects in plan mode** - When beginning work on a new project or major feature, enter plan mode first to design the approach before implementation
 - Bias for action on clear tasks
-- Use TodoWrite for 3+ step operations
+- Use beads (`bd create`) for 3+ step operations - enables tracking across all agents and developers
 - Verify outputs before reporting completion
 - Be direct; report exact paths and metrics
 
@@ -186,8 +187,8 @@ bd prime
 
 ### TodoWrite vs Beads
 
-- **TodoWrite**: Immediate, single-session visibility
-- **Beads**: Persistent, multi-session tracking
+- **Beads** (preferred): Persistent tracking across agents and developers; use for 3+ step operations
+- **TodoWrite**: Quick single-session visibility for simple immediate tasks only
 
 ### Session Close Protocol
 
