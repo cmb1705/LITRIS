@@ -46,6 +46,16 @@
         ]
       },
       {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -Command \"$path = $env:CLAUDE_FILE_PATH; if ($path -match 'tests[/\\\\]test_.*\\.py$') { pytest $path -v --tb=short 2>$null }\"",
+            "timeout": 60
+          }
+        ]
+      },
+      {
         "matcher": "Bash|Write|Edit",
         "hooks": [
           {
