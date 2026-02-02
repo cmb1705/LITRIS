@@ -158,6 +158,26 @@ Enable in `.claude/settings.json`:
 - Never commit .env or config.yaml with real paths
 - Validate paths; block protected directories
 
+## Development Notes
+
+### Windows Compatibility
+
+- **Subprocess encoding**: Always use `encoding="utf-8"` and `errors="replace"` in `subprocess.run()` to handle Unicode characters (e.g., ligatures like '\ufb01')
+- **Hook syntax**: Use `2>NUL` instead of `2>/dev/null || true` in Windows/PowerShell hooks
+- **Hook caching**: Claude Code caches hooks; restart required after `.claude/settings.json` changes
+
+### CLI Extraction Architecture
+
+- `cli_executor.extract(prompt, text)` - Separates prompt (-p flag) from text (stdin); used for paper extraction
+- `call_with_prompt(combined)` - Sends everything as single prompt; different behavior
+- When debugging extraction issues, verify which method is being called
+
+### Multi-Provider Support
+
+- OpenAI/GPT responses may include explanatory text in enum values (e.g., `"citation (literature support)"`)
+- Enum normalization in `section_extractor.py` handles this automatically
+- Provider comparison: `scripts/compare_providers.py --key <zotero_key>`
+
 ---
 
 **See [CLAUDE_SUPPLEMENTAL.md](CLAUDE_SUPPLEMENTAL.md) for:**
