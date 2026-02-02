@@ -23,9 +23,68 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from tqdm import tqdm
 
 from src.analysis.cli_executor import ClaudeCliExecutor
-from src.utils.logging_config import get_logger
 
-logger = get_logger(__name__)
+# Use print for user-facing output (logger may not be configured for console)
+def log_info(msg: str) -> None:
+    print(f"[INFO] {msg}")
+
+def log_warning(msg: str) -> None:
+    print(f"[WARN] {msg}")
+
+
+def extract_with_api(prompt: str, model: str) -> list[str] | None:
+    """Extract discipline tags using Anthropic API (for model comparison).
+
+    Args:
+        prompt: The extraction prompt.
+        model: Model name (haiku, sonnet, opus).
+
+    Returns:
+        List of discipline tags or None on failure.
+    """
+    try:
+        from anthropic import Anthropic
+
+        from src.utils.secrets import get_anthropic_api_key
+
+        api_key = get_anthropic_api_key()
+        if not api_key:
+            log_warning("No API key found for compare mode")
+            return None
+
+        # Map short names to full model IDs
+        model_map = {
+            "haiku": "claude-3-5-haiku-20241022",
+            "sonnet": "claude-sonnet-4-20250514",
+            "opus": "claude-opus-4-5-20251101",
+        }
+        model_id = model_map.get(model, model)
+
+        client = Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=model_id,
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        # Parse response
+        text = response.content[0].text
+        data = json.loads(text)
+        tags = data.get("discipline_tags", [])
+
+        # Normalize
+        normalized = []
+        seen = set()
+        for tag in tags:
+            if isinstance(tag, str):
+                clean = tag.lower().strip()
+                if clean and clean not in seen:
+                    normalized.append(clean)
+                    seen.add(clean)
+        return normalized if normalized else None
+    except Exception as e:
+        log_warning(f"API extraction failed: {e}")
+        return None
 
 # Minimal prompt for discipline extraction only
 DISCIPLINE_EXTRACTION_PROMPT = """Analyze this academic paper and identify 2-5 academic disciplines it contributes to.
@@ -106,7 +165,7 @@ def get_paper_text(paper_id: str, papers_meta: dict) -> str | None:
             text = text[:8000] + "\n...[truncated]"
         return text
     except Exception as e:
-        logger.warning(f"Failed to read PDF {pdf_path}: {e}")
+        log_warning(f"Failed to read PDF {pdf_path}: {e}")
         return None
 
 
@@ -146,10 +205,10 @@ def extract_discipline_tags(
                     seen.add(clean)
         return normalized if normalized else None
     except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse response for {paper_id}: {e}")
+        log_warning(f"Failed to parse response for {paper_id}: {e}")
         return None
     except Exception as e:
-        logger.warning(f"Extraction failed for {paper_id}: {e}")
+        log_warning(f"Extraction failed for {paper_id}: {e}")
         return None
 
 
@@ -188,7 +247,7 @@ def main():
         "--model",
         default="haiku",
         choices=["haiku", "sonnet", "opus"],
-        help="Model to use for extraction (default: haiku for speed)",
+        help="Model for API mode (ignored for CLI; default: haiku)",
     )
     parser.add_argument(
         "--data-dir",
@@ -196,43 +255,101 @@ def main():
         default=Path("data/index"),
         help="Data directory",
     )
+    parser.add_argument(
+        "--compare",
+        action="store_true",
+        help="Compare haiku vs sonnet on sample papers (no changes saved)",
+    )
     args = parser.parse_args()
 
     extractions_path = args.data_dir / "extractions.json"
     papers_path = args.data_dir / "papers.json"
 
     if not extractions_path.exists():
-        logger.error(f"Extractions file not found: {extractions_path}")
+        log_warning(f"Extractions file not found: {extractions_path}")
         sys.exit(1)
 
     if not papers_path.exists():
-        logger.error(f"Papers file not found: {papers_path}")
+        log_warning(f"Papers file not found: {papers_path}")
         sys.exit(1)
 
     # Load data
-    logger.info("Loading extraction data...")
+    log_info("Loading extraction data...")
     extractions = load_extractions(extractions_path)
     papers_meta = load_papers(papers_path)
 
     # Find papers missing tags
     missing = find_papers_missing_tags(extractions)
-    logger.info(f"Found {len(missing)} papers with missing discipline_tags")
+    log_info(f"Found {len(missing)} papers with missing discipline_tags")
 
     if args.limit:
         missing = missing[: args.limit]
-        logger.info(f"Limited to {len(missing)} papers")
+        log_info(f"Limited to {len(missing)} papers")
 
     if args.dry_run:
-        logger.info("DRY RUN - would process these papers:")
+        log_info("DRY RUN - would process these papers:")
         for paper_id in missing[:20]:
             meta = papers_meta.get(paper_id, {})
-            logger.info(f"  - {meta.get('title', paper_id)[:60]}")
+            log_info(f"  - {meta.get('title', paper_id)[:60]}")
         if len(missing) > 20:
-            logger.info(f"  ... and {len(missing) - 20} more")
+            log_info(f"  ... and {len(missing) - 20} more")
         return
 
-    # Initialize executor
-    executor = ClaudeCliExecutor(model=args.model)
+    if args.compare:
+        # Compare haiku vs sonnet on sample using API
+        compare_limit = min(args.limit or 5, 5)  # Max 5 for compare (API costs)
+        sample = missing[:compare_limit]
+        log_info(f"COMPARE MODE: Running haiku vs sonnet on {len(sample)} papers")
+        log_info("NOTE: This uses Anthropic API and will incur costs (~$0.01 per paper)")
+        log_info("-" * 80)
+
+        for paper_id in sample:
+            meta = papers_meta.get(paper_id, {})
+            title = meta.get("title", paper_id)[:55]
+            log_info(f"\nPaper: {title}")
+
+            # Build prompt
+            text = get_paper_text(paper_id, papers_meta)
+            if not text:
+                log_info("  (could not read PDF)")
+                continue
+
+            prompt = DISCIPLINE_EXTRACTION_PROMPT.format(
+                title=meta.get("title", "Unknown"),
+                authors=meta.get("authors", "Unknown"),
+                year=meta.get("year", "Unknown"),
+                item_type=meta.get("item_type", "article"),
+                text=text,
+            )
+
+            # Extract with haiku
+            haiku_tags = extract_with_api(prompt, "haiku")
+            time.sleep(0.5)
+
+            # Extract with sonnet
+            sonnet_tags = extract_with_api(prompt, "sonnet")
+            time.sleep(0.5)
+
+            # Display comparison
+            haiku_str = ", ".join(haiku_tags) if haiku_tags else "(none)"
+            sonnet_str = ", ".join(sonnet_tags) if sonnet_tags else "(none)"
+            log_info(f"  Haiku:  {haiku_str}")
+            log_info(f"  Sonnet: {sonnet_str}")
+
+            # Check agreement
+            if haiku_tags and sonnet_tags:
+                overlap = set(haiku_tags) & set(sonnet_tags)
+                if overlap:
+                    log_info(f"  Agree:  {', '.join(overlap)}")
+                else:
+                    log_info("  Agree:  (no overlap)")
+
+        log_info("-" * 80)
+        log_info("Compare complete. No changes saved.")
+        return
+
+    # Initialize executor (CLI uses default configured model)
+    executor = ClaudeCliExecutor()
 
     # Process papers
     updates = {}
@@ -255,14 +372,14 @@ def main():
 
     # Update store
     if updates:
-        logger.info(f"Updating extraction store with {len(updates)} new discipline tags...")
+        log_info(f"Updating extraction store with {len(updates)} new discipline tags...")
         update_extraction_store(extractions_path, extractions, updates)
-        logger.info("Done!")
+        log_info("Done!")
     else:
-        logger.info("No updates to apply")
+        log_info("No updates to apply")
 
     # Summary
-    logger.info(f"Summary: {success} success, {failed} failed out of {len(missing)} papers")
+    log_info(f"Summary: {success} success, {failed} failed out of {len(missing)} papers")
 
 
 if __name__ == "__main__":
