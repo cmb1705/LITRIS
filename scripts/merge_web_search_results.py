@@ -31,7 +31,10 @@ def load_web_search_results(json_path: Path) -> dict:
 
     # Build lookup for DOI results by title
     doi_by_title = {}
+    results_by_doi = {}
     for entry in data.get("results", []):
+        if entry.get("doi"):
+            results_by_doi[entry["doi"]] = entry
         if entry.get("title") and entry.get("doi"):
             normalized = entry["title"].lower().strip()
             doi_by_title[normalized] = entry
@@ -40,6 +43,7 @@ def load_web_search_results(json_path: Path) -> dict:
         "pdf_matches": pdf_matches,
         "metadata_by_title": metadata_by_title,
         "doi_by_title": doi_by_title,
+        "results_by_doi": results_by_doi,
         "total_dois": data.get("total_dois_found", 0),
     }
 
@@ -96,6 +100,13 @@ def update_report(
                     row["enrichment_confidence"] = "0.90"
                     stats["doi_added"] += 1
                     updated = True
+                    # Also get metadata from the matched results entry
+                    result_entry = web_results.get("results_by_doi", {}).get(match["doi"])
+                    if result_entry:
+                        if not row.get("authors") and result_entry.get("authors"):
+                            row["authors"] = result_entry["authors"]
+                        if not row.get("year") and result_entry.get("year"):
+                            row["year"] = str(result_entry["year"])
                 elif current_doi:
                     stats["already_had_doi"] += 1
 
@@ -109,8 +120,12 @@ def update_report(
                         row["doi"] = entry["doi"]
                         row["enrichment_source"] = "web_search_title_match"
                         row["enrichment_confidence"] = "0.85"
+                        # Also add authors/year from the matched entry
+                        if not row.get("authors") and entry.get("authors"):
+                            row["authors"] = entry["authors"]
+                        if not row.get("year") and entry.get("year"):
+                            row["year"] = str(entry["year"])
                         stats["doi_added"] += 1
-                        updated = True
                         break
 
             # If still no DOI but we have metadata, update other fields

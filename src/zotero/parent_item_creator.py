@@ -422,8 +422,12 @@ class ParentItemCreator:
             # Create parent item
             parent_item_id = self._insert_item(conn, item_type_id, parent_key)
 
-            # Add title
-            title = enriched.best_title or enriched.original.pdf_path.stem if enriched.original.pdf_path else "Untitled"
+            # Add title - use best_title first, then pdf_path stem, then fallback
+            title = enriched.best_title
+            if not title and enriched.original.pdf_path:
+                title = enriched.original.pdf_path.stem
+            if not title:
+                title = "Untitled"
             self._insert_field(conn, parent_item_id, "title", title)
 
             # Add DOI if available
