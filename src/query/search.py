@@ -123,6 +123,15 @@ class SearchEngine:
         enriched = []
         seen_papers = set()
 
+        # Pre-load papers and extractions to avoid repeated method calls
+        papers_dict = {}
+        extractions_dict = {}
+        if include_paper_data or include_extraction:
+            if include_paper_data:
+                papers_dict = self.structured_store.load_papers()
+            if include_extraction:
+                extractions_dict = self.structured_store.load_extractions()
+
         for result in raw_results:
             # Deduplicate by paper if requested
             if deduplicate_papers and result.paper_id in seen_papers:
@@ -130,17 +139,9 @@ class SearchEngine:
 
             seen_papers.add(result.paper_id)
 
-            # Get paper metadata
-            paper_data = {}
-            extraction_data = {}
-
-            if include_paper_data or include_extraction:
-                combined = self.structured_store.get_paper_with_extraction(result.paper_id)
-                if combined:
-                    if include_paper_data:
-                        paper_data = combined.get("paper", {})
-                    if include_extraction:
-                        extraction_data = combined.get("extraction", {})
+            # Get paper metadata via direct dictionary access
+            paper_data = papers_dict.get(result.paper_id, {}) if include_paper_data else {}
+            extraction_data = extractions_dict.get(result.paper_id, {}) if include_extraction else {}
 
             # Extract fields from metadata
             title = result.metadata.get("title", paper_data.get("title", "Unknown"))

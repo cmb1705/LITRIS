@@ -84,17 +84,17 @@ class EmbeddingGenerator:
         self.device = device
 
         logger.info(f"Loading embedding model: {model_name}")
-        global SentenceTransformer
-        if SentenceTransformer is None:
+        # Use module-level import if available, otherwise try importing directly
+        transformer_cls = _SentenceTransformer
+        if transformer_cls is None:
             try:
-                from sentence_transformers import SentenceTransformer as ImportedSentenceTransformer
+                from sentence_transformers import SentenceTransformer as transformer_cls
             except Exception as exc:  # noqa: BLE001 - surface actionable error
                 raise RuntimeError(
                     "sentence-transformers failed to import. "
                     "Install dependencies from requirements.txt and ensure the .venv is active."
                 ) from exc
-            SentenceTransformer = ImportedSentenceTransformer
-        self.model = SentenceTransformer(model_name, device=device)
+        self.model = transformer_cls(model_name, device=device)
         self.embedding_dim = self.model.get_sentence_embedding_dimension()
         logger.info(f"Model loaded. Embedding dimension: {self.embedding_dim}")
 

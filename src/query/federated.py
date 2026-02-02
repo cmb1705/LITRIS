@@ -115,26 +115,42 @@ class FederatedSearchEngine:
             self._load_federated_indexes()
 
     def _load_federated_indexes(self) -> None:
-        """Load all enabled federated indexes."""
+        """Load all enabled federated indexes in parallel."""
+        # Filter to enabled indexes with existing paths
+        enabled_configs = []
         for idx_config in self.config.indexes:
             if not idx_config.enabled:
                 logger.debug(f"Skipping disabled index: {idx_config.label}")
                 continue
-
-            index_path = idx_config.path
-            if not index_path.exists():
-                logger.warning(f"Federated index not found: {index_path}")
+            if not idx_config.path.exists():
+                logger.warning(f"Federated index not found: {idx_config.path}")
                 continue
+            enabled_configs.append(idx_config)
 
+        if not enabled_configs:
+            return
+
+        def load_single_index(idx_config):
+            """Load a single federated index."""
             try:
                 engine = SearchEngine(
-                    index_dir=index_path,
+                    index_dir=idx_config.path,
                     embedding_model=self.embedding_model,
                 )
-                self.federated_engines[idx_config.label] = (engine, idx_config.weight)
                 logger.info(f"Loaded federated index: {idx_config.label} (weight={idx_config.weight})")
+                return idx_config.label, engine, idx_config.weight
             except Exception as e:
                 logger.error(f"Failed to load federated index {idx_config.label}: {e}")
+                return None
+
+        # Load indexes in parallel
+        with ThreadPoolExecutor(max_workers=len(enabled_configs)) as executor:
+            futures = [executor.submit(load_single_index, cfg) for cfg in enabled_configs]
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    label, engine, weight = result
+                    self.federated_engines[label] = (engine, weight)
 
     def search(
         self,

@@ -10,6 +10,7 @@ import signal
 import sys
 import time
 import uuid
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -43,18 +44,16 @@ mcp = FastMCP(
     "query results to the query_results folder.",
 )
 
-# Global adapter instance (lazy initialized)
-_adapter: LitrisAdapter | None = None
-
-
+@lru_cache(maxsize=1)
 def get_adapter() -> LitrisAdapter:
-    """Get or create the LITRIS adapter instance."""
-    global _adapter
-    if _adapter is None:
-        logger.info("Initializing LITRIS adapter...")
-        _adapter = LitrisAdapter()
-        logger.info("LITRIS adapter initialized successfully")
-    return _adapter
+    """Get or create the LITRIS adapter instance.
+
+    Uses lru_cache for thread-safe lazy initialization.
+    """
+    logger.info("Initializing LITRIS adapter...")
+    adapter = LitrisAdapter()
+    logger.info("LITRIS adapter initialized successfully")
+    return adapter
 
 
 @mcp.tool()
