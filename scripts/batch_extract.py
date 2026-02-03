@@ -28,6 +28,40 @@ from src.utils.file_utils import safe_read_json, safe_write_json
 from src.utils.logging_config import setup_logging
 from src.zotero.database import ZoteroDatabase
 
+# Key fields that indicate a populated extraction
+EXTRACTION_KEY_FIELDS = [
+    "thesis_statement",
+    "research_questions",
+    "key_findings",
+    "key_claims",
+    "conclusions",
+    "discipline_tags",
+    "keywords",
+]
+
+
+def find_empty_extractions(extractions_dict: dict) -> set[str]:
+    """Find paper IDs with empty extractions (0 key fields populated).
+
+    Args:
+        extractions_dict: Dict mapping paper_id to extraction data.
+
+    Returns:
+        Set of paper IDs with empty extractions.
+    """
+    empty_ids = set()
+
+    for paper_id, ext_wrapper in extractions_dict.items():
+        ext = ext_wrapper.get("extraction", {})
+
+        # Count populated key fields
+        populated = sum(1 for f in EXTRACTION_KEY_FIELDS if ext.get(f))
+
+        if populated == 0:
+            empty_ids.add(paper_id)
+
+    return empty_ids
+
 
 def parse_args():
     """Parse command line arguments."""
@@ -62,6 +96,11 @@ def parse_args():
         "--dedupe-by-doi",
         action="store_true",
         help="Skip papers with DOIs already in index",
+    )
+    submit_parser.add_argument(
+        "--reextract-empty",
+        action="store_true",
+        help="Re-extract papers with empty extractions (0 key fields populated)",
     )
 
     # Status command
@@ -139,12 +178,25 @@ def cmd_submit(args, logger):
         index_dir / "extractions.json", default={}
     )
     if isinstance(existing_extractions, dict) and "extractions" in existing_extractions:
-        existing_ids = set(existing_extractions["extractions"].keys())
+        extractions_dict = existing_extractions["extractions"]
+        existing_ids = set(extractions_dict.keys())
     else:
-        existing_ids = set(existing_extractions.keys())
+        extractions_dict = existing_extractions
+        existing_ids = set(extractions_dict.keys())
 
-    papers_to_extract = [p for p in papers if p.paper_id not in existing_ids]
-    logger.info(f"Papers to extract: {len(papers_to_extract)} (skipping {len(existing_ids)} existing)")
+    # Handle --reextract-empty flag
+    reextract_ids = set()
+    if getattr(args, "reextract_empty", False):
+        reextract_ids = find_empty_extractions(extractions_dict)
+        logger.info(f"Found {len(reextract_ids)} papers with empty extractions to re-extract")
+
+    # Filter papers: new papers + empty extraction papers (if --reextract-empty)
+    papers_to_extract = [
+        p for p in papers
+        if p.paper_id not in existing_ids or p.paper_id in reextract_ids
+    ]
+    skipped = len(existing_ids) - len(reextract_ids)
+    logger.info(f"Papers to extract: {len(papers_to_extract)} (skipping {skipped} with existing data)")
 
     # DOI-based deduplication
     if args.dedupe_by_doi:

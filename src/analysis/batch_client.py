@@ -17,6 +17,78 @@ from src.zotero.models import PaperMetadata
 
 logger = get_logger(__name__)
 
+# Valid enum values for extraction fields
+VALID_EVIDENCE_TYPES = {
+    "empirical", "theoretical", "methodological", "case_study",
+    "survey", "experimental", "qualitative", "quantitative", "mixed",
+}
+VALID_SIGNIFICANCE_LEVELS = {"high", "medium", "low"}
+VALID_SUPPORT_TYPES = {"data", "citation", "logic", "example", "authority"}
+
+# Synonyms for enum normalization
+EVIDENCE_TYPE_SYNONYMS = {
+    "ethnographic": "qualitative",
+    "ethnography": "qualitative",
+    "interviews": "qualitative",
+    "interview": "qualitative",
+    "observational": "qualitative",
+    "empiric": "empirical",
+    "data": "empirical",
+    "evidence": "empirical",
+    "theory": "theoretical",
+    "conceptual": "theoretical",
+    "methods": "methodological",
+    "methodology": "methodological",
+    "case": "case_study",
+    "case_studies": "case_study",
+    "case study": "case_study",
+    "experiment": "experimental",
+    "experiments": "experimental",
+    "qual": "qualitative",
+    "quant": "quantitative",
+    "mixed_methods": "mixed",
+    "mixed methods": "mixed",
+}
+
+
+def _normalize_enum(value: str | None, valid_values: set, synonyms: dict, default: str) -> str:
+    """Normalize an enum value to a valid entry.
+
+    Args:
+        value: Raw value from LLM.
+        valid_values: Set of valid enum values.
+        synonyms: Dict mapping synonyms to valid values.
+        default: Default value if normalization fails.
+
+    Returns:
+        Normalized valid enum value.
+    """
+    if value is None:
+        return default
+
+    # Clean the value
+    cleaned = str(value).lower().strip()
+
+    # Extract first word if there's extra text (e.g., "empirical (data-based)")
+    if "(" in cleaned:
+        cleaned = cleaned.split("(")[0].strip()
+
+    # Check if already valid
+    if cleaned in valid_values:
+        return cleaned
+
+    # Check synonyms
+    if cleaned in synonyms:
+        return synonyms[cleaned]
+
+    # Try partial matching
+    for valid in valid_values:
+        if valid in cleaned or cleaned in valid:
+            return valid
+
+    logger.debug(f"Unknown enum value '{value}', using default '{default}'")
+    return default
+
 
 @dataclass
 class BatchRequest:
@@ -301,16 +373,48 @@ class BatchExtractionClient:
             data["methodology"] = Methodology(**data["methodology"])
 
         if "key_findings" in data and isinstance(data["key_findings"], list):
-            data["key_findings"] = [
-                KeyFinding(**f) if isinstance(f, dict) else f
-                for f in data["key_findings"]
-            ]
+            normalized_findings = []
+            for f in data["key_findings"]:
+                if isinstance(f, dict):
+                    # Normalize enum fields
+                    f["evidence_type"] = _normalize_enum(
+                        f.get("evidence_type"),
+                        VALID_EVIDENCE_TYPES,
+                        EVIDENCE_TYPE_SYNONYMS,
+                        "empirical",
+                    )
+                    f["significance"] = _normalize_enum(
+                        f.get("significance"),
+                        VALID_SIGNIFICANCE_LEVELS,
+                        {},
+                        "medium",
+                    )
+                    normalized_findings.append(KeyFinding(**f))
+                else:
+                    normalized_findings.append(f)
+            data["key_findings"] = normalized_findings
 
         if "key_claims" in data and isinstance(data["key_claims"], list):
-            data["key_claims"] = [
-                KeyClaim(**c) if isinstance(c, dict) else c
-                for c in data["key_claims"]
-            ]
+            normalized_claims = []
+            for c in data["key_claims"]:
+                if isinstance(c, dict):
+                    # Normalize enum fields
+                    c["support_type"] = _normalize_enum(
+                        c.get("support_type"),
+                        VALID_SUPPORT_TYPES,
+                        {"empirical": "data", "experimental": "data"},
+                        "data",
+                    )
+                    c["strength"] = _normalize_enum(
+                        c.get("strength"),
+                        VALID_SIGNIFICANCE_LEVELS,
+                        {},
+                        "medium",
+                    )
+                    normalized_claims.append(KeyClaim(**c))
+                else:
+                    normalized_claims.append(c)
+            data["key_claims"] = normalized_claims
 
         return PaperExtraction(**data)
 
