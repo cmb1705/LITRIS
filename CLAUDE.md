@@ -173,6 +173,12 @@ Enable in `.claude/settings.json`:
 - **Subprocess encoding**: Always use `encoding="utf-8"` and `errors="replace"` in `subprocess.run()` to handle Unicode characters (e.g., ligatures like '\ufb01')
 - **Hook syntax**: Use `2>NUL` instead of `2>/dev/null || true` in Windows/PowerShell hooks
 - **Hook caching**: Claude Code caches hooks; restart required after `.claude/settings.json` changes
+- **PATH propagation**: Newly installed CLI tools need process restart; use full path as workaround (e.g., `"C:\Program Files\GitHub CLI\gh.exe"`)
+
+### Testing
+
+- **Mock aliased imports**: When module uses `from x import Y as _Y`, mock `module._Y` not `module.Y` (see `test_embeddings.py`)
+- **CI status**: Use `gh run list` and `gh run view <id>` to check GitHub Actions
 
 ### CLI Extraction Architecture
 
