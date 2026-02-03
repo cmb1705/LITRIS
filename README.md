@@ -443,12 +443,12 @@ Pre-commit hooks (`.pre-commit-config.yaml`) enforce code quality on every commi
 
 | Operation | CLI Mode | Batch API Mode |
 |-----------|----------|----------------|
-| Test build (10 papers) | $0 | ~$1.35 |
-| Full build (500 papers) | $0 | ~$67.50 |
+| Test build (10 papers) | $0 | ~$0.60 |
+| Full build (500 papers) | $0 | ~$31 |
 | Incremental updates | $0 | Variable |
 
 - **CLI mode**: Free with Max subscription (rate limited)
-- **Batch API mode**: Pay-per-token with 50% batch discount
+- **Batch API mode**: Opus 4.5 batch pricing: $2.50/MTok input, $12.50/MTok output
 
 ## License
 

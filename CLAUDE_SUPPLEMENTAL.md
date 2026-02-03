@@ -52,7 +52,7 @@ Each paper extraction includes:
 | Mode | Cost | Speed | Authentication |
 |------|------|-------|----------------|
 | **CLI** | Free (Max subscription) | ~30s/paper sequential | `claude login` |
-| **Batch API** | ~$0.14/paper (50% off) | ~1hr for 500 parallel | `ANTHROPIC_API_KEY` |
+| **Batch API** | ~$0.06/paper (Opus 4.5) | ~1hr for 500 parallel | `ANTHROPIC_API_KEY` |
 
 ### CLI Mode (Recommended for Budget)
 
@@ -202,7 +202,7 @@ Based on Zotero collections:
 | Mode | Test (10 papers) | Full (500 papers) | Notes |
 |------|------------------|-------------------|-------|
 | CLI | $0 | $0 | Uses Max subscription |
-| Batch API | ~$1.35 | ~$67.50 | 50% batch discount |
+| Batch API | ~$0.60 | ~$31 | Opus 4.5: $2.50/$12.50 per MTok |
 
 ---
 

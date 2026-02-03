@@ -307,7 +307,7 @@ If GPU not detected, reinstall with CUDA support (see Installation).
 
 | Provider | Cost per Paper | Monthly (500 papers) |
 | -------- | -------------- | -------------------- |
-| Anthropic API | ~$0.15 | ~$75 |
+| Anthropic Batch API | ~$0.06 | ~$31 |
 | OpenAI API | ~$0.10 | ~$50 |
 | Gemini API | ~$0.03 | ~$15 |
 | Ollama | $0 (electricity) | $0 (electricity) |

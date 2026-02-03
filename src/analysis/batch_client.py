@@ -449,6 +449,19 @@ class BatchExtractionClient:
 
         return pending
 
+    # Batch API pricing per million tokens (input, output) in USD
+    # Source: https://docs.anthropic.com/en/docs/about-claude/models
+    # Updated: 2026-02
+    BATCH_PRICING = {
+        "claude-opus-4-5-20251101": (2.50, 12.50),    # Opus 4.5 batch
+        "claude-sonnet-4-20250514": (1.50, 7.50),     # Sonnet 4 batch
+        "claude-sonnet-4-5-20250514": (1.50, 7.50),   # Sonnet 4.5 batch
+        "claude-haiku-4-5-20250514": (0.50, 2.50),    # Haiku 4.5 batch
+        "claude-3-5-sonnet-20241022": (1.50, 7.50),   # Legacy Sonnet 3.5 batch
+        "claude-3-5-haiku-20241022": (0.40, 2.0),     # Legacy Haiku 3.5 batch
+        "claude-3-opus-20240229": (7.50, 37.50),      # Legacy Opus 3 batch
+    }
+
     def estimate_cost(self, num_papers: int, avg_text_length: int) -> dict:
         """Estimate cost for batch extraction.
 
@@ -466,9 +479,10 @@ class BatchExtractionClient:
         total_input = input_tokens_per_paper * num_papers
         total_output = output_tokens_per_paper * num_papers
 
-        # Batch API is 50% cheaper
-        input_cost_per_million = 15.0 * 0.5
-        output_cost_per_million = 75.0 * 0.5
+        # Get batch pricing for model (default to Opus 4.5 pricing)
+        input_cost_per_million, output_cost_per_million = self.BATCH_PRICING.get(
+            self.model, (2.50, 12.50)
+        )
 
         input_cost = (total_input / 1_000_000) * input_cost_per_million
         output_cost = (total_output / 1_000_000) * output_cost_per_million
@@ -480,4 +494,5 @@ class BatchExtractionClient:
             "estimated_cost": round(input_cost + output_cost, 2),
             "discount": "50% (batch API)",
             "model": self.model,
+            "pricing": f"${input_cost_per_million}/MTok in, ${output_cost_per_million}/MTok out",
         }

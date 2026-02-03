@@ -32,11 +32,27 @@ class AnthropicLLMClient(BaseLLMClient):
     }
 
     # Model pricing per million tokens (input, output) in USD
+    # Source: https://docs.anthropic.com/en/docs/about-claude/models#model-comparison
+    # Updated: 2026-02
     MODEL_PRICING = {
-        "claude-opus-4-5-20251101": (15.0, 75.0),
-        "claude-sonnet-4-20250514": (3.0, 15.0),
-        "claude-3-5-sonnet-20241022": (3.0, 15.0),
-        "claude-3-opus-20240229": (15.0, 75.0),
+        "claude-opus-4-5-20251101": (5.0, 25.0),      # Opus 4.5: $5/$25 per MTok
+        "claude-sonnet-4-20250514": (3.0, 15.0),      # Sonnet 4: $3/$15 per MTok
+        "claude-sonnet-4-5-20250514": (3.0, 15.0),    # Sonnet 4.5: $3/$15 per MTok
+        "claude-haiku-4-5-20250514": (1.0, 5.0),      # Haiku 4.5: $1/$5 per MTok
+        "claude-3-5-sonnet-20241022": (3.0, 15.0),    # Legacy Sonnet 3.5
+        "claude-3-5-haiku-20241022": (0.80, 4.0),     # Legacy Haiku 3.5
+        "claude-3-opus-20240229": (15.0, 75.0),       # Legacy Opus 3 (deprecated)
+    }
+
+    # Batch API pricing (50% discount on all models)
+    BATCH_PRICING = {
+        "claude-opus-4-5-20251101": (2.50, 12.50),    # Opus 4.5 batch
+        "claude-sonnet-4-20250514": (1.50, 7.50),     # Sonnet 4 batch
+        "claude-sonnet-4-5-20250514": (1.50, 7.50),   # Sonnet 4.5 batch
+        "claude-haiku-4-5-20250514": (0.50, 2.50),    # Haiku 4.5 batch
+        "claude-3-5-sonnet-20241022": (1.50, 7.50),   # Legacy Sonnet 3.5 batch
+        "claude-3-5-haiku-20241022": (0.40, 2.0),     # Legacy Haiku 3.5 batch
+        "claude-3-opus-20240229": (7.50, 37.50),      # Legacy Opus 3 batch
     }
 
     def __init__(
