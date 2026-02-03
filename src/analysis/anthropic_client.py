@@ -14,12 +14,12 @@ from src.analysis.constants import (
     ANTHROPIC_PRICING,
     DEFAULT_MODELS,
 )
-from src.analysis.retry import with_retry
 from src.analysis.prompts import (
     EXTRACTION_SYSTEM_PROMPT,
     build_cli_extraction_prompt,
     build_extraction_prompt,
 )
+from src.analysis.retry import with_retry
 from src.analysis.schemas import ExtractionResult, PaperExtraction
 from src.utils.logging_config import get_logger
 from src.utils.secrets import get_anthropic_api_key

@@ -7,7 +7,7 @@ such as rate limits, connection errors, and server errors.
 import functools
 import time
 from collections.abc import Callable
-from typing import Any, ParamSpec, TypeVar
+from typing import ParamSpec, TypeVar
 
 from src.utils.logging_config import get_logger
 
@@ -43,10 +43,7 @@ def is_retryable_error(error: Exception) -> bool:
         "ServiceUnavailableError",
         "APIStatusError",  # 500, 502, 503, 504 errors
         # OpenAI
-        "RateLimitError",
-        "APIConnectionError",
         "APITimeoutError",
-        "InternalServerError",
         # Google
         "ResourceExhausted",  # Rate limit
         "ServiceUnavailable",

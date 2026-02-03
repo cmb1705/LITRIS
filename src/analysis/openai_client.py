@@ -9,8 +9,8 @@ References:
 """
 
 import json
-import re
 import os
+import re
 import shutil
 import subprocess
 import tempfile
