@@ -26,6 +26,7 @@ from tqdm import tqdm
 
 from src.analysis.cli_executor import ClaudeCliExecutor
 
+
 # Use print for user-facing output (logger may not be configured for console)
 def log_info(msg: str) -> None:
     print(f"[INFO] {msg}")

@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.utils.logging_config import get_logger
 from src.zotero.metadata_enricher import MetadataEnricher
-from src.zotero.orphan_metadata_extractor import MetadataSource, OrphanMetadataExtractor
+from src.zotero.orphan_metadata_extractor import OrphanMetadataExtractor
 from src.zotero.parent_item_creator import ParentItemCreator
 
 logger = get_logger(__name__)

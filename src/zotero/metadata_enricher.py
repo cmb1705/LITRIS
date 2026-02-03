@@ -12,7 +12,7 @@ from difflib import SequenceMatcher
 import requests
 
 from src.utils.logging_config import get_logger
-from src.zotero.orphan_metadata_extractor import ExtractedMetadata, MetadataSource
+from src.zotero.orphan_metadata_extractor import ExtractedMetadata
 
 logger = get_logger(__name__)
 

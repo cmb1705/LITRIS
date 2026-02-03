@@ -140,7 +140,6 @@ def update_report(
 
         for row in reader:
             stats["total_rows"] += 1
-            updated = False
 
             attachment_key = row.get("attachment_key", "")
             current_doi = row.get("doi", "").strip()
@@ -154,7 +153,6 @@ def update_report(
                     row["enrichment_source"] = "web_search"
                     row["enrichment_confidence"] = "0.90"
                     stats["doi_added"] += 1
-                    updated = True
                     # Also get metadata from the matched results entry
                     result_entry = web_results.get("results_by_doi", {}).get(match["doi"])
                     if result_entry:
@@ -240,7 +238,7 @@ def main():
     print(f"\nUpdating report from {input_csv}...")
     stats = update_report(input_csv, output_csv, web_results)
 
-    print(f"\nResults:")
+    print("\nResults:")
     print(f"  Total rows: {stats['total_rows']}")
     print(f"  DOIs added from web search: {stats['doi_added']}")
     print(f"  Metadata updated: {stats['metadata_added']}")

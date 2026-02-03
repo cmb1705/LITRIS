@@ -14,7 +14,6 @@ import csv
 import shutil
 import sqlite3
 import sys
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 

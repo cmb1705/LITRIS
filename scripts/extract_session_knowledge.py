@@ -20,7 +20,7 @@ from pathlib import Path
 def extract_messages(jsonl_path: Path) -> list[dict]:
     """Extract user and assistant messages from a transcript."""
     messages = []
-    with open(jsonl_path, "r", encoding="utf-8") as f:
+    with open(jsonl_path, encoding="utf-8") as f:
         for line in f:
             try:
                 entry = json.loads(line)
