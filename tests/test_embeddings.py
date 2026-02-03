@@ -58,7 +58,7 @@ class TestEmbeddingGenerator:
     @pytest.fixture
     def mock_model(self):
         """Create mock sentence transformer model."""
-        with patch("src.indexing.embeddings.SentenceTransformer") as mock:
+        with patch("src.indexing.embeddings._SentenceTransformer") as mock:
             model = MagicMock()
             model.get_sentence_embedding_dimension.return_value = 384
             model.encode.return_value = [[0.1] * 384]
