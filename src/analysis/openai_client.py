@@ -20,7 +20,9 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode, LLMProvider
+from src.analysis.constants import DEFAULT_MODELS, OPENAI_MODELS, OPENAI_PRICING
 from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
+from src.analysis.retry import with_retry
 from src.analysis.schemas import ExtractionResult, PaperExtraction
 from src.utils.logging_config import get_logger
 
@@ -33,40 +35,9 @@ class OpenAILLMClient(BaseLLMClient):
     Supports both API mode (direct OpenAI API) and CLI mode (Codex CLI).
     """
 
-    # Available models with descriptions
-    MODELS = {
-        # o3 family (recommended for Codex CLI with ChatGPT)
-        "o3": "o3 (High intelligence, complex tasks)",
-        "o3-mini": "o3-mini (Fast, cost-effective reasoning)",
-        # GPT-5.2 family (latest API models)
-        "gpt-5.2": "GPT-5.2 (Latest flagship model)",
-        "gpt-5.2-instant": "GPT-5.2 Instant (Fast, everyday tasks)",
-        "gpt-5.2-pro": "GPT-5.2 Pro (Highest quality, complex tasks)",
-        "gpt-5.2-codex": "GPT-5.2-Codex (Optimized for agentic coding)",
-        # GPT-5 family
-        "gpt-5": "GPT-5 (Previous generation flagship)",
-        # GPT-4 family (API mode only)
-        "gpt-4o": "GPT-4o (Multimodal, fast) - API mode only",
-        "gpt-4o-mini": "GPT-4o Mini (Cost-effective) - API mode only",
-        "gpt-4-turbo": "GPT-4 Turbo (Legacy) - API mode only",
-    }
-
-    # Model pricing per million tokens (input, output) in USD
-    MODEL_PRICING = {
-        # o3 family
-        "o3": (10.0, 40.0),
-        "o3-mini": (1.1, 4.4),
-        # GPT-5.2 family
-        "gpt-5.2": (10.0, 30.0),
-        "gpt-5.2-instant": (2.5, 10.0),
-        "gpt-5.2-pro": (20.0, 60.0),
-        "gpt-5.2-codex": (10.0, 30.0),
-        "gpt-5": (10.0, 30.0),
-        # GPT-4 family
-        "gpt-4o": (2.5, 10.0),
-        "gpt-4o-mini": (0.15, 0.6),
-        "gpt-4-turbo": (10.0, 30.0),
-    }
+    # Import from centralized constants
+    MODELS = OPENAI_MODELS
+    MODEL_PRICING = OPENAI_PRICING
 
     # Models supported by Codex CLI with ChatGPT authentication
     # Default is gpt-5.2 for ChatGPT Plus/Pro subscribers
@@ -131,7 +102,7 @@ class OpenAILLMClient(BaseLLMClient):
     @property
     def default_model(self) -> str:
         """Return the default model for OpenAI."""
-        return "gpt-5.2"
+        return DEFAULT_MODELS["openai"]
 
     @property
     def supported_modes(self) -> list[ExtractionMode]:
@@ -327,8 +298,9 @@ class OpenAILLMClient(BaseLLMClient):
                 model_used=self.model,
             )
 
+    @with_retry(max_retries=3, retry_delay=2.0)
     def _call_api(self, prompt: str) -> tuple[str, int, int]:
-        """Call OpenAI API.
+        """Call OpenAI API with automatic retry for transient errors.
 
         Args:
             prompt: User prompt.

@@ -8,6 +8,7 @@ import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
+from src.analysis.constants import DEFAULT_MODELS
 from src.config_migration import (
     CURRENT_VERSION,
     migrate_config,
@@ -123,15 +124,8 @@ class ExtractionConfig(BaseModel):
         if self.model:
             return self.model
 
-        # Return provider defaults
-        defaults = {
-            "anthropic": "claude-opus-4-5-20251101",
-            "openai": "gpt-5.2",
-            "google": "gemini-3-pro",
-            "ollama": "llama3",
-            "llamacpp": "llama-3",
-        }
-        return defaults.get(self.provider, "claude-opus-4-5-20251101")
+        # Return provider defaults from centralized constants
+        return DEFAULT_MODELS.get(self.provider, DEFAULT_MODELS["anthropic"])
 
     def _get_item_type_override(self, item_type: str) -> str | None:
         """Get model override for a specific item type.

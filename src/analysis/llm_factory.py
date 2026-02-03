@@ -3,6 +3,7 @@
 from typing import Literal
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode
+from src.analysis.constants import DEFAULT_MODELS
 
 # Provider type for configuration
 Provider = Literal["anthropic", "openai", "google", "ollama", "llamacpp"]
@@ -165,20 +166,13 @@ def get_default_model(provider: Provider) -> str:
     Returns:
         Default model identifier.
     """
-    defaults = {
-        "anthropic": "claude-opus-4-5-20251101",
-        "openai": "gpt-5.2",
-        "google": "gemini-2.5-flash",
-        "ollama": "llama3",
-        "llamacpp": "llama-3",
-    }
-    return defaults.get(provider, "")
+    return DEFAULT_MODELS.get(provider, DEFAULT_MODELS["anthropic"])
 
 
 # Backward compatibility alias
 def get_llm_client(
     mode: ExtractionMode = "api",
-    model: str = "claude-opus-4-5-20251101",
+    model: str | None = None,
     max_tokens: int = 8192,
     timeout: int = 120,
 ) -> BaseLLMClient:

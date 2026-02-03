@@ -8,6 +8,13 @@ from pydantic import ValidationError
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode, LLMProvider
 from src.analysis.cli_executor import ClaudeCliExecutor, CliExecutionError
+from src.analysis.constants import (
+    ANTHROPIC_BATCH_PRICING,
+    ANTHROPIC_MODELS,
+    ANTHROPIC_PRICING,
+    DEFAULT_MODELS,
+)
+from src.analysis.retry import with_retry
 from src.analysis.prompts import (
     EXTRACTION_SYSTEM_PROMPT,
     build_cli_extraction_prompt,
@@ -23,37 +30,10 @@ logger = get_logger(__name__)
 class AnthropicLLMClient(BaseLLMClient):
     """Client for Anthropic Claude-based paper extraction."""
 
-    # Available Claude models
-    MODELS = {
-        "claude-opus-4-5-20251101": "Claude Opus 4.5 (Latest, most capable)",
-        "claude-sonnet-4-20250514": "Claude Sonnet 4 (Fast, capable)",
-        "claude-3-5-sonnet-20241022": "Claude 3.5 Sonnet (Legacy)",
-        "claude-3-opus-20240229": "Claude 3 Opus (Legacy)",
-    }
-
-    # Model pricing per million tokens (input, output) in USD
-    # Source: https://docs.anthropic.com/en/docs/about-claude/models#model-comparison
-    # Updated: 2026-02
-    MODEL_PRICING = {
-        "claude-opus-4-5-20251101": (5.0, 25.0),      # Opus 4.5: $5/$25 per MTok
-        "claude-sonnet-4-20250514": (3.0, 15.0),      # Sonnet 4: $3/$15 per MTok
-        "claude-sonnet-4-5-20250514": (3.0, 15.0),    # Sonnet 4.5: $3/$15 per MTok
-        "claude-haiku-4-5-20250514": (1.0, 5.0),      # Haiku 4.5: $1/$5 per MTok
-        "claude-3-5-sonnet-20241022": (3.0, 15.0),    # Legacy Sonnet 3.5
-        "claude-3-5-haiku-20241022": (0.80, 4.0),     # Legacy Haiku 3.5
-        "claude-3-opus-20240229": (15.0, 75.0),       # Legacy Opus 3 (deprecated)
-    }
-
-    # Batch API pricing (50% discount on all models)
-    BATCH_PRICING = {
-        "claude-opus-4-5-20251101": (2.50, 12.50),    # Opus 4.5 batch
-        "claude-sonnet-4-20250514": (1.50, 7.50),     # Sonnet 4 batch
-        "claude-sonnet-4-5-20250514": (1.50, 7.50),   # Sonnet 4.5 batch
-        "claude-haiku-4-5-20250514": (0.50, 2.50),    # Haiku 4.5 batch
-        "claude-3-5-sonnet-20241022": (1.50, 7.50),   # Legacy Sonnet 3.5 batch
-        "claude-3-5-haiku-20241022": (0.40, 2.0),     # Legacy Haiku 3.5 batch
-        "claude-3-opus-20240229": (7.50, 37.50),      # Legacy Opus 3 batch
-    }
+    # Import from centralized constants
+    MODELS = ANTHROPIC_MODELS
+    MODEL_PRICING = ANTHROPIC_PRICING
+    BATCH_PRICING = ANTHROPIC_BATCH_PRICING
 
     def __init__(
         self,
@@ -101,7 +81,7 @@ class AnthropicLLMClient(BaseLLMClient):
     @property
     def default_model(self) -> str:
         """Return the default model for Anthropic."""
-        return "claude-opus-4-5-20251101"
+        return DEFAULT_MODELS["anthropic"]
 
     @property
     def supported_modes(self) -> list[ExtractionMode]:
@@ -236,8 +216,9 @@ class AnthropicLLMClient(BaseLLMClient):
                 model_used=self.model,
             )
 
+    @with_retry(max_retries=3, retry_delay=2.0)
     def _call_api(self, prompt: str) -> tuple[str, int, int]:
-        """Call Anthropic API.
+        """Call Anthropic API with automatic retry for transient errors.
 
         Args:
             prompt: User prompt.

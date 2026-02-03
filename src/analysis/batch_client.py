@@ -9,6 +9,7 @@ from pathlib import Path
 
 from anthropic import Anthropic
 
+from src.analysis.constants import ANTHROPIC_BATCH_PRICING, DEFAULT_MODELS
 from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
 from src.analysis.schemas import ExtractionResult, PaperExtraction
 from src.utils.logging_config import get_logger
@@ -128,7 +129,7 @@ class BatchExtractionClient:
 
     def __init__(
         self,
-        model: str = "claude-opus-4-5-20251101",
+        model: str | None = None,
         max_tokens: int = 8192,
         batch_dir: Path | None = None,
     ):
@@ -148,7 +149,7 @@ class BatchExtractionClient:
             )
 
         self.client = Anthropic(api_key=api_key)
-        self.model = model
+        self.model = model or DEFAULT_MODELS["anthropic"]
         # Claude batch API hard-limits output tokens to 64k; clamp to avoid rejections.
         if max_tokens > 64000:
             logger.info(
@@ -449,18 +450,8 @@ class BatchExtractionClient:
 
         return pending
 
-    # Batch API pricing per million tokens (input, output) in USD
-    # Source: https://docs.anthropic.com/en/docs/about-claude/models
-    # Updated: 2026-02
-    BATCH_PRICING = {
-        "claude-opus-4-5-20251101": (2.50, 12.50),    # Opus 4.5 batch
-        "claude-sonnet-4-20250514": (1.50, 7.50),     # Sonnet 4 batch
-        "claude-sonnet-4-5-20250514": (1.50, 7.50),   # Sonnet 4.5 batch
-        "claude-haiku-4-5-20250514": (0.50, 2.50),    # Haiku 4.5 batch
-        "claude-3-5-sonnet-20241022": (1.50, 7.50),   # Legacy Sonnet 3.5 batch
-        "claude-3-5-haiku-20241022": (0.40, 2.0),     # Legacy Haiku 3.5 batch
-        "claude-3-opus-20240229": (7.50, 37.50),      # Legacy Opus 3 batch
-    }
+    # Import batch pricing from centralized constants
+    BATCH_PRICING = ANTHROPIC_BATCH_PRICING
 
     def estimate_cost(self, num_papers: int, avg_text_length: int) -> dict:
         """Estimate cost for batch extraction.

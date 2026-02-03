@@ -15,7 +15,9 @@ import time
 from pydantic import ValidationError
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode, LLMProvider
+from src.analysis.constants import DEFAULT_MODELS, GEMINI_MODELS, GEMINI_PRICING
 from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
+from src.analysis.retry import with_retry
 from src.analysis.schemas import ExtractionResult, PaperExtraction
 from src.utils.logging_config import get_logger
 
@@ -28,28 +30,9 @@ class GeminiLLMClient(BaseLLMClient):
     Supports Gemini 2.5 and 3.x models via the Google Gen AI SDK.
     """
 
-    # Available Gemini models with descriptions
-    MODELS = {
-        # Gemini 3 family (latest)
-        "gemini-3-flash": "Gemini 3 Flash (Pro intelligence at Flash speed)",
-        "gemini-3-pro": "Gemini 3 Pro Preview (Highest capability)",
-        # Gemini 2.5 family (stable)
-        "gemini-2.5-flash": "Gemini 2.5 Flash (Best price-performance)",
-        "gemini-2.5-flash-lite": "Gemini 2.5 Flash-Lite (Fastest, cost-effective)",
-        "gemini-2.5-pro": "Gemini 2.5 Pro (State-of-the-art reasoning)",
-        # Legacy (deprecated March 2026)
-        "gemini-2.0-flash": "Gemini 2.0 Flash (Legacy - deprecated March 2026)",
-    }
-
-    # Model pricing per million tokens (input, output) in USD
-    MODEL_PRICING = {
-        "gemini-3-flash": (0.50, 3.00),
-        "gemini-3-pro": (2.00, 12.00),  # <=200K context
-        "gemini-2.5-flash": (0.15, 0.60),
-        "gemini-2.5-flash-lite": (0.10, 0.40),
-        "gemini-2.5-pro": (1.25, 10.00),
-        "gemini-2.0-flash": (0.10, 0.40),
-    }
+    # Import from centralized constants
+    MODELS = GEMINI_MODELS
+    MODEL_PRICING = GEMINI_PRICING
 
     def __init__(
         self,
@@ -96,7 +79,7 @@ class GeminiLLMClient(BaseLLMClient):
     @property
     def default_model(self) -> str:
         """Return the default model for Gemini."""
-        return "gemini-3-pro"
+        return DEFAULT_MODELS["google"]
 
     @property
     def supported_modes(self) -> list[ExtractionMode]:
@@ -203,8 +186,9 @@ class GeminiLLMClient(BaseLLMClient):
                 model_used=self.model,
             )
 
+    @with_retry(max_retries=3, retry_delay=2.0)
     def _call_api(self, prompt: str) -> tuple[str, int, int]:
-        """Call Gemini API.
+        """Call Gemini API with automatic retry for transient errors.
 
         Args:
             prompt: User prompt.
