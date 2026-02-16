@@ -7,6 +7,9 @@ from pathlib import Path
 from src.utils.file_utils import safe_read_json, safe_write_json
 from src.utils.logging_config import get_logger
 
+# Sentinel for "file did not exist at last check"
+_NO_MTIME = -1.0
+
 logger = get_logger(__name__)
 
 SCHEMA_VERSION = "1.0"
@@ -29,18 +32,39 @@ class StructuredStore:
         self.metadata_file = self.index_dir / "metadata.json"
         self.summary_file = self.index_dir / "summary.json"
 
-        # Cache loaded data
+        # Cache loaded data with file modification tracking
         self._papers_cache: dict[str, dict] | None = None
+        self._papers_mtime: float = _NO_MTIME
         self._extractions_cache: dict[str, dict] | None = None
+        self._extractions_mtime: float = _NO_MTIME
+
+    def _file_mtime(self, path: Path) -> float:
+        """Get file modification time, or sentinel if file does not exist."""
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return _NO_MTIME
+
+    def _cache_stale(self, path: Path, cached_mtime: float) -> bool:
+        """Check whether a cached file has been modified on disk."""
+        return self._file_mtime(path) != cached_mtime
 
     def load_papers(self) -> dict[str, dict]:
         """Load papers from JSON file.
 
+        Automatically reloads from disk if the file has been modified
+        since the last read (e.g. by a concurrent build process).
+
         Returns:
             Dictionary mapping paper_id to paper data.
         """
-        if self._papers_cache is not None:
+        if self._papers_cache is not None and not self._cache_stale(
+            self.papers_file, self._papers_mtime
+        ):
             return self._papers_cache
+
+        if self._papers_cache is not None:
+            logger.debug("papers.json changed on disk, reloading cache")
 
         data = safe_read_json(self.papers_file, default={"papers": []})
         papers_list = data.get("papers", data) if isinstance(data, dict) else data
@@ -51,16 +75,25 @@ class StructuredStore:
         else:
             self._papers_cache = papers_list
 
+        self._papers_mtime = self._file_mtime(self.papers_file)
         return self._papers_cache
 
     def load_extractions(self) -> dict[str, dict]:
         """Load extractions from JSON file.
 
+        Automatically reloads from disk if the file has been modified
+        since the last read (e.g. by a concurrent build process).
+
         Returns:
             Dictionary mapping paper_id to extraction data.
         """
-        if self._extractions_cache is not None:
+        if self._extractions_cache is not None and not self._cache_stale(
+            self.extractions_file, self._extractions_mtime
+        ):
             return self._extractions_cache
+
+        if self._extractions_cache is not None:
+            logger.debug("extractions.json changed on disk, reloading cache")
 
         data = safe_read_json(self.extractions_file, default={})
 
@@ -80,6 +113,7 @@ class StructuredStore:
         else:
             self._extractions_cache = data
 
+        self._extractions_mtime = self._file_mtime(self.extractions_file)
         return self._extractions_cache
 
     def save_papers(self, papers: list[dict] | dict[str, dict]) -> None:
@@ -102,6 +136,7 @@ class StructuredStore:
 
         safe_write_json(self.papers_file, data)
         self._papers_cache = {p["paper_id"]: p for p in papers_list if "paper_id" in p}
+        self._papers_mtime = self._file_mtime(self.papers_file)
         logger.info(f"Saved {len(papers_list)} papers to {self.papers_file}")
 
     def save_extractions(self, extractions: dict[str, dict]) -> None:
@@ -119,6 +154,7 @@ class StructuredStore:
 
         safe_write_json(self.extractions_file, data)
         self._extractions_cache = extractions
+        self._extractions_mtime = self._file_mtime(self.extractions_file)
         logger.info(f"Saved {len(extractions)} extractions to {self.extractions_file}")
 
     def get_paper(self, paper_id: str) -> dict | None:
@@ -391,9 +427,11 @@ class StructuredStore:
         return safe_read_json(self.metadata_file, default={})
 
     def clear_cache(self) -> None:
-        """Clear in-memory caches."""
+        """Clear in-memory caches, forcing reload on next access."""
         self._papers_cache = None
+        self._papers_mtime = _NO_MTIME
         self._extractions_cache = None
+        self._extractions_mtime = _NO_MTIME
 
     def get_paper_ids(self) -> set[str]:
         """Get set of all paper IDs in the store.

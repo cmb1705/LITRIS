@@ -194,12 +194,20 @@ class LitrisAdapter:
     def _format_extraction(self, extraction: dict) -> dict[str, Any]:
         """Format extraction data for MCP response.
 
+        Handles both flat extraction dicts and wrapper records that nest
+        the actual fields under an ``"extraction"`` key (the format used
+        in ``extractions.json``).
+
         Args:
-            extraction: Raw extraction dictionary.
+            extraction: Raw extraction dictionary (flat or wrapped).
 
         Returns:
             Formatted extraction data.
         """
+        # Unwrap if the record contains a nested "extraction" dict
+        if "extraction" in extraction and isinstance(extraction["extraction"], dict):
+            extraction = extraction["extraction"]
+
         return {
             "thesis_statement": extraction.get("thesis_statement", ""),
             "research_questions": extraction.get("research_questions", []),
