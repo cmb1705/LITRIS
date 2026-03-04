@@ -111,6 +111,7 @@ python scripts/query_index.py -q "network analysis"  # Search the index
 |------|--------|
 | PreToolUse (Write/Edit) | Block Zotero directory writes |
 | PostToolUse (Write/Edit) | Ruff on .py files |
+| PostToolUse (Write/Edit) | Auto-run related tests on src/ changes |
 | PostToolUse (Bash/Write/Edit) | Log to operations.log |
 
 ## MCP Integration
