@@ -16,7 +16,7 @@ LLMProvider = Literal["anthropic", "openai", "google", "ollama", "llamacpp"]
 # Default models per provider
 DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-opus-4-6",
-    "openai": "gpt-5.2",
+    "openai": "gpt-5.3-codex",
     "google": "gemini-2.5-flash",
     "ollama": "llama3",
     "llamacpp": "llama-3",
@@ -64,38 +64,48 @@ ANTHROPIC_BATCH_PRICING: dict[str, tuple[float, float]] = {
 }
 
 # OpenAI models and pricing
-# Source: https://platform.openai.com/docs/models
+# Source: https://developers.openai.com/codex/models/
+# Updated: 2026-03
 OPENAI_MODELS: dict[str, str] = {
-    # o3 family (recommended for Codex CLI with ChatGPT)
-    "o3": "o3 (High intelligence, complex tasks)",
-    "o3-mini": "o3-mini (Fast, cost-effective reasoning)",
-    # GPT-5.2 family (latest API models)
-    "gpt-5.2": "GPT-5.2 (Latest flagship model)",
-    "gpt-5.2-instant": "GPT-5.2 Instant (Fast, everyday tasks)",
+    # GPT-5.3 family (latest)
+    "gpt-5.3-codex": "GPT-5.3-Codex (Latest, most capable agentic coding)",
+    # GPT-5.2 family
+    "gpt-5.2-codex": "GPT-5.2-Codex (Agentic coding)",
+    "gpt-5.2": "GPT-5.2 (Flagship model)",
     "gpt-5.2-pro": "GPT-5.2 Pro (Highest quality, complex tasks)",
-    "gpt-5.2-codex": "GPT-5.2-Codex (Optimized for agentic coding)",
+    # GPT-5.1 family
+    "gpt-5.1-codex-max": "GPT-5.1-Codex-Max (Project-scale work)",
+    "gpt-5.1-codex": "GPT-5.1-Codex (Agentic coding)",
+    "gpt-5.1": "GPT-5.1 (Previous generation)",
     # GPT-5 family
-    "gpt-5": "GPT-5 (Previous generation flagship)",
-    # GPT-4 family (API mode only)
-    "gpt-4o": "GPT-4o (Multimodal, fast) - API mode only",
-    "gpt-4o-mini": "GPT-4o Mini (Cost-effective) - API mode only",
-    "gpt-4-turbo": "GPT-4 Turbo (Legacy) - API mode only",
+    "gpt-5-codex": "GPT-5-Codex (Agentic coding)",
+    "gpt-5-codex-mini": "GPT-5-Codex-Mini (Cost-effective)",
+    "gpt-5": "GPT-5 (Base)",
+    # o3 family
+    "o3": "o3 (Reasoning)",
+    "o3-pro": "o3 Pro (Deep reasoning)",
+    "o3-mini": "o3-mini (Fast reasoning)",
 }
 
 OPENAI_PRICING: dict[str, tuple[float, float]] = {
-    # o3 family
-    "o3": (10.0, 40.0),
-    "o3-mini": (1.1, 4.4),
+    # GPT-5.3 family
+    "gpt-5.3-codex": (1.75, 14.0),
     # GPT-5.2 family
-    "gpt-5.2": (10.0, 30.0),
-    "gpt-5.2-instant": (2.5, 10.0),
-    "gpt-5.2-pro": (20.0, 60.0),
-    "gpt-5.2-codex": (10.0, 30.0),
-    "gpt-5": (10.0, 30.0),
-    # GPT-4 family
-    "gpt-4o": (2.5, 10.0),
-    "gpt-4o-mini": (0.15, 0.6),
-    "gpt-4-turbo": (10.0, 30.0),
+    "gpt-5.2-codex": (1.75, 14.0),
+    "gpt-5.2": (1.75, 14.0),
+    "gpt-5.2-pro": (21.0, 168.0),
+    # GPT-5.1 family
+    "gpt-5.1-codex-max": (1.25, 10.0),
+    "gpt-5.1-codex": (1.25, 10.0),
+    "gpt-5.1": (1.25, 10.0),
+    # GPT-5 family
+    "gpt-5-codex": (1.25, 10.0),
+    "gpt-5-codex-mini": (0.25, 2.0),
+    "gpt-5": (1.25, 10.0),
+    # o3 family
+    "o3": (2.0, 8.0),
+    "o3-pro": (20.0, 80.0),
+    "o3-mini": (1.1, 4.4),
 }
 
 # Google Gemini models and pricing
@@ -159,7 +169,7 @@ def get_model_pricing(provider: str, model: str) -> tuple[float, float]:
     # Default pricing by provider
     defaults = {
         "anthropic": (5.0, 25.0),   # Opus 4.6
-        "openai": (10.0, 30.0),     # GPT-5.2
+        "openai": (1.75, 14.0),     # GPT-5.3-Codex
         "google": (0.15, 0.60),     # Gemini 2.5 Flash
     }
     return defaults.get(provider, (5.0, 25.0))

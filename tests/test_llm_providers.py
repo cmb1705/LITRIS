@@ -198,11 +198,11 @@ class TestOpenAIClient:
         assert client.provider == "openai"
 
     def test_default_model(self):
-        """Should have GPT-5.2 default model."""
+        """Should use a GPT-5 family default model."""
         from src.analysis.openai_client import OpenAILLMClient
 
         client = OpenAILLMClient.__new__(OpenAILLMClient)
-        assert "gpt-5.2" in client.default_model.lower()
+        assert "gpt-5" in client.default_model.lower()
 
     def test_supported_modes(self):
         """Should support api and cli modes."""
@@ -219,8 +219,7 @@ class TestOpenAIClient:
 
         models = OpenAILLMClient.list_models()
         assert isinstance(models, dict)
-        assert "gpt-5.2" in models
-        assert "gpt-5.2-instant" in models
+        assert "gpt-5.3-codex" in models
         assert "gpt-5.2-codex" in models
 
     def test_model_pricing(self):
@@ -246,20 +245,20 @@ class TestOpenAIClientEstimateCost:
         assert cost > 0
         assert isinstance(cost, float)
 
-    def test_estimate_cost_gpt_4o_mini_cheaper(self):
-        """GPT-4o-mini should be cheaper than GPT-5.2."""
+    def test_estimate_cost_mini_cheaper(self):
+        """GPT-5-Codex-Mini should be cheaper than GPT-5.3-Codex."""
         from src.analysis.openai_client import OpenAILLMClient
 
         client1 = OpenAILLMClient.__new__(OpenAILLMClient)
-        client1.model = "gpt-5.2"
+        client1.model = "gpt-5.3-codex"
 
         client2 = OpenAILLMClient.__new__(OpenAILLMClient)
-        client2.model = "gpt-4o-mini"
+        client2.model = "gpt-5-codex-mini"
 
-        cost_5_2 = client1.estimate_cost(10000)
+        cost_5_3 = client1.estimate_cost(10000)
         cost_mini = client2.estimate_cost(10000)
 
-        assert cost_mini < cost_5_2
+        assert cost_mini < cost_5_3
 
 
 class TestGeminiClient:
