@@ -78,6 +78,7 @@ def create_llm_client(
             model=model,
             max_tokens=max_tokens,
             timeout=timeout,
+            effort=kwargs.get("effort"),
         )
     elif provider == "openai":
         from src.analysis.openai_client import OpenAILLMClient

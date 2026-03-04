@@ -41,6 +41,7 @@ class AnthropicLLMClient(BaseLLMClient):
         model: str | None = None,
         max_tokens: int = 8192,
         timeout: int = 120,
+        effort: str | None = None,
     ):
         """Initialize Anthropic LLM client.
 
@@ -49,10 +50,12 @@ class AnthropicLLMClient(BaseLLMClient):
             model: Model to use for extraction.
             max_tokens: Maximum tokens for response.
             timeout: Request timeout in seconds.
+            effort: Claude CLI effort level for extended thinking (low/medium/high).
         """
         super().__init__(mode=mode, model=model, max_tokens=max_tokens, timeout=timeout)
         self.cli_executor = None
         self.client = None
+        self.effort = effort
 
         self.validate_mode()
 
@@ -71,7 +74,11 @@ class AnthropicLLMClient(BaseLLMClient):
                 )
             self.client = Anthropic(api_key=api_key)
         elif mode == "cli":
-            self.cli_executor = ClaudeCliExecutor(timeout=timeout)
+            self.cli_executor = ClaudeCliExecutor(
+                timeout=timeout,
+                model=self.model,
+                effort=effort,
+            )
 
     @property
     def provider(self) -> LLMProvider:

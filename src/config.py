@@ -62,6 +62,7 @@ class ExtractionConfig(BaseModel):
     use_cache: bool = True
     parallel_workers: int = 1
     reasoning_effort: str | None = None  # For OpenAI GPT-5.2: none/low/medium/high/xhigh
+    effort: str | None = None  # Claude CLI effort level: low/medium/high (controls extended thinking)
     model_overrides: ModelOverrides | None = None  # Per-item-type model selection
 
     @field_validator("provider")
@@ -91,6 +92,17 @@ class ExtractionConfig(BaseModel):
         valid_efforts = {"none", "low", "medium", "high", "xhigh"}
         if v not in valid_efforts:
             raise ValueError(f"reasoning_effort must be one of {valid_efforts}, got '{v}'")
+        return v
+
+    @field_validator("effort")
+    @classmethod
+    def validate_effort(cls, v: str | None) -> str | None:
+        """Validate Claude CLI effort level for extended thinking."""
+        if v is None:
+            return v
+        valid_efforts = {"low", "medium", "high"}
+        if v not in valid_efforts:
+            raise ValueError(f"effort must be one of {valid_efforts}, got '{v}'")
         return v
 
     @field_validator("parallel_workers")

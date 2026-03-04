@@ -910,6 +910,7 @@ def main():
             use_cache=use_cache,
             parallel_workers=parallel_workers,
             reasoning_effort=config.extraction.reasoning_effort,
+            effort=config.extraction.effort,
         )
         print("\nEstimating extraction cost...")
         estimate = extractor.estimate_batch_cost(papers_to_extract)
@@ -977,6 +978,7 @@ def main():
             use_cache=use_cache,
             parallel_workers=parallel_workers,
             reasoning_effort=config.extraction.reasoning_effort,
+            effort=config.extraction.effort,
         )
 
         # Clear cache if requested

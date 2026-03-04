@@ -215,6 +215,7 @@ class SectionExtractor:
         use_cache: bool = True,
         parallel_workers: int = 1,
         reasoning_effort: str | None = None,
+        effort: str | None = None,
     ):
         """Initialize section extractor.
 
@@ -237,6 +238,7 @@ class SectionExtractor:
             use_cache: Enable extraction caching to skip unchanged papers.
             parallel_workers: Number of parallel workers for CLI mode (1 = sequential).
             reasoning_effort: For OpenAI GPT-5.2: none/low/medium/high/xhigh.
+            effort: Claude CLI effort level for extended thinking (low/medium/high).
         """
         self.pdf_extractor = PDFExtractor(
             cache_dir=cache_dir,
@@ -253,6 +255,7 @@ class SectionExtractor:
             max_tokens=max_tokens,
             timeout=timeout if timeout is not None else 120,
             reasoning_effort=reasoning_effort,
+            effort=effort,
         )
         self.max_tokens = max_tokens
         self.timeout = getattr(self.llm_client, "timeout", 120)

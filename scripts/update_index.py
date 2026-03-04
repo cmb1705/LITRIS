@@ -510,6 +510,7 @@ def main():
             ocr_enabled=config.processing.ocr_enabled,
             ocr_config=config.processing.ocr_config,
             reasoning_effort=config.extraction.reasoning_effort,
+            effort=config.extraction.effort,
         )
 
     embedding_gen = None

@@ -254,15 +254,21 @@ class ClaudeCliExecutor:
         self,
         timeout: int = 120,
         output_format: str = "json",
+        model: str | None = None,
+        effort: str | None = None,
     ):
         """Initialize CLI executor.
 
         Args:
             timeout: Seconds before command timeout.
             output_format: CLI output format (json recommended).
+            model: Model to pass via --model flag (e.g. 'claude-opus-4-6').
+            effort: Effort level for extended thinking (low/medium/high).
         """
         self.timeout = timeout
         self.output_format = output_format
+        self.model = model
+        self.effort = effort
         self._cli_path: str | None = None
         self.authenticator = ClaudeCliAuthenticator()
 
@@ -403,6 +409,10 @@ class ClaudeCliExecutor:
             "--output-format",
             self.output_format,
         ]
+        if self.model:
+            cmd.extend(["--model", self.model])
+        if self.effort:
+            cmd.extend(["--effort", self.effort])
 
         env = os.environ.copy()
         env.pop("CLAUDECODE", None)  # Allow spawning claude from within Claude Code
@@ -551,6 +561,10 @@ class ClaudeCliExecutor:
                 "--output-format",
                 self.output_format,
             ]
+            if self.model:
+                cmd.extend(["--model", self.model])
+            if self.effort:
+                cmd.extend(["--effort", self.effort])
 
             # Set up environment - ensure OAuth token is passed if set
             env = os.environ.copy()

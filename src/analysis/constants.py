@@ -15,7 +15,7 @@ LLMProvider = Literal["anthropic", "openai", "google", "ollama", "llamacpp"]
 
 # Default models per provider
 DEFAULT_MODELS: dict[str, str] = {
-    "anthropic": "claude-opus-4-5-20251101",
+    "anthropic": "claude-opus-4-6",
     "openai": "gpt-5.2",
     "google": "gemini-2.5-flash",
     "ollama": "llama3",
@@ -24,12 +24,14 @@ DEFAULT_MODELS: dict[str, str] = {
 
 # Anthropic models and pricing
 # Source: https://docs.anthropic.com/en/docs/about-claude/models
-# Updated: 2026-02
+# Updated: 2026-03
 ANTHROPIC_MODELS: dict[str, str] = {
-    "claude-opus-4-5-20251101": "Claude Opus 4.5 (Latest, most capable)",
-    "claude-sonnet-4-20250514": "Claude Sonnet 4 (Fast, capable)",
+    "claude-opus-4-6": "Claude Opus 4.6 (Latest, most capable)",
+    "claude-sonnet-4-6": "Claude Sonnet 4.6 (Fast, capable)",
+    "claude-opus-4-5-20251101": "Claude Opus 4.5",
     "claude-sonnet-4-5-20250514": "Claude Sonnet 4.5 (Balanced)",
-    "claude-haiku-4-5-20250514": "Claude Haiku 4.5 (Fast, cost-effective)",
+    "claude-sonnet-4-20250514": "Claude Sonnet 4",
+    "claude-haiku-4-5-20251001": "Claude Haiku 4.5 (Fast, cost-effective)",
     "claude-3-5-sonnet-20241022": "Claude 3.5 Sonnet (Legacy)",
     "claude-3-5-haiku-20241022": "Claude 3.5 Haiku (Legacy)",
     "claude-3-opus-20240229": "Claude 3 Opus (Legacy)",
@@ -37,10 +39,12 @@ ANTHROPIC_MODELS: dict[str, str] = {
 
 # Anthropic API pricing per million tokens (input, output) in USD
 ANTHROPIC_PRICING: dict[str, tuple[float, float]] = {
+    "claude-opus-4-6": (5.0, 25.0),               # Opus 4.6: $5/$25 per MTok
+    "claude-sonnet-4-6": (3.0, 15.0),             # Sonnet 4.6: $3/$15 per MTok
     "claude-opus-4-5-20251101": (5.0, 25.0),      # Opus 4.5: $5/$25 per MTok
-    "claude-sonnet-4-20250514": (3.0, 15.0),      # Sonnet 4: $3/$15 per MTok
     "claude-sonnet-4-5-20250514": (3.0, 15.0),    # Sonnet 4.5: $3/$15 per MTok
-    "claude-haiku-4-5-20250514": (1.0, 5.0),      # Haiku 4.5: $1/$5 per MTok
+    "claude-sonnet-4-20250514": (3.0, 15.0),      # Sonnet 4: $3/$15 per MTok
+    "claude-haiku-4-5-20251001": (1.0, 5.0),      # Haiku 4.5: $1/$5 per MTok
     "claude-3-5-sonnet-20241022": (3.0, 15.0),    # Legacy Sonnet 3.5
     "claude-3-5-haiku-20241022": (0.80, 4.0),     # Legacy Haiku 3.5
     "claude-3-opus-20240229": (15.0, 75.0),       # Legacy Opus 3 (deprecated)
@@ -48,10 +52,12 @@ ANTHROPIC_PRICING: dict[str, tuple[float, float]] = {
 
 # Anthropic Batch API pricing (50% discount on all models)
 ANTHROPIC_BATCH_PRICING: dict[str, tuple[float, float]] = {
+    "claude-opus-4-6": (2.50, 12.50),             # Opus 4.6 batch
+    "claude-sonnet-4-6": (1.50, 7.50),            # Sonnet 4.6 batch
     "claude-opus-4-5-20251101": (2.50, 12.50),    # Opus 4.5 batch
-    "claude-sonnet-4-20250514": (1.50, 7.50),     # Sonnet 4 batch
     "claude-sonnet-4-5-20250514": (1.50, 7.50),   # Sonnet 4.5 batch
-    "claude-haiku-4-5-20250514": (0.50, 2.50),    # Haiku 4.5 batch
+    "claude-sonnet-4-20250514": (1.50, 7.50),     # Sonnet 4 batch
+    "claude-haiku-4-5-20251001": (0.50, 2.50),    # Haiku 4.5 batch
     "claude-3-5-sonnet-20241022": (1.50, 7.50),   # Legacy Sonnet 3.5 batch
     "claude-3-5-haiku-20241022": (0.40, 2.0),     # Legacy Haiku 3.5 batch
     "claude-3-opus-20240229": (7.50, 37.50),      # Legacy Opus 3 batch
@@ -152,7 +158,7 @@ def get_model_pricing(provider: str, model: str) -> tuple[float, float]:
 
     # Default pricing by provider
     defaults = {
-        "anthropic": (5.0, 25.0),   # Opus 4.5
+        "anthropic": (5.0, 25.0),   # Opus 4.6
         "openai": (10.0, 30.0),     # GPT-5.2
         "google": (0.15, 0.60),     # Gemini 2.5 Flash
     }
