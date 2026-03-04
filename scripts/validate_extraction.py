@@ -12,6 +12,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from src.analysis.document_types import get_recommended_fields, get_required_fields
 from src.utils.file_utils import safe_read_json, safe_write_json
 from src.utils.logging_config import setup_logging
 
@@ -44,10 +45,17 @@ class ValidationSummary:
 
 
 class ExtractionValidator:
-    """Validate extraction results for quality and completeness."""
+    """Validate extraction results for quality and completeness.
 
-    REQUIRED_FIELDS = ["research_questions", "methodology", "key_findings"]
-    RECOMMENDED_FIELDS = ["key_claims", "conclusions", "limitations"]
+    Supports type-aware validation: when document_type is present in extraction
+    data, required/recommended fields are determined by the document type's
+    TypeProfile. Falls back to legacy research_paper requirements when
+    document_type is absent.
+    """
+
+    # Legacy defaults for backward compatibility (no document_type)
+    LEGACY_REQUIRED_FIELDS = ["research_questions", "methodology", "key_findings"]
+    LEGACY_RECOMMENDED_FIELDS = ["key_claims", "conclusions", "limitations"]
 
     MIN_CONFIDENCE = 0.5
     LOW_CONFIDENCE_THRESHOLD = 0.7
@@ -61,7 +69,7 @@ class ExtractionValidator:
 
         Args:
             min_confidence: Minimum confidence score for valid extraction.
-            require_claims: Whether key_claims is required.
+            require_claims: Whether key_claims is required (legacy mode only).
         """
         self.min_confidence = min_confidence
         self.require_claims = require_claims
@@ -72,7 +80,10 @@ class ExtractionValidator:
         title: str,
         extraction_data: dict,
     ) -> ValidationResult:
-        """Validate a single extraction.
+        """Validate a single extraction using type-aware rules.
+
+        When document_type is present, uses type-specific required and
+        recommended fields. Otherwise falls back to legacy validation.
 
         Args:
             paper_id: Paper identifier.
@@ -89,6 +100,9 @@ class ExtractionValidator:
             confidence=extraction_data.get("extraction_confidence", 0.0),
         )
 
+        # Determine document type
+        doc_type = extraction_data.get("document_type")
+
         # Check confidence
         if result.confidence < self.min_confidence:
             result.issues.append(
@@ -99,8 +113,12 @@ class ExtractionValidator:
         if result.confidence < self.LOW_CONFIDENCE_THRESHOLD:
             result.warnings.append(f"Low confidence: {result.confidence:.2f}")
 
+        # Get type-specific field requirements
+        required_fields = get_required_fields(doc_type)
+        recommended_fields = get_recommended_fields(doc_type)
+
         # Check required fields
-        for field_name in self.REQUIRED_FIELDS:
+        for field_name in required_fields:
             value = extraction_data.get(field_name)
             has_value = self._has_meaningful_value(value)
             result.field_coverage[field_name] = has_value
@@ -109,8 +127,8 @@ class ExtractionValidator:
                 result.issues.append(f"Missing required field: {field_name}")
                 result.valid = False
 
-        # Check key_claims if required
-        if self.require_claims:
+        # Check key_claims if required (legacy mode only, when no doc_type)
+        if doc_type is None and self.require_claims:
             claims = extraction_data.get("key_claims", [])
             result.field_coverage["key_claims"] = bool(claims)
             if not claims:
@@ -118,8 +136,8 @@ class ExtractionValidator:
                 result.valid = False
 
         # Check recommended fields
-        for field_name in self.RECOMMENDED_FIELDS:
-            if field_name == "key_claims" and self.require_claims:
+        for field_name in recommended_fields:
+            if field_name == "key_claims" and doc_type is None and self.require_claims:
                 continue
             value = extraction_data.get(field_name)
             has_value = self._has_meaningful_value(value)
@@ -128,18 +146,20 @@ class ExtractionValidator:
             if not has_value:
                 result.warnings.append(f"Missing recommended field: {field_name}")
 
-        # Check methodology structure
-        methodology = extraction_data.get("methodology", {})
-        if isinstance(methodology, dict):
-            if not methodology.get("approach"):
-                result.warnings.append("Methodology missing approach")
-            if not methodology.get("sample_size"):
-                result.warnings.append("Methodology missing sample_size info")
+        # Check methodology structure (only when methodology is a required field)
+        if "methodology" in required_fields:
+            methodology = extraction_data.get("methodology", {})
+            if isinstance(methodology, dict):
+                if not methodology.get("approach"):
+                    result.warnings.append("Methodology missing approach")
+                if not methodology.get("sample_size"):
+                    result.warnings.append("Methodology missing sample_size info")
 
-        # Check key_findings quality
-        findings = extraction_data.get("key_findings", [])
-        if findings and len(findings) < 2:
-            result.warnings.append("Only one key finding extracted")
+        # Check key_findings quality (only when key_findings is required)
+        if "key_findings" in required_fields:
+            findings = extraction_data.get("key_findings", [])
+            if findings and len(findings) < 2:
+                result.warnings.append("Only one key finding extracted")
 
         return result
 

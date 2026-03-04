@@ -186,6 +186,24 @@ class StorageConfig(BaseModel):
         return Path(v) if isinstance(v, str) else v
 
 
+class ClassificationConfig(BaseModel):
+    """Document type classification configuration."""
+
+    enabled: bool = True
+    skip_non_academic: bool = True
+    min_type_confidence: float = 0.6
+    non_academic_item_types: list[str] = Field(
+        default_factory=lambda: [
+            "presentation",
+            "artwork",
+            "film",
+            "audioRecording",
+            "videoRecording",
+            "map",
+        ]
+    )
+
+
 class ProcessingConfig(BaseModel):
     """Processing options configuration."""
 
@@ -198,6 +216,7 @@ class ProcessingConfig(BaseModel):
     min_publication_pages: int = 2
     min_section_hits: int = 0
     ocr_config: dict[str, Any] | None = None
+    classification: ClassificationConfig = Field(default_factory=ClassificationConfig)
 
 
 class FederatedIndexConfig(BaseModel):

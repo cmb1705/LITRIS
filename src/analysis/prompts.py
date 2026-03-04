@@ -148,6 +148,171 @@ Enum rules (use exact tokens only, no extra words or parentheses):
 
 Respond ONLY with valid JSON. No additional text or markdown formatting.'''
 
+BOOK_EXTRACTION_USER_PROMPT = '''Analyze the following book/monograph and extract structured information.
+Focus on the central argument, key concepts, and theoretical contribution rather than
+empirical methodology.
+
+DOCUMENT METADATA:
+Title: {title}
+Authors: {authors}
+Year: {year}
+Type: {item_type}
+
+DOCUMENT TEXT:
+{text}
+
+Extract the following information and return as JSON:
+
+Enum rules (use exact tokens only, no extra words or parentheses):
+- support_type: data/citation/logic/example/authority
+
+{{
+  "thesis_statement": "The central argument or thesis of the book (1-2 sentences)",
+  "theoretical_framework": "Primary theoretical lens or paradigm (null if not explicit)",
+  "key_claims": [
+    {{
+      "claim": "A major argument or claim made in the book",
+      "support_type": "data/citation/logic/example/authority",
+      "page_reference": "page or chapter reference if identifiable (null otherwise)"
+    }}
+  ],
+  "conclusions": "Main conclusions or takeaways (2-3 sentences)",
+  "contribution_summary": "The book's primary contribution to the field (1-2 sentences)",
+  "keywords": ["5-10 searchable terms: concepts, theories, phenomena covered"],
+  "discipline_tags": ["2-5 academic disciplines. Use lowercase."],
+  "extraction_confidence": 0.0-1.0,
+  "extraction_notes": "Notes about extraction quality or missing content"
+}}
+
+Respond ONLY with valid JSON. No additional text or markdown formatting.'''
+
+REPORT_EXTRACTION_USER_PROMPT = '''Analyze the following report/white paper and extract structured information.
+Focus on findings, recommendations, and data sources rather than academic methodology.
+
+DOCUMENT METADATA:
+Title: {title}
+Authors: {authors}
+Year: {year}
+Type: {item_type}
+
+DOCUMENT TEXT:
+{text}
+
+Extract the following information and return as JSON:
+
+Enum rules (use exact tokens only, no extra words or parentheses):
+- significance: high/medium/low
+- evidence_type: empirical/theoretical/methodological/case_study/survey/experimental/qualitative/quantitative/mixed
+- support_type: data/citation/logic/example/authority
+
+{{
+  "key_findings": [
+    {{
+      "finding": "A key finding or recommendation from the report",
+      "evidence_type": "empirical/theoretical/methodological/case_study/survey/experimental/qualitative/quantitative/mixed",
+      "significance": "high/medium/low",
+      "page_reference": "page reference if identifiable (null otherwise)"
+    }}
+  ],
+  "key_claims": [
+    {{
+      "claim": "A key claim or recommendation",
+      "support_type": "data/citation/logic/example/authority",
+      "page_reference": "page reference if identifiable (null otherwise)"
+    }}
+  ],
+  "conclusions": "Main conclusions or recommendations (2-3 sentences)",
+  "keywords": ["5-10 searchable terms: topics, methods, policy areas"],
+  "discipline_tags": ["2-5 relevant fields. Use lowercase."],
+  "extraction_confidence": 0.0-1.0,
+  "extraction_notes": "Notes about extraction quality or missing content"
+}}
+
+Respond ONLY with valid JSON. No additional text or markdown formatting.'''
+
+REVIEW_EXTRACTION_USER_PROMPT = '''Analyze the following review article and extract structured information.
+Focus on the synthesis scope, included studies, synthesized findings, and identified gaps.
+Treat "methodology" as the review scope and search strategy, not empirical methods.
+
+DOCUMENT METADATA:
+Title: {title}
+Authors: {authors}
+Year: {year}
+Type: {item_type}
+
+DOCUMENT TEXT:
+{text}
+
+Extract the following information and return as JSON:
+
+Enum rules (use exact tokens only, no extra words or parentheses):
+- significance: high/medium/low
+- evidence_type: empirical/theoretical/methodological/case_study/survey/experimental/qualitative/quantitative/mixed
+
+{{
+  "thesis_statement": "The main objective or scope of this review (1-2 sentences)",
+  "research_questions": ["Review questions or objectives addressed"],
+  "methodology": {{
+    "approach": "review",
+    "design": "e.g., systematic review, meta-analysis, scoping review, narrative review",
+    "data_sources": ["databases searched, inclusion criteria"],
+    "analysis_methods": ["synthesis approach: thematic, statistical, narrative, etc."],
+    "sample_size": "number of studies included if stated (null otherwise)",
+    "time_period": "time period covered by the review (null otherwise)"
+  }},
+  "key_findings": [
+    {{
+      "finding": "A synthesized finding from the reviewed literature",
+      "evidence_type": "empirical/theoretical/methodological/case_study/survey/experimental/qualitative/quantitative/mixed",
+      "significance": "high/medium/low",
+      "page_reference": "page reference if identifiable (null otherwise)"
+    }}
+  ],
+  "conclusions": "Main conclusions and identified gaps (2-3 sentences)",
+  "future_directions": ["Gaps or directions identified by the review"],
+  "contribution_summary": "How this review contributes to the field (1-2 sentences)",
+  "keywords": ["5-10 searchable terms: review topic, methods, phenomena"],
+  "discipline_tags": ["2-5 academic disciplines. Use lowercase."],
+  "extraction_confidence": 0.0-1.0,
+  "extraction_notes": "Notes about extraction quality or missing content"
+}}
+
+Respond ONLY with valid JSON. No additional text or markdown formatting.'''
+
+GENERIC_EXTRACTION_USER_PROMPT = '''Analyze the following document and extract whatever structured information is available.
+This document may not follow standard academic paper structure.
+
+DOCUMENT METADATA:
+Title: {title}
+Authors: {authors}
+Year: {year}
+Type: {item_type}
+
+DOCUMENT TEXT:
+{text}
+
+Extract the following information and return as JSON:
+
+{{
+  "thesis_statement": "The main point or purpose of this document (null if unclear)",
+  "contribution_summary": "Brief summary of what this document covers (1-2 sentences)",
+  "keywords": ["3-8 searchable terms related to the content"],
+  "discipline_tags": ["1-3 relevant fields if applicable. Use lowercase."],
+  "extraction_confidence": 0.0-1.0,
+  "extraction_notes": "Notes about the document type and extraction limitations"
+}}
+
+Respond ONLY with valid JSON. No additional text or markdown formatting.'''
+
+# Mapping from document-type prompt keys to templates
+DOCUMENT_TYPE_PROMPTS: dict[str, str] = {
+    "full": EXTRACTION_USER_PROMPT,
+    "book": BOOK_EXTRACTION_USER_PROMPT,
+    "report": REPORT_EXTRACTION_USER_PROMPT,
+    "review": REVIEW_EXTRACTION_USER_PROMPT,
+    "generic": GENERIC_EXTRACTION_USER_PROMPT,
+}
+
 EXTRACTION_TYPE_FIELDS: dict[str, list[str]] = {
     "summary": [
         "thesis_statement",
@@ -287,6 +452,46 @@ Respond with JSON:
   "issues": ["list of issues found"],
   "suggested_corrections": {{}}
 }}"""
+
+
+def build_prompt_for_document_type(
+    prompt_key: str,
+    title: str,
+    authors: str,
+    year: int | str | None,
+    item_type: str,
+    text: str,
+) -> str:
+    """Build an extraction prompt for a specific document type.
+
+    Args:
+        prompt_key: Key into DOCUMENT_TYPE_PROMPTS (full, book, report, review, generic).
+        title: Paper/document title.
+        authors: Author string.
+        year: Publication year.
+        item_type: Zotero item type.
+        text: Full text content.
+
+    Returns:
+        Formatted prompt string.
+
+    Raises:
+        ValueError: If prompt_key is not recognized.
+    """
+    template = DOCUMENT_TYPE_PROMPTS.get(prompt_key)
+    if template is None:
+        raise ValueError(
+            f"Unknown prompt_key '{prompt_key}'. "
+            f"Valid keys: {', '.join(DOCUMENT_TYPE_PROMPTS.keys())}."
+        )
+
+    return template.format(
+        title=title,
+        authors=authors,
+        year=year or "Unknown",
+        item_type=item_type,
+        text=text,
+    )
 
 
 def build_validation_prompt(text_excerpt: str, extraction_json: str) -> str:

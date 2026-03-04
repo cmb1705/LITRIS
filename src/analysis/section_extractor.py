@@ -10,8 +10,14 @@ from pathlib import Path
 from threading import Lock
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode
+from src.analysis.document_classifier import classify as classify_document
+from src.analysis.document_types import DocumentType, get_profile
 from src.analysis.llm_factory import create_llm_client
-from src.analysis.prompts import EXTRACTION_TYPE_FIELDS, build_extraction_prompt_for_type
+from src.analysis.prompts import (
+    EXTRACTION_TYPE_FIELDS,
+    build_extraction_prompt_for_type,
+    build_prompt_for_document_type,
+)
 from src.analysis.schemas import ExtractionResult, PaperExtraction
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
@@ -411,12 +417,64 @@ class SectionExtractor:
                     error=f"Likely non-publication: {reason_text}",
                 ), False
 
+            # Classify document type
+            stats = self.text_cleaner.get_stats(text)
+            section_hits = self.text_cleaner.count_section_markers(text)
+            doc_type, type_confidence = classify_document(
+                paper=paper,
+                text=text,
+                word_count=stats.word_count,
+                page_count=stats.page_count,
+                section_marker_count=section_hits,
+            )
+
+            # Skip LLM extraction for non-academic documents
+            if (
+                doc_type == DocumentType.NON_ACADEMIC
+                and type_confidence >= 0.8
+                and self.skip_non_publications
+            ):
+                logger.info(
+                    f"Skipping non-academic document {paper.paper_id} "
+                    f"(type_confidence={type_confidence:.2f})"
+                )
+                return ExtractionResult(
+                    paper_id=paper.paper_id,
+                    success=False,
+                    error=f"Non-academic document (confidence={type_confidence:.2f})",
+                    document_type=doc_type.value,
+                    type_confidence=type_confidence,
+                ), False
+
+            # Select prompt template based on document type
+            type_profile = get_profile(doc_type)
+            prompt_key = type_profile.extraction_prompt_key
+
             # Truncate for LLM if needed
             text = self.text_cleaner.truncate_for_llm(text)
 
             # Perform LLM extraction
             if self.type_models:
                 result = self._extract_with_model_overrides(paper, text)
+            elif prompt_key != "full":
+                # Use document-type-specific prompt
+                prompt = build_prompt_for_document_type(
+                    prompt_key=prompt_key,
+                    title=paper.title,
+                    authors=paper.author_string,
+                    year=paper.publication_year,
+                    item_type=paper.item_type,
+                    text=text,
+                )
+                result = self.llm_client.extract(
+                    paper_id=paper.paper_id,
+                    title=paper.title,
+                    authors=paper.author_string,
+                    year=paper.publication_year,
+                    item_type=paper.item_type,
+                    text=text,
+                    prompt_override=prompt,
+                )
             else:
                 result = self.llm_client.extract(
                     paper_id=paper.paper_id,
@@ -426,6 +484,12 @@ class SectionExtractor:
                     item_type=paper.item_type,
                     text=text,
                 )
+
+            # Attach classification to result
+            result.document_type = doc_type.value
+            result.type_confidence = type_confidence
+            if result.extraction:
+                result.extraction.document_type = doc_type.value
 
             # Set indexed timestamp on success
             if result.success:

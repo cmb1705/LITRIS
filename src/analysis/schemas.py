@@ -164,6 +164,12 @@ class PaperExtraction(BaseModel):
         description="Relevant discipline or topic tags",
     )
 
+    # Document type classification
+    document_type: str | None = Field(
+        default=None,
+        description="Classified document type (e.g., research_paper, book_monograph)",
+    )
+
     # Metadata
     extraction_confidence: float = Field(
         default=0.5,
@@ -191,6 +197,7 @@ class PaperExtraction(BaseModel):
             "contribution_summary": self.contribution_summary,
             "keywords": self.keywords,
             "discipline_tags": self.discipline_tags,
+            "document_type": self.document_type,
             "extraction_confidence": self.extraction_confidence,
         }
 
@@ -215,6 +222,14 @@ class ExtractionResult(BaseModel):
     timestamp: datetime = Field(
         default_factory=datetime.now,
         description="When extraction was performed",
+    )
+    document_type: str | None = Field(
+        default=None,
+        description="Classified document type",
+    )
+    type_confidence: float = Field(
+        default=0.0,
+        description="Classification confidence (0.0-1.0)",
     )
     model_used: str | None = Field(
         default=None,
