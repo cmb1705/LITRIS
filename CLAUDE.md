@@ -95,6 +95,7 @@ python scripts/query_index.py -q "network analysis"  # Search the index
 | semantic-search | Query formulation, results interpretation |
 | verification | Task completion checklists, quality gates |
 | provider-benchmark | Side-by-side Anthropic vs OpenAI extraction comparison |
+| index-health | Unified index quality check (validation + gaps + preflight) |
 
 ## Custom Commands
 
