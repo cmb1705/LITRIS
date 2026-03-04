@@ -71,6 +71,7 @@ python scripts/query_index.py -q "network analysis"  # Search the index
 | STATE.md | Status tracker |
 | config.yaml | Configuration |
 | docs/proposals/*.md | Specs and plans |
+| D:\Git_Repos\claude-dotfiles | Global Claude Code config repo (settings, plugins, skills) |
 
 ## Custom Agents
 
@@ -81,6 +82,9 @@ python scripts/query_index.py -q "network analysis"  # Search the index
 | pipeline-engineer | Infrastructure, performance |
 | query-specialist | Search optimization |
 | code-reviewer | Code quality |
+| citation-verifier | Citation accuracy, APA formatting, anti-hallucination |
+| extraction-reviewer | LLM extraction quality vs source PDFs |
+| extraction-comparator | Multi-provider extraction quality diffs |
 
 ## Custom Skills
 
@@ -89,6 +93,8 @@ python scripts/query_index.py -q "network analysis"  # Search the index
 | academic-extraction | Paper structure, extraction guidelines |
 | citation-formatting | APA/MLA/Chicago/BibTeX |
 | semantic-search | Query formulation, results interpretation |
+| verification | Task completion checklists, quality gates |
+| provider-benchmark | Side-by-side Anthropic vs OpenAI extraction comparison |
 
 ## Custom Commands
 
@@ -170,6 +176,7 @@ Enable in `.claude/settings.json`:
 
 ### Windows Compatibility
 
+- **Plugin marketplace**: Canonical source is `anthropics-claude-plugins-official` (not `claude-plugins-official`); all `enabledPlugins` references must use exact directory name
 - **Subprocess encoding**: Always use `encoding="utf-8"` and `errors="replace"` in `subprocess.run()` to handle Unicode characters (e.g., ligatures like '\ufb01')
 - **Hook syntax**: Use `2>NUL` instead of `2>/dev/null || true` in Windows/PowerShell hooks
 - **Hook caching**: Claude Code caches hooks; restart required after `.claude/settings.json` changes
