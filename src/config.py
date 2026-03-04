@@ -61,7 +61,7 @@ class ExtractionConfig(BaseModel):
     timeout: int = 120
     use_cache: bool = True
     parallel_workers: int = 1
-    reasoning_effort: str | None = None  # For OpenAI GPT-5.2: none/low/medium/high/xhigh
+    reasoning_effort: str | None = None  # For OpenAI GPT-5.x: none/low/medium/high/xhigh
     effort: str | None = None  # Claude CLI effort level: low/medium/high (controls extended thinking)
     model_overrides: ModelOverrides | None = None  # Per-item-type model selection
 

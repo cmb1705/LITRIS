@@ -1,10 +1,10 @@
 """OpenAI LLM client for paper extraction.
 
-Supports GPT-5.2 models including GPT-5.2-Codex for agentic coding tasks.
+Supports GPT-5.x models including GPT-5.3-Codex for agentic coding tasks.
 Also supports Codex CLI for subscription-based usage.
 
 References:
-- https://platform.openai.com/docs/models/gpt-5.2
+- https://developers.openai.com/codex/models/
 - https://developers.openai.com/codex/cli/
 """
 
@@ -58,12 +58,13 @@ class OpenAILLMClient(BaseLLMClient):
             model: Model to use for extraction. Defaults to gpt-5.2.
             max_tokens: Maximum tokens for response.
             timeout: Request timeout in seconds.
-            reasoning_effort: Reasoning effort level for GPT-5.2 models.
+            reasoning_effort: Reasoning effort level for GPT-5.x models.
                 Options: 'none', 'low', 'medium', 'high', 'xhigh'.
-                Only applies to GPT-5.2 family models.
+                Defaults to 'xhigh' for maximum extraction quality.
         """
         super().__init__(mode=mode, model=model, max_tokens=max_tokens, timeout=timeout)
-        self.reasoning_effort = reasoning_effort
+        # Default to maximum reasoning effort for best extraction quality
+        self.reasoning_effort = reasoning_effort or "xhigh"
         self.client = None
 
         self.validate_mode()
@@ -321,7 +322,7 @@ class OpenAILLMClient(BaseLLMClient):
             "max_completion_tokens": self.max_tokens,
         }
 
-        # Add reasoning effort for GPT-5.2 models
+        # Add reasoning effort for GPT-5.x models
         if self.reasoning_effort and self.model.startswith("gpt-5"):
             kwargs["reasoning"] = {"effort": self.reasoning_effort}
 
