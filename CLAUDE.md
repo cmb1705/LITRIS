@@ -19,6 +19,7 @@
 pip install -r requirements.txt
 python scripts/build_index.py --limit 5  # Test extraction on 5 papers
 python scripts/query_index.py -q "network analysis"  # Search the index
+pytest tests/ -v --tb=short  # Run test suite
 ```
 
 ## Git Workflow
@@ -60,8 +61,8 @@ python scripts/query_index.py -q "network analysis"  # Search the index
 
 ## Task Tracking
 
-- Track progress in [STATE.md](STATE.md)
-- Use TodoWrite for complex tasks
+- Use beads (`bd`) for multi-step tracking (preferred)
+- Use TodoWrite only for quick single-session visibility
 - Task specs in `docs/proposals/tasks/*.md`
 
 ## Key Files
@@ -96,6 +97,7 @@ python scripts/query_index.py -q "network analysis"  # Search the index
 | verification | Task completion checklists, quality gates |
 | provider-benchmark | Side-by-side Anthropic vs OpenAI extraction comparison |
 | index-health | Unified index quality check (validation + gaps + preflight) |
+| smoketest | Targeted integration smoketests by keyword |
 
 ## Custom Commands
 
@@ -113,6 +115,7 @@ python scripts/query_index.py -q "network analysis"  # Search the index
 | PostToolUse (Write/Edit) | Ruff on .py files |
 | PostToolUse (Write/Edit) | Auto-run related tests on src/ changes |
 | PostToolUse (Write/Edit) | Lint .md files via markdownlint-cli2 |
+| PreToolUse (Edit) | Verify task completion before edits |
 | PostToolUse (Bash/Write/Edit) | Log to operations.log |
 
 ## MCP Integration
@@ -239,6 +242,6 @@ bd prime
 Before stopping:
 1. Update beads status for tasks worked on
 2. Create issues for discovered work
-3. Run `bd sync --flush-only`
-4. Verify with `bd status`
+3. Run `bd dolt push`
+4. Verify with `bd ready`
 <!-- BEADS-RALPH-INTEGRATION-END -->

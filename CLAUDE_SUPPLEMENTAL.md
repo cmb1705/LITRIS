@@ -177,7 +177,7 @@ Based on Zotero collections:
 
 | Type         | Count | Notes                          |
 |--------------|-------|--------------------------------|
-| Total Papers | 332   | See STATE.md for current stats |
+| Total Papers | 1,624 | Run `litris_summary` for current stats |
 
 **Note:** Run `mcp__litris__litris_summary` or check STATE.md for current corpus statistics.
 
@@ -193,7 +193,7 @@ Based on Zotero collections:
 
 ### Query Performance
 
-- Search: < 1 second for 500-paper corpus
+- Search: < 1 second for 1,600-paper corpus
 - Filter: Minimal additional latency
 - Full retrieval: < 5 seconds
 
@@ -202,7 +202,7 @@ Based on Zotero collections:
 | Mode | Test (10 papers) | Full (500 papers) | Notes |
 |------|------------------|-------------------|-------|
 | CLI | $0 | $0 | Uses Max subscription |
-| Batch API | ~$0.60 | ~$31 | Opus 4.5: $2.50/$12.50 per MTok |
+| Batch API | ~$0.60 | ~$97 | Opus 4.5: $2.50/$12.50 per MTok |
 
 ---
 
