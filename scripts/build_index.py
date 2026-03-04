@@ -123,6 +123,14 @@ def parse_args():
         help="Skip specific paper ID (can be used multiple times)",
     )
     parser.add_argument(
+        "--paper",
+        type=str,
+        action="append",
+        default=[],
+        metavar="PAPER_ID",
+        help="Process only this paper (zotero_key or paper_id, repeatable)",
+    )
+    parser.add_argument(
         "--show-failed",
         action="store_true",
         help="Show list of failed papers from previous run",
@@ -691,15 +699,29 @@ def main():
     # Save full papers list for embedding generation (needs all papers, not just unextracted)
     all_papers_with_pdfs = papers.copy()
 
-    # Filter out already-extracted papers BEFORE applying limit
-    # This way --limit N means "extract N new papers"
-    total_papers = len(papers)
-    already_extracted_count = len([p for p in papers if is_already_extracted(p)])
-    # Reset consumed set and filter again (since we counted above)
-    consumed_old_style.clear()
-    papers = [p for p in papers if not is_already_extracted(p)]
-    if already_extracted_count > 0:
-        logger.info(f"Filtered out {already_extracted_count} already-extracted papers")
+    # --paper: target specific papers and bypass already-extracted filter
+    if args.paper:
+        target_keys = set(args.paper)
+        papers = [
+            p for p in all_papers_with_pdfs
+            if p.paper_id in target_keys or p.zotero_key in target_keys
+        ]
+        if not papers:
+            logger.error(f"No papers matched --paper keys: {target_keys}")
+            return 1
+        logger.info(f"Targeting {len(papers)} paper(s) via --paper flag")
+        total_papers = len(papers)
+        already_extracted_count = 0
+    else:
+        # Filter out already-extracted papers BEFORE applying limit
+        # This way --limit N means "extract N new papers"
+        total_papers = len(papers)
+        already_extracted_count = len([p for p in papers if is_already_extracted(p)])
+        # Reset consumed set and filter again (since we counted above)
+        consumed_old_style.clear()
+        papers = [p for p in papers if not is_already_extracted(p)]
+        if already_extracted_count > 0:
+            logger.info(f"Filtered out {already_extracted_count} already-extracted papers")
 
     # DOI-based deduplication (for cross-database scenarios)
     doi_duplicate_count = 0
@@ -1007,12 +1029,15 @@ def main():
     # Step 2: Embedding Generation
     if not args.skip_embeddings:
         try:
+            # When targeting specific papers, only regenerate their embeddings
+            embed_papers = papers if args.paper else all_papers_with_pdfs
+            rebuild = args.rebuild_embeddings and not args.paper
             chunks_added = run_embedding_generation(
-                all_papers_with_pdfs,  # Use full list, not filtered extraction list
+                embed_papers,
                 existing_extractions,
                 index_dir,
                 config.embeddings.model,
-                args.rebuild_embeddings,
+                rebuild,
                 logger,
             )
             if chunks_added == 0:

@@ -405,6 +405,7 @@ class ClaudeCliExecutor:
         ]
 
         env = os.environ.copy()
+        env.pop("CLAUDECODE", None)  # Allow spawning claude from within Claude Code
 
         try:
             result = subprocess.run(
@@ -553,6 +554,7 @@ class ClaudeCliExecutor:
 
             # Set up environment - ensure OAuth token is passed if set
             env = os.environ.copy()
+            env.pop("CLAUDECODE", None)  # Allow spawning claude from within Claude Code
 
             # Execute with combined prompt via stdin
             result = subprocess.run(
@@ -691,7 +693,28 @@ class ClaudeCliExecutor:
         try:
             parsed = json.loads(output)
         except json.JSONDecodeError:
-            pass
+            # Output may be JSONL (one JSON object per line).
+            for line in output.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    if isinstance(obj, dict) and obj.get("type") == "result":
+                        parsed = obj
+                        break
+                except json.JSONDecodeError:
+                    continue
+
+        # CLI --output-format json returns a JSON array of event objects.
+        # Scan for the result event.
+        if isinstance(parsed, list):
+            result_obj = None
+            for item in parsed:
+                if isinstance(item, dict) and item.get("type") == "result":
+                    result_obj = item
+                    break
+            parsed = result_obj
 
         # Check if this is a CLI wrapper format
         if parsed and isinstance(parsed, dict) and "type" in parsed and "result" in parsed:
@@ -732,6 +755,11 @@ class ClaudeCliExecutor:
         if extracted:
             return extracted
 
+        logger.debug(
+            "CLI response could not be parsed as JSON. "
+            "Raw output (first 500 chars): %s",
+            output[:500],
+        )
         raise ParseError(
             "Could not parse JSON from CLI response",
             raw_output=output,
