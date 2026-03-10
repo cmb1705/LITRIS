@@ -1,0 +1,489 @@
+"""Anthropic Batch API client for paper extraction."""
+
+import json
+import time
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+
+from anthropic import Anthropic
+
+from src.analysis.constants import ANTHROPIC_BATCH_PRICING, DEFAULT_MODELS
+from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
+from src.analysis.schemas import ExtractionResult, PaperExtraction
+from src.utils.logging_config import get_logger
+from src.utils.secrets import get_anthropic_api_key
+from src.zotero.models import PaperMetadata
+
+logger = get_logger(__name__)
+
+# Valid enum values for extraction fields
+VALID_EVIDENCE_TYPES = {
+    "empirical", "theoretical", "methodological", "case_study",
+    "survey", "experimental", "qualitative", "quantitative", "mixed",
+}
+VALID_SIGNIFICANCE_LEVELS = {"high", "medium", "low"}
+VALID_SUPPORT_TYPES = {"data", "citation", "logic", "example", "authority"}
+
+# Synonyms for enum normalization
+EVIDENCE_TYPE_SYNONYMS = {
+    "ethnographic": "qualitative",
+    "ethnography": "qualitative",
+    "interviews": "qualitative",
+    "interview": "qualitative",
+    "observational": "qualitative",
+    "empiric": "empirical",
+    "data": "empirical",
+    "evidence": "empirical",
+    "theory": "theoretical",
+    "conceptual": "theoretical",
+    "methods": "methodological",
+    "methodology": "methodological",
+    "case": "case_study",
+    "case_studies": "case_study",
+    "case study": "case_study",
+    "experiment": "experimental",
+    "experiments": "experimental",
+    "qual": "qualitative",
+    "quant": "quantitative",
+    "mixed_methods": "mixed",
+    "mixed methods": "mixed",
+}
+
+
+def _normalize_enum(value: str | None, valid_values: set, synonyms: dict, default: str) -> str:
+    """Normalize an enum value to a valid entry.
+
+    Args:
+        value: Raw value from LLM.
+        valid_values: Set of valid enum values.
+        synonyms: Dict mapping synonyms to valid values.
+        default: Default value if normalization fails.
+
+    Returns:
+        Normalized valid enum value.
+    """
+    if value is None:
+        return default
+
+    # Clean the value
+    cleaned = str(value).lower().strip()
+
+    # Extract first word if there's extra text (e.g., "empirical (data-based)")
+    if "(" in cleaned:
+        cleaned = cleaned.split("(")[0].strip()
+
+    # Check if already valid
+    if cleaned in valid_values:
+        return cleaned
+
+    # Check synonyms
+    if cleaned in synonyms:
+        return synonyms[cleaned]
+
+    # Try partial matching
+    for valid in valid_values:
+        if valid in cleaned or cleaned in valid:
+            return valid
+
+    logger.debug(f"Unknown enum value '{value}', using default '{default}'")
+    return default
+
+
+@dataclass
+class BatchRequest:
+    """A single request in a batch."""
+
+    custom_id: str  # paper_id
+    paper: PaperMetadata
+    prompt: str
+
+
+@dataclass
+class BatchStatus:
+    """Status of a batch job."""
+
+    batch_id: str
+    status: str  # validating, in_progress, ended, canceling, canceled, expired
+    created_at: datetime
+    total_requests: int
+    completed_requests: int = 0
+    failed_requests: int = 0
+    expired_at: datetime | None = None
+    results_url: str | None = None
+
+
+class BatchExtractionClient:
+    """Client for batch extraction using Anthropic Batch API.
+
+    The Batch API is cost-effective (50% discount) but asynchronous.
+    Batches are processed within 24 hours.
+
+    Typical workflow:
+    1. Create batch from papers
+    2. Submit batch
+    3. Poll for completion (or wait)
+    4. Retrieve results
+    """
+
+    def __init__(
+        self,
+        model: str | None = None,
+        max_tokens: int = 8192,
+        batch_dir: Path | None = None,
+    ):
+        """Initialize batch client.
+
+        Args:
+            model: Model to use for extraction.
+            max_tokens: Maximum tokens for response.
+            batch_dir: Directory to store batch state files.
+        """
+        api_key = get_anthropic_api_key()
+        if not api_key:
+            raise ValueError(
+                "Anthropic API key required for batch API. "
+                "Set ANTHROPIC_API_KEY or store it in the OS keyring "
+                "(service: 'litris', key: 'ANTHROPIC_API_KEY')."
+            )
+
+        self.client = Anthropic(api_key=api_key)
+        self.model = model or DEFAULT_MODELS["anthropic"]
+        # Claude batch API hard-limits output tokens to 64k; clamp to avoid rejections.
+        if max_tokens > 64000:
+            logger.info(
+                "Clamping max_tokens from %s to 64000 to satisfy Claude batch API limits",
+                max_tokens,
+            )
+        self.max_tokens = min(max_tokens, 64000)
+        self.batch_dir = batch_dir or Path("data/batches")
+        self.batch_dir.mkdir(parents=True, exist_ok=True)
+
+    def create_batch_requests(
+        self,
+        papers: list[PaperMetadata],
+        text_getter: Callable,
+    ) -> list[BatchRequest]:
+        """Create batch requests from papers.
+
+        Args:
+            papers: List of papers to process.
+            text_getter: Function(paper) -> str that returns cleaned text.
+
+        Returns:
+            List of BatchRequest objects.
+        """
+        requests = []
+
+        for paper in papers:
+            try:
+                text = text_getter(paper)
+                prompt = build_extraction_prompt(
+                    title=paper.title,
+                    authors=paper.author_string,
+                    year=paper.publication_year,
+                    item_type=paper.item_type,
+                    text=text,
+                )
+                requests.append(
+                    BatchRequest(
+                        custom_id=paper.paper_id,
+                        paper=paper,
+                        prompt=prompt,
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Failed to create request for {paper.paper_id}: {e}")
+
+        return requests
+
+    def submit_batch(self, requests: list[BatchRequest]) -> str:
+        """Submit a batch of requests.
+
+        Args:
+            requests: List of batch requests.
+
+        Returns:
+            Batch ID for tracking.
+        """
+        if not requests:
+            raise ValueError("No requests to submit")
+
+        # Build the batch request format
+        batch_requests = []
+        for req in requests:
+            batch_requests.append({
+                "custom_id": req.custom_id,
+                "params": {
+                    "model": self.model,
+                    "max_tokens": self.max_tokens,
+                    "system": EXTRACTION_SYSTEM_PROMPT,
+                    "messages": [{"role": "user", "content": req.prompt}],
+                },
+            })
+
+        logger.info(f"Submitting batch with {len(batch_requests)} requests...")
+
+        # Create the batch
+        response = self.client.messages.batches.create(requests=batch_requests)
+
+        batch_id = response.id
+        logger.info(f"Batch submitted: {batch_id}")
+
+        # Save batch state
+        self._save_batch_state(batch_id, requests)
+
+        return batch_id
+
+    def get_batch_status(self, batch_id: str) -> BatchStatus:
+        """Get status of a batch.
+
+        Args:
+            batch_id: Batch ID from submit_batch.
+
+        Returns:
+            BatchStatus with current state.
+        """
+        response = self.client.messages.batches.retrieve(batch_id)
+
+        return BatchStatus(
+            batch_id=response.id,
+            status=response.processing_status,
+            created_at=response.created_at,
+            total_requests=response.request_counts.processing
+            + response.request_counts.succeeded
+            + response.request_counts.errored
+            + response.request_counts.canceled
+            + response.request_counts.expired,
+            completed_requests=response.request_counts.succeeded,
+            failed_requests=response.request_counts.errored,
+            results_url=response.results_url,
+        )
+
+    def wait_for_batch(
+        self,
+        batch_id: str,
+        poll_interval: int = 60,
+        max_wait: int = 86400,
+        progress_callback: Callable | None = None,
+    ) -> BatchStatus:
+        """Wait for batch to complete.
+
+        Args:
+            batch_id: Batch ID from submit_batch.
+            poll_interval: Seconds between status checks.
+            max_wait: Maximum seconds to wait (default 24 hours).
+            progress_callback: Optional callback(status) for progress updates.
+
+        Returns:
+            Final BatchStatus.
+
+        Raises:
+            TimeoutError: If batch doesn't complete within max_wait.
+        """
+        start_time = time.time()
+
+        while True:
+            status = self.get_batch_status(batch_id)
+
+            if progress_callback:
+                progress_callback(status)
+
+            if status.status == "ended":
+                return status
+
+            if status.status in ("canceled", "expired"):
+                raise RuntimeError(f"Batch {batch_id} {status.status}")
+
+            elapsed = time.time() - start_time
+            if elapsed > max_wait:
+                raise TimeoutError(
+                    f"Batch {batch_id} did not complete within {max_wait}s"
+                )
+
+            logger.info(
+                f"Batch {batch_id}: {status.completed_requests}/{status.total_requests} "
+                f"complete, waiting {poll_interval}s..."
+            )
+            time.sleep(poll_interval)
+
+    def get_results(self, batch_id: str) -> Iterator[ExtractionResult]:
+        """Retrieve results from a completed batch.
+
+        Args:
+            batch_id: Batch ID from submit_batch.
+
+        Yields:
+            ExtractionResult for each paper.
+        """
+        # Stream results from the batch
+        for result in self.client.messages.batches.results(batch_id):
+            paper_id = result.custom_id
+
+            if result.result.type == "succeeded":
+                try:
+                    message = result.result.message
+                    response_text = message.content[0].text
+                    extraction = self._parse_response(response_text)
+
+                    yield ExtractionResult(
+                        paper_id=paper_id,
+                        success=True,
+                        extraction=extraction,
+                        model_used=self.model,
+                        input_tokens=message.usage.input_tokens,
+                        output_tokens=message.usage.output_tokens,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to parse result for {paper_id}: {e}")
+                    yield ExtractionResult(
+                        paper_id=paper_id,
+                        success=False,
+                        error=f"Parse error: {e}",
+                        model_used=self.model,
+                    )
+            else:
+                error_msg = getattr(result.result, "error", {})
+                yield ExtractionResult(
+                    paper_id=paper_id,
+                    success=False,
+                    error=f"Batch error: {error_msg}",
+                    model_used=self.model,
+                )
+
+    def _parse_response(self, response_text: str) -> PaperExtraction:
+        """Parse JSON response into PaperExtraction."""
+        from src.analysis.schemas import KeyClaim, KeyFinding, Methodology
+
+        # Clean response - remove any markdown formatting
+        text = response_text.strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+
+        # Parse JSON
+        data = json.loads(text)
+
+        # Handle nested objects
+        if "methodology" in data and isinstance(data["methodology"], dict):
+            data["methodology"] = Methodology(**data["methodology"])
+
+        if "key_findings" in data and isinstance(data["key_findings"], list):
+            normalized_findings = []
+            for f in data["key_findings"]:
+                if isinstance(f, dict):
+                    # Normalize enum fields
+                    f["evidence_type"] = _normalize_enum(
+                        f.get("evidence_type"),
+                        VALID_EVIDENCE_TYPES,
+                        EVIDENCE_TYPE_SYNONYMS,
+                        "empirical",
+                    )
+                    f["significance"] = _normalize_enum(
+                        f.get("significance"),
+                        VALID_SIGNIFICANCE_LEVELS,
+                        {},
+                        "medium",
+                    )
+                    normalized_findings.append(KeyFinding(**f))
+                else:
+                    normalized_findings.append(f)
+            data["key_findings"] = normalized_findings
+
+        if "key_claims" in data and isinstance(data["key_claims"], list):
+            normalized_claims = []
+            for c in data["key_claims"]:
+                if isinstance(c, dict):
+                    # Normalize enum fields
+                    c["support_type"] = _normalize_enum(
+                        c.get("support_type"),
+                        VALID_SUPPORT_TYPES,
+                        {"empirical": "data", "experimental": "data"},
+                        "data",
+                    )
+                    c["strength"] = _normalize_enum(
+                        c.get("strength"),
+                        VALID_SIGNIFICANCE_LEVELS,
+                        {},
+                        "medium",
+                    )
+                    normalized_claims.append(KeyClaim(**c))
+                else:
+                    normalized_claims.append(c)
+            data["key_claims"] = normalized_claims
+
+        return PaperExtraction(**data)
+
+    def _save_batch_state(self, batch_id: str, requests: list[BatchRequest]) -> None:
+        """Save batch state to disk for recovery."""
+        state = {
+            "batch_id": batch_id,
+            "created_at": datetime.now().isoformat(),
+            "model": self.model,
+            "paper_ids": [r.custom_id for r in requests],
+        }
+
+        state_file = self.batch_dir / f"{batch_id}.json"
+        with open(state_file, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+
+    def list_pending_batches(self) -> list[str]:
+        """List batch IDs that haven't completed yet."""
+        pending = []
+
+        for state_file in self.batch_dir.glob("*.json"):
+            try:
+                with open(state_file, encoding="utf-8") as f:
+                    state = json.load(f)
+                batch_id = state.get("batch_id")
+                if batch_id:
+                    status = self.get_batch_status(batch_id)
+                    if status.status not in ("ended", "canceled", "expired"):
+                        pending.append(batch_id)
+            except Exception:
+                continue
+
+        return pending
+
+    # Import batch pricing from centralized constants
+    BATCH_PRICING = ANTHROPIC_BATCH_PRICING
+
+    def estimate_cost(self, num_papers: int, avg_text_length: int) -> dict:
+        """Estimate cost for batch extraction.
+
+        Args:
+            num_papers: Number of papers.
+            avg_text_length: Average text length per paper.
+
+        Returns:
+            Cost estimate dictionary.
+        """
+        # Rough estimate: 4 chars per token
+        input_tokens_per_paper = avg_text_length // 4 + 500
+        output_tokens_per_paper = 2000
+
+        total_input = input_tokens_per_paper * num_papers
+        total_output = output_tokens_per_paper * num_papers
+
+        # Get batch pricing for model (default to Opus 4.5 pricing)
+        input_cost_per_million, output_cost_per_million = self.BATCH_PRICING.get(
+            self.model, (2.50, 12.50)
+        )
+
+        input_cost = (total_input / 1_000_000) * input_cost_per_million
+        output_cost = (total_output / 1_000_000) * output_cost_per_million
+
+        return {
+            "num_papers": num_papers,
+            "estimated_input_tokens": total_input,
+            "estimated_output_tokens": total_output,
+            "estimated_cost": round(input_cost + output_cost, 2),
+            "discount": "50% (batch API)",
+            "model": self.model,
+            "pricing": f"${input_cost_per_million}/MTok in, ${output_cost_per_million}/MTok out",
+        }

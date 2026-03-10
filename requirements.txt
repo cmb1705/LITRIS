@@ -1,0 +1,59 @@
+# Core dependencies for Literature Review Index System
+# For exact versions, see requirements.lock
+
+# LLM API clients
+anthropic>=0.18,<1.0
+openai>=2.20,<3.0  # Optional: for GPT-5.x (>=2.20 for reasoning_effort)
+google-genai>=1.0,<2.0  # Optional: for Gemini support
+
+# PDF text extraction
+pymupdf>=1.23,<2.0
+
+# Data validation
+pydantic>=2.0,<3.0
+
+# Configuration
+pyyaml>=6.0,<7.0
+python-dotenv>=1.0,<2.0
+
+# Progress bars
+tqdm>=4.65,<5.0
+
+# Vector store
+chromadb>=0.4,<2.0
+
+# Embeddings
+sentence-transformers>=2.2,<6.0
+ollama>=0.4,<1.0
+
+# MCP (Model Context Protocol) server
+mcp>=1.0,<2.0
+
+# Secure credential storage (uses OS keyring, e.g., Windows Credential Manager)
+keyring>=24.3,<26.0
+
+# Markdown to HTML conversion (for PDF export)
+markdown>=3.4,<4.0
+
+# Web UI
+streamlit>=1.32,<2.0
+
+# Citation network visualization (optional)
+pyvis>=0.3,<1.0
+networkx>=3.0,<4.0
+
+# Zotero Web API (optional - for write-back to Zotero library)
+pyzotero>=1.5,<2.0
+
+# Topic clustering (optional - for corpus analysis)
+umap-learn>=0.5,<1.0
+hdbscan>=0.8,<1.0
+
+# Discord bot (optional - for chat-based search interface)
+discord.py>=2.3,<3.0
+
+# OCR support (optional - requires Tesseract installation)
+# Install with: pip install litris[ocr]
+pytesseract>=0.3.10,<1.0
+pdf2image>=1.16,<2.0
+Pillow>=10.0,<13.0
