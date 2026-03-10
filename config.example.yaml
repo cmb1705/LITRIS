@@ -1,0 +1,179 @@
+# Literature Review Index System (LITRIS) Configuration
+# Copy this file to config.yaml and customize for your environment.
+#
+# Schema version - do not modify manually. The system will auto-migrate
+# older configs to newer versions when loaded.
+version: "1.2.0"
+
+# =============================================================================
+# Reference Source Configuration
+# =============================================================================
+# LITRIS supports multiple reference sources:
+# - Zotero (default): Uses local Zotero database
+# - BibTeX: Imports from .bib files
+# - PDF Folder: Scans folders of PDF files
+
+zotero:
+  # Path to Zotero SQLite database
+  # Windows: C:/Users/YOUR_USERNAME/Zotero/zotero.sqlite
+  # macOS: /Users/YOUR_USERNAME/Zotero/zotero.sqlite
+  # Linux: /home/YOUR_USERNAME/Zotero/zotero.sqlite
+  database_path: "/path/to/Zotero/zotero.sqlite"
+
+  # Path to Zotero storage directory containing PDFs
+  # Windows: C:/Users/YOUR_USERNAME/Zotero/storage
+  # macOS: /Users/YOUR_USERNAME/Zotero/storage
+  # Linux: /home/YOUR_USERNAME/Zotero/storage
+  storage_path: "/path/to/Zotero/storage"
+
+# =============================================================================
+# LLM Extraction Configuration
+# =============================================================================
+extraction:
+  # LLM provider: "anthropic" (Claude), "openai" (GPT), or "google" (Gemini)
+  provider: "anthropic"
+
+  # Extraction mode:
+  # - "cli": Free with Claude Max subscription (uses Claude CLI)
+  # - "api": Direct API calls (requires API key, pay-per-use)
+  # - "batch_api": Anthropic batch API (50% discount, async processing)
+  mode: "cli"
+
+  # Model to use for extraction (provider-specific)
+  # Anthropic: claude-opus-4-5-20251101, claude-sonnet-4-20250514
+  # OpenAI: gpt-5.4, gpt-5.4-pro, gpt-5-mini
+  # Google: gemini-3-pro, gemini-2.5-flash, gemini-2.5-pro
+  # Leave empty to use provider default
+  model: ""
+
+  # Maximum tokens per paper (papers exceeding this are truncated)
+  max_tokens: 100000
+
+  # Timeout in seconds for extraction requests
+  timeout: 120
+
+  # Enable extraction caching (recommended)
+  use_cache: true
+
+  # Number of parallel workers for batch processing
+  parallel_workers: 1
+
+  # Reasoning effort for OpenAI models (o1, gpt-5.4)
+  # Options: none, low, medium, high, xhigh
+  # Leave empty for non-OpenAI or to use default
+  reasoning_effort: ""
+
+  # Model overrides by item type (optional)
+  # Use different models for different document types to optimize cost/quality
+  # Example: Use faster model for conference papers, better model for books
+  # model_overrides:
+  #   journal_article: claude-sonnet-4-20250514
+  #   book: claude-opus-4-5-20251101
+  #   thesis: claude-opus-4-5-20251101
+  #   conference_paper: gemini-2.5-flash
+  #   preprint: gemini-2.5-flash
+
+# =============================================================================
+# Embedding Model Configuration
+# =============================================================================
+embeddings:
+  # Sentence transformer model for semantic search embeddings
+  # Default is fast and effective for academic text
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+
+  # Embedding dimension (must match the model's output dimension)
+  dimension: 384
+
+# =============================================================================
+# Storage Configuration
+# =============================================================================
+storage:
+  # ChromaDB vector database persistence directory
+  chroma_path: "data/chroma"
+
+  # Extraction cache directory (stores LLM extraction results)
+  cache_path: "data/cache"
+
+  # Collection name in ChromaDB
+  collection_name: "literature_review"
+
+# =============================================================================
+# Processing Configuration
+# =============================================================================
+processing:
+  # Number of papers to process in each batch
+  batch_size: 10
+
+  # Enable OCR fallback for scanned PDFs
+  # Requires Tesseract and Poppler installation
+  ocr_enabled: false
+
+  # Attempt OCR when initial text checks fail (recommended for scanned books)
+  ocr_on_fail: true
+
+  # Minimum text length (chars) to consider PDF extraction successful
+  # PDFs with less text may be candidates for OCR
+  min_text_length: 100
+
+  # Skip likely non-publication attachments (fragments, forms, notes)
+  # Uses simple heuristics on extracted text before LLM extraction
+  skip_non_publications: false
+
+  # Minimum words required to treat an attachment as a publication
+  min_publication_words: 500
+
+  # Minimum PDF pages required to treat an attachment as a publication
+  min_publication_pages: 2
+
+  # Minimum distinct academic section markers (abstract, introduction, references)
+  # Set to 0 to disable section marker checks
+  min_section_hits: 0
+
+  # OCR-specific configuration (used when ocr_enabled is true)
+  ocr_config:
+    # DPI for PDF to image conversion (higher = better quality, slower)
+    dpi: 300
+    # Tesseract language code (eng, deu, fra, etc.)
+    lang: "eng"
+
+# =============================================================================
+# Federated Search Configuration (Optional)
+# =============================================================================
+# Search across multiple LITRIS indexes simultaneously. Useful for:
+# - Combining results from multiple Zotero libraries
+# - Searching across research group indexes
+# - Keeping separate indexes while searching together
+#
+# COMPATIBILITY REQUIREMENTS:
+# - All indexes must use the same embedding model
+# - Schema versions must be compatible (same major version)
+# - Primary index is always searched; federated indexes are additive
+federated:
+  # Enable federated search
+  enabled: false
+
+  # Merge strategy for combining results:
+  # - "interleave": Round-robin by score (recommended)
+  # - "concat": Primary index results first, then others
+  # - "rerank": Combined scoring across all indexes
+  merge_strategy: "interleave"
+
+  # Similarity threshold for deduplication (0.0-1.0)
+  # Papers with similarity >= threshold are considered duplicates
+  # 0.95 = near-identical papers (recommended)
+  dedup_threshold: 0.95
+
+  # Maximum results to retrieve from each index before merging
+  max_results_per_index: 50
+
+  # Additional indexes to search (add as needed)
+  # indexes:
+  #   - path: "/path/to/other/litris/index"
+  #     label: "Colleague Library"
+  #     enabled: true
+  #     weight: 1.0  # Relevance weight (0.0-2.0)
+  #
+  #   - path: "/data/historical_archive/index"
+  #     label: "Historical Archive"
+  #     enabled: true
+  #     weight: 0.8  # Lower weight for older papers

@@ -1,0 +1,101 @@
+{
+  "enableAllProjectMcpServers": true,
+  "hooks": {
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Evaluate if this citation-verifier subagent completed correctly without hallucinating. Input: $ARGUMENTS\n\nCheck for HALLUCINATION indicators:\n1. Did the agent claim to read a file but report citations that don't match the document topic?\n2. Does the reported document title match what would be expected from the file path?\n3. Are the citations reported plausible for the document's apparent subject matter?\n\nKnown document topics:\n- phd_research_statement_draft.md: Network dynamics, research portfolio growth (citations: Klavans, Boyack, Fortunato, Ahrabian)\n- comprehensive_exam_fields.md: Science of Science, Network Science fields\n- reading_list_field1: Science of Science citations\n- reading_list_field2: Network Science citations\n\nIf the agent reports citations about completely different topics (e.g., education theory, language learning, argumentation), this is a HALLUCINATION.\n\nReturn: {\"decision\": \"approve\" or \"block\", \"reason\": \"explanation\", \"systemMessage\": \"Warning if hallucination detected\"}",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -Command \"$path = $env:CLAUDE_FILE_PATH; $zoteroPath = if ($env:ZOTERO_STORAGE_PATH) { [regex]::Escape($env:ZOTERO_STORAGE_PATH) } else { 'Zotero' }; if ($path -match $zoteroPath) { Write-Error 'BLOCKED: Cannot modify Zotero directory'; exit 1 }\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -File .\\scripts\\hooks\\verify_task_completion.ps1",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -File .\\scripts\\hooks\\ruff_lint.ps1",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -Command \"$path = $env:CLAUDE_FILE_PATH; if ($path -match 'tests[/\\\\]test_.*\\.py$') { pytest $path -v --tb=short 2>$null }\"",
+            "timeout": 60
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -File .\\scripts\\hooks\\run_related_tests.ps1",
+            "timeout": 60
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -File .\\scripts\\hooks\\lint_markdown.ps1",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -Command \"$logDir = '.\\data\\logs'; if (!(Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }; $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'; $tool = $env:CLAUDE_TOOL_NAME; $file = $env:CLAUDE_FILE_PATH; if ($file) { $entry = \\\"$timestamp | $tool | $file\\\"; Add-Content -Path (Join-Path $logDir 'operations.log') -Value $entry }\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}
