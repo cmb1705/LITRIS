@@ -390,3 +390,211 @@ class TestLLMCouncilExtract:
 
         assert not result.success
         assert "No providers enabled" in result.errors
+
+
+class TestLLMCouncilIntegration:
+    """End-to-end integration tests with mocked multi-provider extraction."""
+
+    def _make_mock_client(self, extraction):
+        """Create a mock LLM client returning the given extraction."""
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.extraction = extraction
+        mock_result.cost = 0.01
+        mock_client.extract.return_value = mock_result
+        return mock_client
+
+    def _make_failing_client(self, error_msg="Provider error"):
+        """Create a mock LLM client that raises an exception."""
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_client.extract.side_effect = RuntimeError(error_msg)
+        return mock_client
+
+    def test_two_provider_consensus(self):
+        """Two providers produce a consensus extraction."""
+        from unittest.mock import patch
+
+        config = CouncilConfig(
+            providers=[
+                ProviderConfig(name="anthropic", weight=1.2),
+                ProviderConfig(name="openai", weight=1.0),
+            ],
+            min_responses=2,
+            parallel=False,  # Sequential for deterministic test
+        )
+        council = LLMCouncil(config)
+
+        extraction_a = PaperExtraction(
+            thesis_statement="Short thesis",
+            keywords=["ml", "graphs"],
+            extraction_confidence=0.9,
+            methodology=Methodology(approach="quantitative"),
+        )
+        extraction_b = PaperExtraction(
+            thesis_statement="A more detailed and longer thesis statement for testing",
+            keywords=["ml", "networks", "citation"],
+            extraction_confidence=0.7,
+            methodology=Methodology(approach="quantitative", data_sources=["papers"]),
+        )
+
+        clients = {
+            "anthropic": self._make_mock_client(extraction_a),
+            "openai": self._make_mock_client(extraction_b),
+        }
+
+        with patch.object(council, "_get_client", side_effect=lambda name: clients[name]):
+            result = council.extract(
+                paper_id="test_paper",
+                title="Test Paper",
+                authors="Author et al.",
+                year=2024,
+                item_type="journalArticle",
+                text="Full paper text...",
+            )
+
+        assert result.success
+        assert result.consensus is not None
+        # LONGEST strategy: longer thesis wins
+        assert "more detailed" in result.consensus.thesis_statement
+        # UNION strategy: keywords merged
+        assert set(result.consensus.keywords) == {"ml", "graphs", "networks", "citation"}
+        # MAJORITY_VOTE: both say quantitative
+        assert result.consensus.methodology.approach == "quantitative"
+        # UNION: data_sources merged
+        assert "papers" in result.consensus.methodology.data_sources
+        # AVERAGE: confidence averaged with weights
+        assert 0.5 < result.consensus.extraction_confidence < 1.0
+        # Both providers responded
+        assert len(result.provider_responses) == 2
+        assert all(r.success for r in result.provider_responses)
+        # Confidence should be high with 2/2 responses
+        assert result.consensus_confidence > 0.5
+        # Cost tracked
+        assert result.total_cost > 0
+
+    def test_three_provider_with_one_failure(self):
+        """Three providers, one fails, consensus still built from two."""
+        from unittest.mock import patch
+
+        config = CouncilConfig(
+            providers=[
+                ProviderConfig(name="anthropic", weight=1.0),
+                ProviderConfig(name="openai", weight=1.0),
+                ProviderConfig(name="google", weight=0.8),
+            ],
+            min_responses=2,
+            parallel=False,
+        )
+        council = LLMCouncil(config)
+
+        extraction_a = PaperExtraction(
+            thesis_statement="Thesis from anthropic",
+            keywords=["a", "b"],
+        )
+        extraction_b = PaperExtraction(
+            thesis_statement="Thesis from openai provider is longer",
+            keywords=["b", "c"],
+        )
+
+        clients = {
+            "anthropic": self._make_mock_client(extraction_a),
+            "openai": self._make_mock_client(extraction_b),
+            "google": self._make_failing_client("API quota exceeded"),
+        }
+
+        with patch.object(council, "_get_client", side_effect=lambda name: clients[name]):
+            result = council.extract(
+                paper_id="test",
+                title="Test",
+                authors="Author",
+                year=2024,
+                item_type="article",
+                text="Content",
+            )
+
+        assert result.success
+        assert result.consensus is not None
+        # 2 of 3 succeeded
+        successful = [r for r in result.provider_responses if r.success]
+        assert len(successful) == 2
+        # Error recorded for google
+        assert any("google" in e for e in result.errors)
+        # Keywords unioned from both successful providers
+        assert set(result.consensus.keywords) == {"a", "b", "c"}
+
+    def test_fallback_to_single_when_below_min(self):
+        """Falls back to single response when below min_responses."""
+        from unittest.mock import patch
+
+        config = CouncilConfig(
+            providers=[
+                ProviderConfig(name="anthropic"),
+                ProviderConfig(name="openai"),
+            ],
+            min_responses=2,
+            fallback_to_single=True,
+            parallel=False,
+        )
+        council = LLMCouncil(config)
+
+        extraction = PaperExtraction(thesis_statement="Only thesis")
+
+        clients = {
+            "anthropic": self._make_mock_client(extraction),
+            "openai": self._make_failing_client(),
+        }
+
+        with patch.object(council, "_get_client", side_effect=lambda name: clients[name]):
+            result = council.extract(
+                paper_id="test",
+                title="Test",
+                authors="Author",
+                year=2024,
+                item_type="article",
+                text="Content",
+            )
+
+        assert result.success
+        assert result.consensus is not None
+        assert result.consensus.thesis_statement == "Only thesis"
+        # Lower confidence for single-response fallback
+        assert result.consensus_confidence == 0.5
+
+    def test_all_providers_fail_returns_error(self):
+        """All providers failing returns error when fallback disabled."""
+        from unittest.mock import patch
+
+        config = CouncilConfig(
+            providers=[
+                ProviderConfig(name="anthropic"),
+                ProviderConfig(name="openai"),
+            ],
+            min_responses=2,
+            fallback_to_single=False,
+            parallel=False,
+        )
+        council = LLMCouncil(config)
+
+        clients = {
+            "anthropic": self._make_failing_client("Error A"),
+            "openai": self._make_failing_client("Error B"),
+        }
+
+        with patch.object(council, "_get_client", side_effect=lambda name: clients[name]):
+            result = council.extract(
+                paper_id="test",
+                title="Test",
+                authors="Author",
+                year=2024,
+                item_type="article",
+                text="Content",
+            )
+
+        assert not result.success
+        assert result.consensus is None
+        assert len(result.errors) >= 2
