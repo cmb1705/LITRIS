@@ -1,7 +1,7 @@
 """Prompts for LLM-based paper extraction."""
 
 # Prompt version for tracking extraction compatibility
-EXTRACTION_PROMPT_VERSION = "1.3.0"  # Added quality_rating (1-5) and quality_explanation
+EXTRACTION_PROMPT_VERSION = "1.4.0"  # Added reference_list for citation graph ground truth
 
 EXTRACTION_SYSTEM_PROMPT = """You are an expert academic research analyst specializing in extracting structured information from scholarly papers. Your task is to analyze the provided paper text and extract key information in a structured format.
 
@@ -66,11 +66,22 @@ Enum rules (use exact tokens only, no extra words or parentheses):
   "contribution_summary": "Brief summary of the paper's primary contribution to the field (1-2 sentences)",
   "keywords": ["5-10 searchable terms: concepts, methods, theories, phenomena studied"],
   "discipline_tags": ["2-5 academic disciplines this paper contributes to. Use lowercase. Examples: 'scientometrics', 'bibliometrics', 'network science', 'science policy', 'information science', 'machine learning', 'complex systems', 'science and technology studies', 'research evaluation', 'computational social science', 'innovation studies', 'public administration', 'military studies', 'defense policy', 'organizational behavior', 'philosophy of science', 'history of science', 'sociology of science', 'economics of innovation', 'technology assessment', 'data science', 'artificial intelligence', 'epidemiology', 'statistical physics', 'graph theory'],
+  "reference_list": [
+    {{
+      "raw_text": "The full bibliography entry as it appears in the reference list",
+      "parsed_title": "Title of the referenced work",
+      "parsed_authors": "Author(s) of the referenced work",
+      "parsed_year": 2020,
+      "parsed_doi": "10.xxxx/xxxxx or null if not present"
+    }}
+  ],
   "quality_rating": "1-5 integer (1=poor methodology/weak evidence, 2=below average, 3=competent but unremarkable, 4=strong methodology and evidence, 5=exceptional rigor and contribution)",
   "quality_explanation": "Brief rationale for the quality rating",
   "extraction_confidence": 0.0-1.0,
   "extraction_notes": "Notes about extraction quality, missing sections, or ambiguous content"
 }}
+
+IMPORTANT: For reference_list, extract up to 50 entries from the paper's bibliography/references section. Include the DOI if present in the entry. If the paper has no reference list, return an empty array.
 
 Respond ONLY with valid JSON. No additional text or markdown formatting.'''
 
