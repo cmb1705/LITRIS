@@ -99,6 +99,33 @@ def test_gap_analysis_outputs_expected_sections():
     assert report["future_directions"]
 
 
+def test_gap_items_have_confidence_scores():
+    papers, extractions = _sample_corpus()
+    config = GapDetectionConfig(
+        max_items=5,
+        min_count=1,
+        quantile=0.0,
+        future_direction_max_coverage=0,
+        future_direction_min_mentions=1,
+    )
+    report = analyze_gap_report(papers, extractions, config)
+
+    # Topic gaps should have confidence
+    for item in report["topics_underrepresented"]:
+        assert "confidence" in item
+        assert 0.0 <= item["confidence"] <= 1.0
+
+    # Methodology gaps should have confidence
+    for item in report["methodologies_underrepresented"]:
+        assert "confidence" in item
+        assert 0.0 <= item["confidence"] <= 1.0
+
+    # Future direction gaps should have confidence
+    for item in report["future_directions"]:
+        assert "confidence" in item
+        assert 0.0 <= item["confidence"] <= 1.0
+
+
 def test_gap_report_markdown_format():
     papers, extractions = _sample_corpus()
     config = GapDetectionConfig(max_items=3, min_count=1, quantile=0.0)

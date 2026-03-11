@@ -113,15 +113,18 @@ def analyze_gap_report(
         _count_methods(method_counts, method_evidence, ext_data, paper, config)
         _count_year(year_counts, paper)
 
+    corpus_size = len(papers_list)
     topic_gaps = _select_underrepresented(
         topic_counts,
         topic_evidence,
         config,
+        corpus_size=corpus_size,
     )
     method_gaps = _select_underrepresented(
         method_counts,
         method_evidence,
         config,
+        corpus_size=corpus_size,
     )
     year_gaps = _summarize_year_gaps(
         year_counts,
@@ -392,10 +395,54 @@ def _quantile(values: list[int], q: float) -> int:
     return ordered[index]
 
 
+def _calculate_gap_confidence(
+    count: int,
+    threshold: int,
+    evidence_count: int,
+    corpus_size: int,
+) -> float:
+    """Calculate confidence score for a gap signal.
+
+    Confidence is higher when:
+    - Count is well below the threshold (strong underrepresentation signal)
+    - Multiple evidence papers support the gap
+    - The corpus is large enough to be meaningful
+
+    Args:
+        count: Number of occurrences of this item.
+        threshold: The underrepresentation threshold.
+        evidence_count: Number of evidence papers for this gap.
+        corpus_size: Total papers in the corpus.
+
+    Returns:
+        Confidence score between 0.0 and 1.0.
+    """
+    if corpus_size == 0 or threshold == 0:
+        return 0.0
+
+    # Signal strength: how far below threshold (0-1, higher = more underrepresented)
+    signal_strength = max(0.0, 1.0 - (count / threshold)) if threshold > 0 else 0.0
+
+    # Evidence quality: more evidence papers = higher confidence (caps at evidence_limit)
+    evidence_quality = min(evidence_count / 3.0, 1.0)
+
+    # Corpus significance: larger corpus makes the signal more reliable
+    corpus_factor = min(corpus_size / 50.0, 1.0)
+
+    # Weighted combination
+    confidence = (
+        0.5 * signal_strength
+        + 0.3 * evidence_quality
+        + 0.2 * corpus_factor
+    )
+    return round(min(confidence, 1.0), 3)
+
+
 def _select_underrepresented(
     counter: Counter[str],
     evidence: dict[str, list[dict]],
     config: GapDetectionConfig,
+    corpus_size: int = 0,
 ) -> list[dict]:
     if not counter:
         return []
@@ -408,11 +455,19 @@ def _select_underrepresented(
     candidates.sort(key=lambda x: (x[1], x[0]))
     output = []
     for label, count in candidates[: config.max_items]:
+        ev = evidence.get(label, [])[: config.evidence_limit]
+        confidence = _calculate_gap_confidence(
+            count=count,
+            threshold=threshold,
+            evidence_count=len(ev),
+            corpus_size=corpus_size,
+        )
         output.append(
             {
                 "label": label,
                 "count": count,
-                "evidence": evidence.get(label, [])[: config.evidence_limit],
+                "confidence": confidence,
+                "evidence": ev,
             }
         )
     return output
@@ -527,6 +582,7 @@ def _evaluate_future_directions(
     config: GapDetectionConfig,
     paper_lookup: dict[str, dict],
 ) -> list[dict]:
+    corpus_size = len(paper_lookup)
     gaps = []
     for record in records.values():
         mention_count = len(record["mentions"])
@@ -537,11 +593,20 @@ def _evaluate_future_directions(
             continue
         coverage = _coverage_for_tokens(tokens, token_index)
         if coverage <= config.future_direction_max_coverage:
+            # Confidence: more mentions + lower coverage + larger corpus = higher
+            mention_signal = min(mention_count / 5.0, 1.0)
+            coverage_signal = 1.0 - (coverage / max(config.future_direction_max_coverage + 1, 1))
+            corpus_factor = min(corpus_size / 50.0, 1.0)
+            confidence = round(
+                0.4 * mention_signal + 0.4 * coverage_signal + 0.2 * corpus_factor,
+                3,
+            )
             gaps.append(
                 {
                     "direction": record["direction"],
                     "mention_count": mention_count,
                     "coverage_count": coverage,
+                    "confidence": confidence,
                     "evidence": _evidence_from_ids(
                         record["mentions"],
                         paper_lookup,
@@ -549,7 +614,7 @@ def _evaluate_future_directions(
                     ),
                 }
             )
-    gaps.sort(key=lambda x: (-x["mention_count"], x["direction"]))
+    gaps.sort(key=lambda x: (-x["confidence"], -x["mention_count"], x["direction"]))
     return gaps[: config.max_items]
 
 
@@ -589,7 +654,9 @@ def _format_gap_items(items: list[dict]) -> list[str]:
         return ["- No gaps identified.", ""]
     lines = []
     for item in items:
-        lines.append(f"- {item['label']} (count: {item['count']})")
+        confidence = item.get("confidence")
+        conf_text = f", confidence: {confidence:.2f}" if confidence is not None else ""
+        lines.append(f"- {item['label']} (count: {item['count']}{conf_text})")
         evidence = item.get("evidence", [])
         if evidence:
             lines.append("  Evidence:")
@@ -632,8 +699,10 @@ def _format_future_gaps(items: list[dict]) -> list[str]:
         return ["- No gaps identified.", ""]
     lines = []
     for item in items:
+        confidence = item.get("confidence")
+        conf_text = f", confidence: {confidence:.2f}" if confidence is not None else ""
         lines.append(
-            f"- {item['direction']} (mentions: {item['mention_count']}, coverage: {item['coverage_count']})"
+            f"- {item['direction']} (mentions: {item['mention_count']}, coverage: {item['coverage_count']}{conf_text})"
         )
         evidence = item.get("evidence", [])
         if evidence:
