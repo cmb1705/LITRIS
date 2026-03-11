@@ -127,6 +127,149 @@ def _extract_text_fields(extraction: dict) -> str:
     return " ".join(parts)
 
 
+def _deduplicate_papers(
+    papers: list[dict],
+    part_of_pairs: set[tuple[str, str]] | None = None,
+) -> tuple[list[dict], dict[str, str]]:
+    """Merge duplicate papers, keeping the one with richest metadata.
+
+    Args:
+        papers: List of paper metadata dictionaries.
+        part_of_pairs: Set of (child_id, parent_id) part-of relationships.
+            Papers in part_of relationships are excluded from dedup.
+
+    Returns:
+        Tuple of (deduplicated papers list, redirect map {removed_id: surviving_id}).
+    """
+    if part_of_pairs is None:
+        part_of_pairs = set()
+
+    # IDs involved in part_of relationships
+    part_of_ids: set[str] = set()
+    for child_id, parent_id in part_of_pairs:
+        part_of_ids.add(child_id)
+        part_of_ids.add(parent_id)
+
+    # Group papers by normalized title
+    title_groups: dict[str, list[dict]] = defaultdict(list)
+    for paper in papers:
+        title = paper.get("title") or ""
+        normalized = _normalize_title(title)
+        if not normalized or normalized == "untitled":
+            continue
+        title_groups[normalized].append(paper)
+
+    # Papers not grouped (empty/untitled titles) pass through
+    grouped_ids: set[str] = set()
+    for group in title_groups.values():
+        for p in group:
+            pid = p.get("paper_id")
+            if pid:
+                grouped_ids.add(pid)
+
+    redirect_map: dict[str, str] = {}
+    surviving_papers: dict[str, dict] = {}
+
+    for normalized_title, group in title_groups.items():
+        if len(group) < 2:
+            # No duplicates
+            pid = group[0].get("paper_id")
+            if pid:
+                surviving_papers[pid] = group[0]
+            continue
+
+        # Skip if any member is in a part_of relationship
+        group_ids = {p.get("paper_id") for p in group if p.get("paper_id")}
+        if group_ids & part_of_ids:
+            for p in group:
+                pid = p.get("paper_id")
+                if pid:
+                    surviving_papers[pid] = p
+            continue
+
+        # Score each paper: +2 DOI, +2 authors, +1 year, +1 abstract, +1 per collection
+        def _score(p: dict) -> int:
+            s = 0
+            if p.get("doi"):
+                s += 2
+            if p.get("authors"):
+                s += 2
+            if p.get("publication_year"):
+                s += 1
+            if p.get("abstract"):
+                s += 1
+            s += len(p.get("collections") or [])
+            return s
+
+        scored = sorted(group, key=_score, reverse=True)
+        survivor = scored[0].copy()
+        survivor_id = survivor.get("paper_id")
+
+        # Union all collections into the survivor
+        all_collections: list[str] = []
+        seen_collections: set[str] = set()
+        for p in scored:
+            for col in p.get("collections") or []:
+                if col not in seen_collections:
+                    seen_collections.add(col)
+                    all_collections.append(col)
+        survivor["collections"] = all_collections
+
+        surviving_papers[survivor_id] = survivor
+
+        # Map removed papers to the survivor
+        for p in scored[1:]:
+            removed_id = p.get("paper_id")
+            if removed_id and removed_id != survivor_id:
+                redirect_map[removed_id] = survivor_id
+
+    # Add papers that weren't grouped (no title or "untitled")
+    result = list(surviving_papers.values())
+    for paper in papers:
+        pid = paper.get("paper_id")
+        if pid and pid not in grouped_ids:
+            result.append(paper)
+
+    logger.info(
+        "Deduplication: %d papers -> %d (%d duplicates merged)",
+        len(papers), len(result), len(redirect_map),
+    )
+    return result, redirect_map
+
+
+def _redirect_edges(
+    edges: list[GraphEdge],
+    redirect_map: dict[str, str],
+) -> list[GraphEdge]:
+    """Redirect edges after deduplication, removing self-references and duplicates."""
+    redirected: list[GraphEdge] = []
+    seen: set[tuple[str, str]] = set()
+
+    for edge in edges:
+        source = redirect_map.get(edge.source, edge.source)
+        target = redirect_map.get(edge.target, edge.target)
+
+        # Skip self-references created by merging
+        if source == target:
+            continue
+
+        key = (source, target)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        redirected.append(GraphEdge(
+            source=source,
+            target=target,
+            edge_type=edge.edge_type,
+            confidence=edge.confidence,
+            source_type=edge.source_type,
+            context=edge.context,
+        ))
+
+    return redirected
+
+
 def _build_title_index(papers: list[dict], min_title_length: int = _MIN_TITLE_LENGTH) -> dict[str, dict]:
     """Build a lookup of normalized title tokens to papers."""
     index: dict[str, dict] = {}
@@ -247,6 +390,11 @@ def build_citation_graph(
 
     # Filter papers by collection/year if configured
     filtered_papers = _filter_papers(papers, config)
+
+    # Deduplicate papers (after filtering, before node/edge building)
+    # part_of_pairs will be populated when part_of detection is implemented
+    filtered_papers, redirect_map = _deduplicate_papers(filtered_papers)
+
     title_index = _build_title_index(filtered_papers, config.min_title_length)
 
     # Build nodes
@@ -309,6 +457,10 @@ def build_citation_graph(
                     context=context,
                 ))
 
+    # Redirect edges for deduplicated papers
+    if redirect_map:
+        edges = _redirect_edges(edges, redirect_map)
+
     # Update node sizes based on in-degree (citation count)
     in_degree: dict[str, int] = defaultdict(int)
     for edge in edges:
@@ -327,6 +479,7 @@ def build_citation_graph(
             "node_count": len(nodes),
             "edge_count": len(edges),
             "papers_analyzed": len(filtered_papers),
+            "duplicates_merged": len(redirect_map),
             "extractions_used": sum(
                 1 for p in filtered_papers
                 if p.get("paper_id") in extractions
