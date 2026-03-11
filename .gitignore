@@ -242,3 +242,8 @@ beads_*/
 
 # Windows artifacts
 nul
+
+# Gas Town (added by gt)
+.runtime/
+.claude/
+.logs/
