@@ -127,23 +127,19 @@ def test_generate_digest(tmp_path):
 
 
 def test_generate_digest_marks_processed(tmp_path):
-    """Digest marks papers as processed in state file."""
+    """Digest marks ALL new papers as processed to prevent starvation."""
     index_dir = _write_index(tmp_path, _sample_papers(), _sample_extractions())
     config = DigestConfig(max_papers=2)
 
-    # First run processes 2
+    # First run: 3 new papers, highlights limited to 2, but all 3 marked processed
     digest1 = generate_digest(index_dir, config, mark_processed=True)
+    assert digest1.new_paper_count == 3
     assert len(digest1.highlights) == 2
 
-    # Second run should find 1 remaining
+    # Second run: all papers already processed, none new
     digest2 = generate_digest(index_dir, config, mark_processed=True)
-    assert digest2.new_paper_count == 1
-    assert len(digest2.highlights) == 1
-
-    # Third run should find none
-    digest3 = generate_digest(index_dir, config, mark_processed=True)
-    assert digest3.new_paper_count == 0
-    assert len(digest3.highlights) == 0
+    assert digest2.new_paper_count == 0
+    assert len(digest2.highlights) == 0
 
 
 def test_format_digest_markdown():

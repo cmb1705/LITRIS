@@ -65,9 +65,9 @@ def _load_digest_state(state_path: Path) -> dict:
     return safe_read_json(state_path, default={"processed_ids": [], "last_run": None})
 
 
-def _save_digest_state(state_path: Path, state: dict) -> None:
-    """Save the digest state."""
-    safe_write_json(state_path, state)
+def _save_digest_state(state_path: Path, state: dict) -> bool:
+    """Save the digest state. Returns True on success."""
+    return safe_write_json(state_path, state)
 
 
 def find_new_papers(
@@ -219,16 +219,19 @@ def generate_digest(
         highlights=highlights,
     )
 
-    if mark_processed and selected:
+    if mark_processed and new_papers:
         processed = set(state.get("processed_ids", []))
-        for paper in selected:
+        # Mark ALL new papers as processed, not just selected ones,
+        # to prevent paper starvation where older papers are perpetually
+        # bumped by newer arrivals.
+        for paper in new_papers:
             pid = paper.get("paper_id")
             if pid:
                 processed.add(pid)
         state["processed_ids"] = sorted(processed)
         state["last_run"] = now
-        _save_digest_state(state_path, state)
-        logger.info(f"Marked {len(selected)} papers as processed in digest state")
+        if not _save_digest_state(state_path, state):
+            logger.error(f"Failed to save digest state to {state_path}")
 
     return digest
 
