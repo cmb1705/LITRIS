@@ -4,6 +4,9 @@ from pathlib import Path
 
 from src.analysis.citation_graph import (
     GraphConfig,
+    _deduplicate_papers,
+    _redirect_edges,
+    GraphEdge,
     build_citation_graph,
     save_citation_graph,
 )
@@ -218,3 +221,117 @@ def test_save_citation_graph(tmp_path: Path):
     output_path = tmp_path / "citation_graph.json"
     result = save_citation_graph(graph, output_path)
     assert result.exists()
+
+
+# --- Deduplication tests ---
+
+
+def _duplicate_corpus():
+    """Build a corpus with duplicate papers for dedup testing."""
+    return [
+        {
+            "paper_id": "d1",
+            "title": "Heterogeneous Graph Transformer for Web-Scale Recommender Systems",
+            "authors": "Hu et al.",
+            "publication_year": 2020,
+            "collections": ["GNN"],
+            "doi": "10.1145/3366423.3380027",
+        },
+        {
+            "paper_id": "d2",
+            "title": "Heterogeneous Graph Transformer for Web-Scale Recommender Systems",
+            "authors": "",
+            "publication_year": None,
+            "collections": ["Deep Learning"],
+            "doi": None,
+        },
+        {
+            "paper_id": "d3",
+            "title": "Citation Network Analysis for Research Front Detection",
+            "authors": "Smith et al.",
+            "publication_year": 2022,
+            "collections": ["Scientometrics"],
+            "doi": None,
+        },
+    ]
+
+
+def test_exact_duplicates_merged():
+    """Two papers with same title and authors are merged to one node."""
+    papers = _duplicate_corpus()
+    deduped, redirect_map = _deduplicate_papers(papers)
+    ids = {p["paper_id"] for p in deduped}
+    # d1 and d2 have same title, one should be removed
+    assert len(redirect_map) == 1
+    assert "d2" in redirect_map
+    assert redirect_map["d2"] == "d1"
+    assert "d1" in ids
+    assert "d2" not in ids
+
+
+def test_richer_metadata_survives():
+    """Paper with DOI and authors beats paper without."""
+    papers = _duplicate_corpus()
+    deduped, redirect_map = _deduplicate_papers(papers)
+    survivor = next(p for p in deduped if p["paper_id"] == "d1")
+    assert survivor["doi"] == "10.1145/3366423.3380027"
+    assert survivor["authors"] == "Hu et al."
+
+
+def test_collections_unioned():
+    """Surviving node has collections from all merged duplicates."""
+    papers = _duplicate_corpus()
+    deduped, _ = _deduplicate_papers(papers)
+    survivor = next(p for p in deduped if p["paper_id"] == "d1")
+    assert "GNN" in survivor["collections"]
+    assert "Deep Learning" in survivor["collections"]
+
+
+def test_part_of_siblings_not_merged():
+    """Papers in part_of relationships are excluded from dedup."""
+    papers = [
+        {"paper_id": "po1", "title": "PAF540 Advanced Research Methods Syllabus", "collections": ["Syllabi"]},
+        {"paper_id": "po2", "title": "PAF540 Advanced Research Methods Syllabus", "collections": ["Syllabi"]},
+    ]
+    part_of_pairs = {("po1", "parent1"), ("po2", "parent1")}
+    deduped, redirect_map = _deduplicate_papers(papers, part_of_pairs)
+    assert len(redirect_map) == 0
+    ids = {p["paper_id"] for p in deduped}
+    assert "po1" in ids and "po2" in ids
+
+
+def test_untitled_papers_not_merged():
+    """Papers with 'Untitled' title are not merged together."""
+    papers = [
+        {"paper_id": "u1", "title": "Untitled", "collections": ["A"]},
+        {"paper_id": "u2", "title": "Untitled", "collections": ["B"]},
+    ]
+    deduped, redirect_map = _deduplicate_papers(papers)
+    assert len(redirect_map) == 0
+    ids = {p["paper_id"] for p in deduped}
+    assert "u1" in ids and "u2" in ids
+
+
+def test_redirected_edges_no_self_reference():
+    """No source==target after redirect."""
+    edges = [
+        GraphEdge(source="d1", target="d2", confidence=0.8),
+        GraphEdge(source="d2", target="d3", confidence=0.7),
+        GraphEdge(source="d3", target="d1", confidence=0.6),
+    ]
+    redirect_map = {"d2": "d1"}
+    redirected = _redirect_edges(edges, redirect_map)
+    for e in redirected:
+        assert e.source != e.target, f"Self-reference: {e.source} -> {e.target}"
+    # d1->d2 becomes d1->d1 (self-ref, removed)
+    # d2->d3 becomes d1->d3
+    # d3->d1 stays
+    assert len(redirected) == 2
+
+
+def test_dedup_metadata_count():
+    """metadata.duplicates_merged reports accurate count."""
+    papers = _duplicate_corpus()
+    extractions = {}
+    graph = build_citation_graph(papers, extractions)
+    assert graph["metadata"]["duplicates_merged"] == 1
