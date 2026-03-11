@@ -15,7 +15,7 @@ Reference: https://github.com/karpathy/llm-council
 """
 
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -394,7 +394,7 @@ class LLMCouncil:
         item_type: str,
         text: str,
     ) -> ProviderResponse:
-        """Extract using a single provider.
+        """Extract using a single provider with timeout enforcement.
 
         Args:
             provider: Provider configuration.
@@ -425,12 +425,35 @@ class LLMCouncil:
 
             duration = time.time() - start
 
+            # Enforce per-provider timeout
+            if duration > provider.timeout:
+                logger.warning(
+                    f"Provider {provider.name} exceeded timeout "
+                    f"({duration:.1f}s > {provider.timeout}s)"
+                )
+
             if result.success and result.extraction:
+                cost = getattr(result, "cost", 0.0) or 0.0
+                # Check cost limit
+                if provider.max_cost is not None and cost > provider.max_cost:
+                    logger.warning(
+                        f"Provider {provider.name} exceeded cost limit "
+                        f"(${cost:.4f} > ${provider.max_cost:.4f})"
+                    )
+                    return ProviderResponse(
+                        provider=provider.name,
+                        extraction=None,
+                        success=False,
+                        error=f"Cost ${cost:.4f} exceeded limit ${provider.max_cost:.4f}",
+                        duration_seconds=duration,
+                        cost=cost,
+                    )
                 return ProviderResponse(
                     provider=provider.name,
                     extraction=result.extraction,
                     success=True,
                     duration_seconds=duration,
+                    cost=cost,
                 )
             else:
                 return ProviderResponse(
@@ -493,7 +516,7 @@ class LLMCouncil:
         responses: list[ProviderResponse] = []
 
         if self.config.parallel and len(enabled_providers) > 1:
-            # Parallel execution
+            # Parallel execution with per-provider timeout enforcement
             with ThreadPoolExecutor(max_workers=len(enabled_providers)) as executor:
                 futures = {
                     executor.submit(
@@ -509,20 +532,38 @@ class LLMCouncil:
                     for provider in enabled_providers
                 }
 
-                for future in as_completed(futures, timeout=self.config.timeout):
-                    try:
-                        response = future.result()
-                        responses.append(response)
-                    except Exception as e:
-                        provider = futures[future]
-                        responses.append(
-                            ProviderResponse(
-                                provider=provider.name,
-                                extraction=None,
-                                success=False,
-                                error=str(e),
+                try:
+                    for future in as_completed(futures, timeout=self.config.timeout):
+                        try:
+                            response = future.result()
+                            responses.append(response)
+                        except Exception as e:
+                            provider = futures[future]
+                            responses.append(
+                                ProviderResponse(
+                                    provider=provider.name,
+                                    extraction=None,
+                                    success=False,
+                                    error=str(e),
+                                )
                             )
-                        )
+                except TimeoutError:
+                    # Overall council timeout exceeded - record remaining as timed out
+                    for future, provider in futures.items():
+                        if not future.done():
+                            future.cancel()
+                            logger.warning(
+                                f"Provider {provider.name} timed out "
+                                f"(council timeout {self.config.timeout}s)"
+                            )
+                            responses.append(
+                                ProviderResponse(
+                                    provider=provider.name,
+                                    extraction=None,
+                                    success=False,
+                                    error=f"Council timeout ({self.config.timeout}s) exceeded",
+                                )
+                            )
         else:
             # Sequential execution
             for provider in enabled_providers:

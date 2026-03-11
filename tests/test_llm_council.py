@@ -252,6 +252,103 @@ class TestCouncilResult:
         assert "No providers available" in result.errors
 
 
+class TestProviderCostAndTimeout:
+    """Tests for cost and timeout controls."""
+
+    def test_cost_limit_rejects_expensive_response(self):
+        """Provider response exceeding max_cost is rejected."""
+        from unittest.mock import MagicMock, patch
+
+        config = CouncilConfig(
+            providers=[ProviderConfig(name="expensive", max_cost=0.05)],
+            min_responses=1,
+            fallback_to_single=False,
+        )
+        council = LLMCouncil(config)
+
+        # Mock client that returns a result with cost > max_cost
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.extraction = PaperExtraction(thesis_statement="Test")
+        mock_result.cost = 0.10  # Exceeds max_cost of 0.05
+        mock_client.extract.return_value = mock_result
+
+        with patch.object(council, "_get_client", return_value=mock_client):
+            result = council.extract(
+                paper_id="test",
+                title="Test",
+                authors="Author",
+                year=2024,
+                item_type="article",
+                text="Content",
+            )
+
+        assert not result.success
+        assert any("exceeded limit" in e for e in result.errors)
+
+    def test_cost_within_limit_accepted(self):
+        """Provider response within max_cost is accepted."""
+        from unittest.mock import MagicMock, patch
+
+        config = CouncilConfig(
+            providers=[ProviderConfig(name="cheap", max_cost=0.10)],
+            min_responses=1,
+            fallback_to_single=True,
+        )
+        council = LLMCouncil(config)
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.extraction = PaperExtraction(thesis_statement="Test")
+        mock_result.cost = 0.05  # Within max_cost
+        mock_client.extract.return_value = mock_result
+
+        with patch.object(council, "_get_client", return_value=mock_client):
+            result = council.extract(
+                paper_id="test",
+                title="Test",
+                authors="Author",
+                year=2024,
+                item_type="article",
+                text="Content",
+            )
+
+        assert result.success
+        assert result.provider_responses[0].cost == 0.05
+
+    def test_no_cost_limit_allows_any_cost(self):
+        """Provider with no max_cost accepts any cost."""
+        from unittest.mock import MagicMock, patch
+
+        config = CouncilConfig(
+            providers=[ProviderConfig(name="unlimited", max_cost=None)],
+            min_responses=1,
+            fallback_to_single=True,
+        )
+        council = LLMCouncil(config)
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.extraction = PaperExtraction(thesis_statement="Test")
+        mock_result.cost = 99.99
+        mock_client.extract.return_value = mock_result
+
+        with patch.object(council, "_get_client", return_value=mock_client):
+            result = council.extract(
+                paper_id="test",
+                title="Test",
+                authors="Author",
+                year=2024,
+                item_type="article",
+                text="Content",
+            )
+
+        assert result.success
+
+
 class TestLLMCouncilExtract:
     """Tests for council extraction with mocked providers."""
 
