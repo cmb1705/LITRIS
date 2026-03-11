@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -Command \"$path = $env:CLAUDE_FILE_PATH; $zoteroPath = if ($env:ZOTERO_STORAGE_PATH) { [regex]::Escape($env:ZOTERO_STORAGE_PATH) } else { 'Zotero' }; if ($path -match $zoteroPath) { Write-Error 'BLOCKED: Cannot modify Zotero directory'; exit 1 }\"",
+            "command": "python3 scripts/hooks/zotero_guard.py",
             "timeout": 10
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -File .\\scripts\\hooks\\verify_task_completion.ps1",
+            "command": "python3 scripts/hooks/verify_task_completion.py",
             "timeout": 10
           }
         ]
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -File .\\scripts\\hooks\\ruff_lint.ps1",
+            "command": "python3 scripts/hooks/ruff_lint.py",
             "timeout": 30
           }
         ]
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -Command \"$path = $env:CLAUDE_FILE_PATH; if ($path -match 'tests[/\\\\]test_.*\\.py$') { pytest $path -v --tb=short 2>$null }\"",
+            "command": "python3 scripts/hooks/test_file_runner.py",
             "timeout": 60
           }
         ]
@@ -60,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -File .\\scripts\\hooks\\run_related_tests.ps1",
+            "command": "python3 scripts/hooks/run_related_tests.py",
             "timeout": 60
           }
         ]
@@ -70,7 +70,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -File .\\scripts\\hooks\\lint_markdown.ps1",
+            "command": "python3 scripts/hooks/lint_markdown.py",
             "timeout": 15
           }
         ]
@@ -80,7 +80,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -Command \"$logDir = '.\\data\\logs'; if (!(Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }; $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'; $tool = $env:CLAUDE_TOOL_NAME; $file = $env:CLAUDE_FILE_PATH; if ($file) { $entry = \\\"$timestamp | $tool | $file\\\"; Add-Content -Path (Join-Path $logDir 'operations.log') -Value $entry }\"",
+            "command": "python3 scripts/hooks/operations_log.py",
             "timeout": 10
           }
         ]
