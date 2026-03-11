@@ -30,6 +30,7 @@ except ImportError:
     pass
 sys.path.insert(0, str(project_root))
 
+from src.analysis.citation_graph import GraphConfig, load_and_build_graph
 from src.analysis.gap_detection import GapDetectionConfig, load_gap_report
 from src.analysis.research_questions import (
     GeneratedQuestion,
@@ -1444,6 +1445,207 @@ def render_active_filters(
     return False
 
 
+def render_citation_network_tab(index_dir: Path) -> None:
+    """Render the Citation Network tab with interactive graph visualization."""
+    st.subheader("Citation Network")
+    st.caption(
+        "Visualize citation relationships between papers in your corpus."
+    )
+
+    # Configuration
+    with st.expander("Graph Settings", expanded=False):
+        cfg_cols = st.columns(3)
+        with cfg_cols[0]:
+            fuzzy_threshold = st.slider(
+                "Title match threshold",
+                min_value=0.5,
+                max_value=1.0,
+                value=0.85,
+                step=0.05,
+                key="cite_threshold",
+                help="Jaccard similarity threshold for title-based matching.",
+            )
+        with cfg_cols[1]:
+            max_label = st.number_input(
+                "Max label length",
+                min_value=20,
+                max_value=100,
+                value=50,
+                key="cite_max_label",
+            )
+        with cfg_cols[2]:
+            min_title_len = st.number_input(
+                "Min title length",
+                min_value=5,
+                max_value=50,
+                value=15,
+                key="cite_min_title",
+                help="Titles shorter than this are excluded from matching.",
+            )
+
+    # Filters
+    filter_cols = st.columns(2)
+    with filter_cols[0]:
+        collections_input = st.text_input(
+            "Filter by collections (comma-separated)",
+            value="",
+            key="cite_collections",
+            help="Leave empty for all collections.",
+        )
+    with filter_cols[1]:
+        year_cols = st.columns(2)
+        with year_cols[0]:
+            year_min = st.number_input(
+                "Year from", min_value=1900, max_value=2030, value=1900,
+                key="cite_year_min",
+            )
+        with year_cols[1]:
+            year_max = st.number_input(
+                "Year to", min_value=1900, max_value=2030, value=2030,
+                key="cite_year_max",
+            )
+
+    use_year_filter = not (year_min == 1900 and year_max == 2030)
+
+    if st.button("Build Citation Graph", type="primary", key="cite_build"):
+        with st.spinner("Building citation graph..."):
+            try:
+                collections_filter = (
+                    [c.strip() for c in collections_input.split(",") if c.strip()]
+                    if collections_input.strip()
+                    else None
+                )
+                config = GraphConfig(
+                    fuzzy_threshold=float(fuzzy_threshold),
+                    max_label_length=int(max_label),
+                    min_title_length=int(min_title_len),
+                    collections_filter=collections_filter,
+                    year_range=(int(year_min), int(year_max)) if use_year_filter else None,
+                )
+                graph = load_and_build_graph(index_dir, config)
+                st.session_state["cite_graph"] = graph
+            except Exception as e:
+                st.error(f"Failed to build citation graph: {e}")
+                return
+
+    graph = st.session_state.get("cite_graph")
+    if graph is None:
+        st.info("Click **Build Citation Graph** to generate the network.")
+        return
+
+    # Display stats
+    meta = graph.get("metadata", {})
+    stat_cols = st.columns(4)
+    with stat_cols[0]:
+        st.metric("Nodes", meta.get("node_count", 0))
+    with stat_cols[1]:
+        st.metric("Edges", meta.get("edge_count", 0))
+    with stat_cols[2]:
+        st.metric("Papers Analyzed", meta.get("papers_analyzed", 0))
+    with stat_cols[3]:
+        st.metric("Extractions Used", meta.get("extractions_used", 0))
+
+    nodes = graph.get("nodes", [])
+    edges = graph.get("edges", [])
+
+    if not nodes:
+        st.warning("No nodes in graph. Try adjusting filters or thresholds.")
+        return
+
+    # Render with PyVis if available
+    if PYVIS_AVAILABLE:
+        dark_mode = st.session_state.get("dark_mode", False)
+        bg_color = "#1a1a2e" if dark_mode else "#ffffff"
+        font_color = "#e0e0e0" if dark_mode else "#333333"
+
+        net = Network(
+            height="550px",
+            width="100%",
+            bgcolor=bg_color,
+            font_color=font_color,
+            directed=True,
+        )
+        net.barnes_hut(
+            gravity=-3000,
+            central_gravity=0.3,
+            spring_length=150,
+            spring_strength=0.01,
+        )
+
+        for node in nodes:
+            title_hover = (
+                f"<b>{node['title']}</b><br>"
+                f"Authors: {node.get('authors', 'Unknown')}<br>"
+                f"Year: {node.get('year', 'N/A')}<br>"
+                f"Collections: {', '.join(node.get('collections', []))}<br>"
+                f"DOI: {node.get('doi') or 'N/A'}"
+            )
+            net.add_node(
+                node["id"],
+                label=node.get("label", node["id"]),
+                title=title_hover,
+                size=node.get("size", 15),
+                color=node.get("color", "#4a8c6a"),
+            )
+
+        for edge in edges:
+            edge_title = (
+                f"Type: {edge.get('type', 'cites')}<br>"
+                f"Confidence: {edge.get('confidence', 0):.2f}<br>"
+                f"Source: {edge.get('source_type', 'unknown')}"
+            )
+            if edge.get("context"):
+                edge_title += f"<br>Context: {edge['context'][:100]}"
+
+            color = "#e74c3c" if edge.get("source_type") == "doi_match" else "#999999"
+            net.add_edge(
+                edge["source"],
+                edge["target"],
+                title=edge_title,
+                color=color,
+                width=2 if edge.get("source_type") == "doi_match" else 1,
+            )
+
+        html = net.generate_html()
+        components.html(html, height=570, scrolling=False)
+        st.caption(
+            f"Showing {len(nodes)} papers and {len(edges)} citation links. "
+            "Red edges = DOI matches (high confidence). "
+            "Hover for details, drag to rearrange."
+        )
+    else:
+        st.warning(
+            "Interactive visualization requires pyvis. "
+            "Install with: `pip install pyvis networkx`"
+        )
+
+    # Edge details table
+    if edges:
+        with st.expander(f"Edge Details ({len(edges)} citations)", expanded=False):
+            node_lookup = {n["id"]: n.get("title", n["id"]) for n in nodes}
+            for edge in edges:
+                src_title = node_lookup.get(edge["source"], edge["source"])
+                tgt_title = node_lookup.get(edge["target"], edge["target"])
+                conf = edge.get("confidence", 0)
+                src_type = edge.get("source_type", "unknown")
+                st.markdown(
+                    f"- **{src_title}** -> **{tgt_title}** "
+                    f"({src_type}, conf: {conf:.2f})"
+                )
+
+    # Export
+    export_cols = st.columns(2)
+    with export_cols[0]:
+        graph_json = json.dumps(graph, indent=2, default=str)
+        st.download_button(
+            "Download Graph JSON",
+            data=graph_json,
+            file_name="citation_graph.json",
+            mime="application/json",
+            key="cite_download",
+        )
+
+
 def _create_rq_llm_caller(provider: str):
     """Create an LLM caller for research question generation."""
     if provider == "anthropic":
@@ -1997,8 +2199,8 @@ def main() -> None:
             st.rerun()
 
     # Main content tabs
-    search_tab, summary_tab, rq_tab = st.tabs(
-        ["Search", "Index Summary", "Research Questions"]
+    search_tab, summary_tab, rq_tab, cite_tab = st.tabs(
+        ["Search", "Index Summary", "Research Questions", "Citation Network"]
     )
 
     with summary_tab:
@@ -2007,6 +2209,9 @@ def main() -> None:
 
     with rq_tab:
         render_research_questions_tab(index_dir)
+
+    with cite_tab:
+        render_citation_network_tab(index_dir)
 
     with search_tab:
         if not has_embeddings:
