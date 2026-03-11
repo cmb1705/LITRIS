@@ -30,6 +30,18 @@ except ImportError:
     pass
 sys.path.insert(0, str(project_root))
 
+from src.analysis.gap_detection import GapDetectionConfig, load_gap_report
+from src.analysis.research_questions import (
+    GeneratedQuestion,
+    GenerationResult,
+    QuestionScope,
+    QuestionStyle,
+    ResearchQuestionConfig,
+    build_prompts_from_gap_report,
+    format_questions_markdown,
+    generate_questions_from_prompts,
+    parse_llm_response,
+)
 from src.config import Config
 from src.indexing.embeddings import CHUNK_TYPES, ChunkType
 from src.query.federated import FederatedSearchEngine
@@ -1432,6 +1444,354 @@ def render_active_filters(
     return False
 
 
+def _create_rq_llm_caller(provider: str):
+    """Create an LLM caller for research question generation."""
+    if provider == "anthropic":
+        import anthropic
+        from anthropic.types import TextBlock
+
+        client = anthropic.Anthropic()
+
+        def call_anthropic(prompt: str) -> str:
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            for block in response.content:
+                if isinstance(block, TextBlock):
+                    return block.text
+            return ""
+
+        return call_anthropic
+
+    elif provider == "openai":
+        import openai
+
+        client = openai.OpenAI()
+
+        def call_openai(prompt: str) -> str:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            content = response.choices[0].message.content
+            return content if content else ""
+
+        return call_openai
+
+    elif provider == "google":
+        import google.generativeai as genai
+
+        gen_model = genai.GenerativeModel("gemini-2.0-flash")
+
+        def call_google(prompt: str) -> str:
+            response = gen_model.generate_content(prompt)
+            return response.text
+
+        return call_google
+
+    raise ValueError(f"Unsupported provider: {provider}")
+
+
+def render_research_questions_tab(index_dir: Path) -> None:
+    """Render the Research Questions tab.
+
+    Runs gap analysis on the index, lets users configure question generation
+    parameters, and displays generated research questions.
+    """
+    st.subheader("Research Question Generator")
+    st.caption(
+        "Identify gaps in your literature corpus and generate targeted research questions."
+    )
+
+    # Gap analysis configuration
+    with st.expander("Gap Analysis Settings", expanded=False):
+        ga_cols = st.columns(3)
+        with ga_cols[0]:
+            max_gaps = st.number_input(
+                "Max gaps per category",
+                min_value=1,
+                max_value=20,
+                value=5,
+                key="rq_max_gaps",
+            )
+        with ga_cols[1]:
+            min_count = st.number_input(
+                "Min occurrence count",
+                min_value=1,
+                max_value=10,
+                value=2,
+                key="rq_min_count",
+            )
+        with ga_cols[2]:
+            quantile = st.slider(
+                "Quantile threshold",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.25,
+                step=0.05,
+                key="rq_quantile",
+            )
+
+    # Run gap analysis
+    if st.button("Run Gap Analysis", type="primary", key="rq_run_gap"):
+        with st.spinner("Analyzing corpus for research gaps..."):
+            try:
+                config = GapDetectionConfig(
+                    max_items=int(max_gaps),
+                    min_count=int(min_count),
+                    quantile=float(quantile),
+                )
+                report = load_gap_report(index_dir, config)
+                st.session_state["rq_gap_report"] = report
+            except Exception as e:
+                st.error(f"Gap analysis failed: {e}")
+                return
+
+    report = st.session_state.get("rq_gap_report")
+    if report is None:
+        st.info("Click **Run Gap Analysis** to analyze your corpus for research gaps.")
+        return
+
+    # Display gap summary
+    corpus = report.get("corpus", {})
+    st.markdown(
+        f"**Corpus:** {corpus.get('papers', 0)} papers, "
+        f"{corpus.get('extractions', 0)} extractions"
+    )
+
+    gap_cols = st.columns(4)
+    topics = report.get("topics_underrepresented", [])
+    methods = report.get("methodologies_underrepresented", [])
+    future = report.get("future_directions", [])
+    year_gaps = report.get("year_gaps", {})
+    missing_years = year_gaps.get("missing_ranges", [])
+
+    with gap_cols[0]:
+        st.metric("Topic Gaps", len(topics))
+    with gap_cols[1]:
+        st.metric("Method Gaps", len(methods))
+    with gap_cols[2]:
+        st.metric("Future Directions", len(future))
+    with gap_cols[3]:
+        st.metric("Year Gaps", len(missing_years))
+
+    # Show gap details in expanders
+    if topics:
+        with st.expander(f"Topic Gaps ({len(topics)})", expanded=False):
+            for gap in topics:
+                conf = gap.get("confidence", 0)
+                st.markdown(
+                    f"- **{gap.get('label', '?')}** "
+                    f"(count: {gap.get('count', 0)}, confidence: {conf:.2f})"
+                )
+    if methods:
+        with st.expander(f"Methodology Gaps ({len(methods)})", expanded=False):
+            for gap in methods:
+                conf = gap.get("confidence", 0)
+                st.markdown(
+                    f"- **{gap.get('label', '?')}** "
+                    f"(count: {gap.get('count', 0)}, confidence: {conf:.2f})"
+                )
+    if future:
+        with st.expander(f"Future Directions ({len(future)})", expanded=False):
+            for gap in future:
+                conf = gap.get("confidence", 0)
+                st.markdown(
+                    f"- **{gap.get('direction', '?')}** "
+                    f"(mentions: {gap.get('mention_count', 0)}, confidence: {conf:.2f})"
+                )
+
+    st.divider()
+
+    # Research question generation settings
+    st.markdown("### Generate Research Questions")
+    rq_cols = st.columns(3)
+    with rq_cols[0]:
+        rq_count = st.number_input(
+            "Questions per gap",
+            min_value=1,
+            max_value=10,
+            value=3,
+            key="rq_count",
+        )
+    with rq_cols[1]:
+        rq_scope = st.selectbox(
+            "Scope",
+            options=["narrow", "moderate", "broad"],
+            index=1,
+            key="rq_scope",
+        )
+    with rq_cols[2]:
+        rq_provider = st.selectbox(
+            "LLM Provider",
+            options=["anthropic", "openai", "google"],
+            index=0,
+            key="rq_provider",
+        )
+
+    style_options = ["exploratory", "comparative", "causal", "descriptive", "evaluative"]
+    rq_styles = st.multiselect(
+        "Question styles (leave empty for all)",
+        options=style_options,
+        default=[],
+        key="rq_styles",
+    )
+
+    include_rationale = st.checkbox("Include rationale", value=True, key="rq_rationale")
+
+    btn_cols = st.columns(2)
+    with btn_cols[0]:
+        generate_clicked = st.button(
+            "Generate Questions", type="primary", key="rq_generate"
+        )
+    with btn_cols[1]:
+        dry_run_clicked = st.button("Preview Prompts", key="rq_dry_run")
+
+    # Build config
+    scope_map = {
+        "narrow": QuestionScope.NARROW,
+        "moderate": QuestionScope.MODERATE,
+        "broad": QuestionScope.BROAD,
+    }
+    style_map = {
+        "exploratory": QuestionStyle.EXPLORATORY,
+        "comparative": QuestionStyle.COMPARATIVE,
+        "causal": QuestionStyle.CAUSAL,
+        "descriptive": QuestionStyle.DESCRIPTIVE,
+        "evaluative": QuestionStyle.EVALUATIVE,
+    }
+    rq_config = ResearchQuestionConfig(
+        count=int(rq_count),
+        scope=scope_map[rq_scope],
+        styles=[style_map[s] for s in rq_styles],
+        include_rationale=include_rationale,
+    )
+
+    prompts = build_prompts_from_gap_report(report, rq_config)
+
+    if dry_run_clicked:
+        if not prompts:
+            st.warning("No gaps found to generate prompts for.")
+        else:
+            st.markdown(f"**{len(prompts)} prompts** would be sent to the LLM:")
+            for i, p in enumerate(prompts, 1):
+                gap = p["gap"]
+                label = (
+                    gap.get("label")
+                    or gap.get("direction")
+                    or "year gap"
+                )
+                with st.expander(f"Prompt {i}: {p['type']} - {label}"):
+                    st.code(p["prompt"][:2000], language="text")
+
+    if generate_clicked:
+        if not prompts:
+            st.warning("No gaps found to generate questions for.")
+        else:
+            with st.spinner(
+                f"Generating questions via {rq_provider} "
+                f"({len(prompts)} prompts)..."
+            ):
+                try:
+                    llm_caller = _create_rq_llm_caller(rq_provider)
+                    result = generate_questions_from_prompts(
+                        prompts, llm_caller, rq_config
+                    )
+                    st.session_state["rq_result"] = result
+                except ImportError as e:
+                    st.error(
+                        f"Missing dependency for provider '{rq_provider}': {e}\n\n"
+                        "Install the required package (e.g., `pip install anthropic`)."
+                    )
+                    return
+                except Exception as e:
+                    st.error(f"Generation failed: {e}")
+                    return
+
+    # Display results
+    result = st.session_state.get("rq_result")
+    if result is not None:
+        st.divider()
+        st.markdown("### Generated Research Questions")
+
+        stat_cols = st.columns(3)
+        with stat_cols[0]:
+            st.metric("Total Generated", result.total_generated)
+        with stat_cols[1]:
+            st.metric("Duplicates Removed", result.duplicates_removed)
+        with stat_cols[2]:
+            st.metric("Final Questions", len(result.questions))
+
+        if result.generation_errors:
+            with st.expander(f"Errors ({len(result.generation_errors)})"):
+                for err in result.generation_errors:
+                    st.warning(err)
+
+        for i, q in enumerate(result.questions, 1):
+            with st.container():
+                st.markdown(f"**{i}. {q.question}**")
+                tag_cols = st.columns(4)
+                with tag_cols[0]:
+                    st.caption(f"Gap: {q.gap_type}")
+                with tag_cols[1]:
+                    st.caption(f"Source: {q.gap_label}")
+                with tag_cols[2]:
+                    st.caption(f"Style: {q.style}")
+                with tag_cols[3]:
+                    st.caption(f"Score: {q.combined_score:.2f}")
+                if q.rationale:
+                    st.markdown(f"*{q.rationale}*")
+                if q.methodology_hints:
+                    st.markdown(
+                        "Methodology: " + ", ".join(q.methodology_hints)
+                    )
+                st.markdown("---")
+
+        # Export options
+        export_cols = st.columns(2)
+        with export_cols[0]:
+            md_output = format_questions_markdown(result)
+            st.download_button(
+                "Download Markdown",
+                data=md_output,
+                file_name="research_questions.md",
+                mime="text/markdown",
+                key="rq_download_md",
+            )
+        with export_cols[1]:
+            json_output = json.dumps(
+                {
+                    "total_generated": result.total_generated,
+                    "duplicates_removed": result.duplicates_removed,
+                    "questions": [
+                        {
+                            "question": q.question,
+                            "style": q.style,
+                            "gap_type": q.gap_type,
+                            "gap_label": q.gap_label,
+                            "rationale": q.rationale,
+                            "methodology_hints": q.methodology_hints,
+                            "relevance_score": q.relevance_score,
+                            "diversity_score": q.diversity_score,
+                            "combined_score": q.combined_score,
+                        }
+                        for q in result.questions
+                    ],
+                },
+                indent=2,
+            )
+            st.download_button(
+                "Download JSON",
+                data=json_output,
+                file_name="research_questions.json",
+                mime="application/json",
+                key="rq_download_json",
+            )
+
+
 def main() -> None:
     """Main UI entry point."""
     st.set_page_config(
@@ -1637,11 +1997,16 @@ def main() -> None:
             st.rerun()
 
     # Main content tabs
-    search_tab, summary_tab = st.tabs(["Search", "Index Summary"])
+    search_tab, summary_tab, rq_tab = st.tabs(
+        ["Search", "Index Summary", "Research Questions"]
+    )
 
     with summary_tab:
         st.subheader("Full Index Summary")
         render_index_summary(engine, full_view=True)
+
+    with rq_tab:
+        render_research_questions_tab(index_dir)
 
     with search_tab:
         if not has_embeddings:
