@@ -247,3 +247,6 @@ nul
 .runtime/
 .claude/
 .logs/
+
+# Dolt database files (added by bd init)
+*.db
