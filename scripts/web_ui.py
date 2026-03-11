@@ -1574,11 +1574,11 @@ def render_citation_network_tab(index_dir: Path) -> None:
 
         for node in nodes:
             title_hover = (
-                f"<b>{node['title']}</b><br>"
-                f"Authors: {node.get('authors', 'Unknown')}<br>"
-                f"Year: {node.get('year', 'N/A')}<br>"
-                f"Collections: {', '.join(node.get('collections', []))}<br>"
-                f"DOI: {node.get('doi') or 'N/A'}"
+                f"<b>{escape(str(node['title']))}</b><br>"
+                f"Authors: {escape(str(node.get('authors', 'Unknown')))}<br>"
+                f"Year: {escape(str(node.get('year', 'N/A')))}<br>"
+                f"Collections: {escape(', '.join(node.get('collections', [])))}<br>"
+                f"DOI: {escape(str(node.get('doi') or 'N/A'))}"
             )
             net.add_node(
                 node["id"],
@@ -1595,7 +1595,7 @@ def render_citation_network_tab(index_dir: Path) -> None:
                 f"Source: {edge.get('source_type', 'unknown')}"
             )
             if edge.get("context"):
-                edge_title += f"<br>Context: {edge['context'][:100]}"
+                edge_title += f"<br>Context: {escape(edge['context'][:100])}"
 
             color = "#e74c3c" if edge.get("source_type") == "doi_match" else "#999999"
             net.add_edge(
@@ -1629,8 +1629,8 @@ def render_citation_network_tab(index_dir: Path) -> None:
                 conf = edge.get("confidence", 0)
                 src_type = edge.get("source_type", "unknown")
                 st.markdown(
-                    f"- **{src_title}** -> **{tgt_title}** "
-                    f"({src_type}, conf: {conf:.2f})"
+                    f"- **{escape(str(src_title))}** -> **{escape(str(tgt_title))}** "
+                    f"({escape(str(src_type))}, conf: {conf:.2f})"
                 )
 
     # Export
@@ -1678,6 +1678,8 @@ def _create_rq_llm_caller(provider: str):
                 max_tokens=2048,
                 messages=[{"role": "user", "content": prompt}],
             )
+            if not response.choices:
+                return ""
             content = response.choices[0].message.content
             return content if content else ""
 
@@ -1690,7 +1692,10 @@ def _create_rq_llm_caller(provider: str):
 
         def call_google(prompt: str) -> str:
             response = gen_model.generate_content(prompt)
-            return response.text
+            try:
+                return response.text
+            except ValueError:
+                return ""
 
         return call_google
 
@@ -1748,6 +1753,7 @@ def render_research_questions_tab(index_dir: Path) -> None:
                 )
                 report = load_gap_report(index_dir, config)
                 st.session_state["rq_gap_report"] = report
+                st.session_state.pop("rq_result", None)
             except Exception as e:
                 st.error(f"Gap analysis failed: {e}")
                 return
@@ -1786,7 +1792,7 @@ def render_research_questions_tab(index_dir: Path) -> None:
             for gap in topics:
                 conf = gap.get("confidence", 0)
                 st.markdown(
-                    f"- **{gap.get('label', '?')}** "
+                    f"- **{escape(str(gap.get('label', '?')))}** "
                     f"(count: {gap.get('count', 0)}, confidence: {conf:.2f})"
                 )
     if methods:
@@ -1794,7 +1800,7 @@ def render_research_questions_tab(index_dir: Path) -> None:
             for gap in methods:
                 conf = gap.get("confidence", 0)
                 st.markdown(
-                    f"- **{gap.get('label', '?')}** "
+                    f"- **{escape(str(gap.get('label', '?')))}** "
                     f"(count: {gap.get('count', 0)}, confidence: {conf:.2f})"
                 )
     if future:
@@ -1802,7 +1808,7 @@ def render_research_questions_tab(index_dir: Path) -> None:
             for gap in future:
                 conf = gap.get("confidence", 0)
                 st.markdown(
-                    f"- **{gap.get('direction', '?')}** "
+                    f"- **{escape(str(gap.get('direction', '?')))}** "
                     f"(mentions: {gap.get('mention_count', 0)}, confidence: {conf:.2f})"
                 )
 
@@ -1886,7 +1892,7 @@ def render_research_questions_tab(index_dir: Path) -> None:
                     or gap.get("direction")
                     or "year gap"
                 )
-                with st.expander(f"Prompt {i}: {p['type']} - {label}"):
+                with st.expander(f"Prompt {i}: {escape(str(p['type']))} - {escape(str(label))}"):
                     st.code(p["prompt"][:2000], language="text")
 
     if generate_clicked:
@@ -1934,21 +1940,23 @@ def render_research_questions_tab(index_dir: Path) -> None:
 
         for i, q in enumerate(result.questions, 1):
             with st.container():
-                st.markdown(f"**{i}. {q.question}**")
+                st.markdown(f"**{i}. {escape(str(q.question))}**")
                 tag_cols = st.columns(4)
                 with tag_cols[0]:
-                    st.caption(f"Gap: {q.gap_type}")
+                    st.caption(f"Gap: {escape(str(q.gap_type))}")
                 with tag_cols[1]:
-                    st.caption(f"Source: {q.gap_label}")
+                    st.caption(f"Source: {escape(str(q.gap_label))}")
                 with tag_cols[2]:
-                    st.caption(f"Style: {q.style}")
+                    st.caption(f"Style: {escape(str(q.style))}")
                 with tag_cols[3]:
                     st.caption(f"Score: {q.combined_score:.2f}")
                 if q.rationale:
-                    st.markdown(f"*{q.rationale}*")
+                    st.markdown(f"*{escape(str(q.rationale))}*")
                 if q.methodology_hints:
                     st.markdown(
-                        "Methodology: " + ", ".join(q.methodology_hints)
+                        "Methodology: " + ", ".join(
+                            escape(str(h)) for h in q.methodology_hints
+                        )
                     )
                 st.markdown("---")
 
