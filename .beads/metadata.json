@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "beads_LITRIS",
+  "project_id": "834ef6dd-a8dd-4553-8239-55fce66d40aa"
+}
