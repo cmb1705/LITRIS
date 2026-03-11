@@ -38,7 +38,6 @@ class GraphConfig:
     min_title_length: int = _MIN_TITLE_LENGTH
     fuzzy_threshold: float = 0.85
     max_label_length: int = 50
-    include_external_refs: bool = False
     collections_filter: list[str] | None = None
     year_range: tuple[int, int] | None = None
 
@@ -56,7 +55,7 @@ class GraphNode:
     collections: list[str] = field(default_factory=list)
     in_library: bool = True
     doi: str | None = None
-    size: int = 15
+    size: int = 10
     color: str = "#4a8c6a"
 
 
@@ -435,7 +434,9 @@ def save_citation_graph(graph: dict, output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     safe_write_json(output_path, graph)
     logger.info(
-        f"Saved citation graph: {graph['metadata']['node_count']} nodes, "
-        f"{graph['metadata']['edge_count']} edges -> {output_path}"
+        "Saved citation graph: %d nodes, %d edges -> %s",
+        graph["metadata"]["node_count"],
+        graph["metadata"]["edge_count"],
+        output_path,
     )
     return output_path

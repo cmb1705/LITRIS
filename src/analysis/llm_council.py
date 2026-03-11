@@ -59,11 +59,8 @@ class ConsensusStrategy(str, Enum):
 
     MAJORITY_VOTE = "majority_vote"  # Most common value wins
     UNION = "union"  # Combine all unique values
-    INTERSECTION = "intersection"  # Keep only values all providers agree on
     LONGEST = "longest"  # Take the longest/most detailed response
-    FIRST_VALID = "first_valid"  # Take first non-empty response
     AVERAGE = "average"  # Average numeric values
-    WEIGHTED = "weighted"  # Weight by provider reliability
 
 
 @dataclass
@@ -86,7 +83,6 @@ class CouncilConfig:
     fallback_to_single: bool = True  # Use single response if min not met
     parallel: bool = True  # Run providers in parallel
     timeout: int = 180  # Overall timeout for council
-    consensus_threshold: float = 0.5  # Threshold for majority consensus
 
 
 @dataclass
@@ -283,10 +279,10 @@ def aggregate_extractions(
         key_findings=_merge_key_findings([e.key_findings for e in extractions]),
         key_claims=_merge_key_claims([e.key_claims for e in extractions]),
         # Numeric - weighted average
-        extraction_confidence=sum(
-            e.extraction_confidence * w for e, w in zip(extractions, weights, strict=True)
-        )
-        / (sum(weights) if sum(weights) > 0 else 1),
+        extraction_confidence=(
+            sum(e.extraction_confidence * w for e, w in zip(extractions, weights, strict=True))
+            / (total_weight if (total_weight := sum(weights)) > 0 else 1)
+        ),
     )
 
 
@@ -310,7 +306,7 @@ def calculate_consensus_confidence(
     if not extractions:
         return 0.0
 
-    n_providers = len(config.providers)
+    n_providers = len([p for p in config.providers if p.enabled])
     n_responses = len(extractions)
 
     # Base confidence from response rate

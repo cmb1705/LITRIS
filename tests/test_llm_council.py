@@ -200,7 +200,6 @@ class TestCouncilConfig:
         assert config.fallback_to_single is True
         assert config.parallel is True
         assert config.timeout == 180
-        assert config.consensus_threshold == 0.5
 
     def test_with_providers(self):
         """Can configure multiple providers."""

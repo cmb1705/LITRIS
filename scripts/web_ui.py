@@ -12,12 +12,13 @@ from collections.abc import Iterable
 from datetime import datetime
 from html import escape
 from pathlib import Path
-from typing import cast
+from typing import Callable, cast
 
 import streamlit as st
 import streamlit.components.v1 as components
 
 project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(project_root))
 
 # Optional: Citation network visualization
 PYVIS_AVAILABLE = False
@@ -28,7 +29,6 @@ try:
     PYVIS_AVAILABLE = True
 except ImportError:
     pass
-sys.path.insert(0, str(project_root))
 
 from src.analysis.citation_graph import GraphConfig, load_and_build_graph
 from src.analysis.gap_detection import GapDetectionConfig, load_gap_report
@@ -1646,7 +1646,7 @@ def render_citation_network_tab(index_dir: Path) -> None:
         )
 
 
-def _create_rq_llm_caller(provider: str):
+def _create_rq_llm_caller(provider: str) -> Callable[[str], str]:
     """Create an LLM caller for research question generation."""
     if provider == "anthropic":
         import anthropic

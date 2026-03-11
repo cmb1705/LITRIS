@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -78,11 +80,20 @@ def safe_write_json(path: Path, data: Any, indent: int = 2) -> bool:
     """
     try:
         ensure_directory(path.parent)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=indent, ensure_ascii=False, default=str)
+        # Atomic write: write to temp file then rename to prevent corruption
+        fd, tmp_path = tempfile.mkstemp(
+            dir=path.parent, suffix=".tmp", prefix=".write_"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=indent, ensure_ascii=False, default=str)
+            os.replace(tmp_path, path)
+        except BaseException:
+            os.unlink(tmp_path)
+            raise
         return True
     except OSError as e:
-        logger.error(f"Error writing {path}: {e}")
+        logger.error("Error writing %s: %s", path, e)
         return False
 
 
