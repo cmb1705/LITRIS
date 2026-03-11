@@ -416,13 +416,16 @@ def _find_title_matches(
             continue
 
         title_tokens = info["tokens"]
-        # Quick check: do enough title tokens appear in the text?
+        if not title_tokens:
+            continue
+
+        # Containment: what fraction of title tokens appear in the text?
         overlap = title_tokens & text_tokens
         if len(overlap) < min(3, len(title_tokens)):
             continue
 
-        similarity = _jaccard_similarity(title_tokens, text_tokens)
-        if similarity >= threshold:
+        containment = len(overlap) / len(title_tokens)
+        if containment >= threshold:
             # Find context around the match
             normalized_title = info["normalized"]
             context = None
@@ -435,7 +438,7 @@ def _find_title_matches(
 
             # Adjust confidence based on match quality
             base_confidence = 0.7
-            if similarity > 0.9:
+            if containment > 0.9:
                 base_confidence = 0.9
 
             matches.append((paper_id, base_confidence, context))
