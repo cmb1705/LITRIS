@@ -8,7 +8,9 @@ Usage:
 """
 
 import argparse
+import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
 project_root = Path(__file__).parent.parent
@@ -66,6 +68,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING,
+        format="%(levelname)s: %(name)s: %(message)s",
+    )
+
     if not args.index_dir.exists():
         print(f"Error: Index directory not found: {args.index_dir}")
         return 1
@@ -75,11 +82,15 @@ def main() -> int:
     if args.verbose:
         print(f"Generating digest from {args.index_dir}...")
 
-    digest = generate_digest(
-        args.index_dir,
-        config=config,
-        mark_processed=not args.dry_run,
-    )
+    try:
+        digest = generate_digest(
+            args.index_dir,
+            config=config,
+            mark_processed=not args.dry_run,
+        )
+    except Exception as e:
+        print(f"Error generating digest: {e}")
+        return 1
 
     if args.verbose:
         print(f"Found {digest.new_paper_count} new papers")
@@ -91,12 +102,14 @@ def main() -> int:
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Timestamp in filename to avoid overwriting previous digests
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     if args.output_format == "markdown":
         content = format_digest_markdown(digest)
-        output_file = args.output_dir / "digest.md"
+        output_file = args.output_dir / f"digest_{ts}.md"
     else:
         content = format_digest_json(digest)
-        output_file = args.output_dir / "digest.json"
+        output_file = args.output_dir / f"digest_{ts}.json"
 
     with open(output_file, "w") as f:
         f.write(content)

@@ -144,7 +144,6 @@ def test_generate_digest_marks_processed(tmp_path):
 
 def test_format_digest_markdown():
     """Markdown format includes paper highlights."""
-    index_dir_stub = Path("/tmp/stub")
     papers = _sample_papers()[:1]
     extraction = _sample_extractions()["p1"]
     config = DigestConfig()

@@ -62,7 +62,10 @@ class ResearchDigest:
 
 def _load_digest_state(state_path: Path) -> dict:
     """Load the digest state tracking which papers have been processed."""
-    return safe_read_json(state_path, default={"processed_ids": [], "last_run": None})
+    state = safe_read_json(state_path, default=None)
+    if state is None:
+        return {"processed_ids": [], "last_run": None}
+    return state
 
 
 def _save_digest_state(state_path: Path, state: dict) -> bool:
@@ -73,18 +76,21 @@ def _save_digest_state(state_path: Path, state: dict) -> bool:
 def find_new_papers(
     index_dir: Path,
     state_path: Path,
+    _state: dict | None = None,
 ) -> list[dict]:
     """Find papers that haven't been included in a digest yet.
 
     Args:
         index_dir: Path to the index directory.
         state_path: Path to the digest state file.
+        _state: Pre-loaded state dict (internal use to avoid double load).
 
     Returns:
         List of new paper metadata dictionaries.
     """
-    state = _load_digest_state(state_path)
-    processed = set(state.get("processed_ids", []))
+    if _state is None:
+        _state = _load_digest_state(state_path)
+    processed = set(_state.get("processed_ids", []))
 
     papers_data = safe_read_json(index_dir / "papers.json", default={"papers": []})
     if isinstance(papers_data, dict) and "papers" in papers_data:
@@ -186,7 +192,7 @@ def generate_digest(
     state_path = index_dir / config.state_file
     state = _load_digest_state(state_path)
 
-    new_papers = find_new_papers(index_dir, state_path)
+    new_papers = find_new_papers(index_dir, state_path, _state=state)
 
     # Sort by year (newest first), limit to max_papers
     new_papers.sort(
