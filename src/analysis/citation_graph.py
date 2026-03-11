@@ -128,13 +128,13 @@ def _extract_text_fields(extraction: dict) -> str:
     return " ".join(parts)
 
 
-def _build_title_index(papers: list[dict]) -> dict[str, dict]:
+def _build_title_index(papers: list[dict], min_title_length: int = _MIN_TITLE_LENGTH) -> dict[str, dict]:
     """Build a lookup of normalized title tokens to papers."""
     index: dict[str, dict] = {}
     for paper in papers:
         paper_id = paper.get("paper_id")
-        title = paper.get("title", "")
-        if not paper_id or not title or len(title) < _MIN_TITLE_LENGTH:
+        title = paper.get("title") or ""
+        if not paper_id or not title or len(title) < min_title_length:
             continue
         tokens = _tokenize_title(title)
         if len(tokens) >= 3:
@@ -170,16 +170,17 @@ def _find_title_matches(
         if len(overlap) < min(3, len(title_tokens)):
             continue
 
-        similarity = _jaccard_similarity(title_tokens, overlap)
+        similarity = _jaccard_similarity(title_tokens, text_tokens)
         if similarity >= threshold:
             # Find context around the match
             normalized_title = info["normalized"]
             context = None
             title_words = normalized_title.split()[:4]
-            pattern = r"[^.]*" + re.escape(title_words[0]) + r"[^.]*\."
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                context = match.group().strip()[:200]
+            if title_words:
+                pattern = r"[^.]*" + re.escape(title_words[0]) + r"[^.]*\."
+                ctx_match = re.search(pattern, text, re.IGNORECASE)
+                if ctx_match:
+                    context = ctx_match.group().strip()[:200]
 
             # Adjust confidence based on match quality
             base_confidence = 0.7
@@ -247,7 +248,7 @@ def build_citation_graph(
 
     # Filter papers by collection/year if configured
     filtered_papers = _filter_papers(papers, config)
-    title_index = _build_title_index(filtered_papers)
+    title_index = _build_title_index(filtered_papers, config.min_title_length)
 
     # Build nodes
     nodes: dict[str, GraphNode] = {}
@@ -255,14 +256,14 @@ def build_citation_graph(
         paper_id = paper.get("paper_id")
         if not paper_id:
             continue
-        title = paper.get("title", "Unknown")
+        title = paper.get("title") or "Unknown"
         nodes[paper_id] = GraphNode(
             id=paper_id,
             label=title[:config.max_label_length] + ("..." if len(title) > config.max_label_length else ""),
             title=title,
-            authors=paper.get("authors", ""),
+            authors=paper.get("authors") or "",
             year=paper.get("publication_year"),
-            collections=paper.get("collections", []) or [],
+            collections=list(paper.get("collections") or []),
             in_library=True,
             doi=paper.get("doi"),
         )
