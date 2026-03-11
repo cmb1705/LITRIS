@@ -127,6 +127,115 @@ def _extract_text_fields(extraction: dict) -> str:
     return " ".join(parts)
 
 
+_CHAPTER_PATTERN = re.compile(
+    r"(?:chapter|part)\s+(?:\d+|[ivxlcdm]+)",
+    re.IGNORECASE,
+)
+
+
+def _find_part_of_relationships(
+    papers: list[dict],
+    extractions: dict[str, dict] | None = None,
+) -> list[tuple[str, str, str]]:
+    """Detect hierarchical relationships between documents.
+
+    Returns (child_id, parent_id, relationship_subtype) tuples.
+    Subtypes: "chapter_in_book", "reading_in_syllabus", "section_in_report".
+    """
+    if extractions is None:
+        extractions = {}
+
+    results: list[tuple[str, str, str]] = []
+    used_children: set[str] = set()
+
+    # Build lookup by zotero_key
+    by_zotero_key: dict[str, list[dict]] = defaultdict(list)
+    for paper in papers:
+        zk = paper.get("zotero_key")
+        if zk:
+            by_zotero_key[zk].append(paper)
+
+    # Heuristic 1: bookSection -> book via shared zotero_key
+    for zk, group in by_zotero_key.items():
+        if len(group) < 2:
+            continue
+        books = [p for p in group if p.get("item_type") == "book"]
+        sections = [p for p in group if p.get("item_type") == "bookSection"]
+        for section in sections:
+            for book in books:
+                child_id = section.get("paper_id")
+                parent_id = book.get("paper_id")
+                if child_id and parent_id and child_id != parent_id:
+                    results.append((child_id, parent_id, "chapter_in_book"))
+                    used_children.add(child_id)
+
+    # Heuristic 2: Shared title with distinct content -> syllabus bundle
+    title_groups: dict[str, list[dict]] = defaultdict(list)
+    for paper in papers:
+        title = paper.get("title") or ""
+        normalized = _normalize_title(title)
+        if normalized and normalized != "untitled":
+            title_groups[normalized].append(paper)
+
+    for normalized_title, group in title_groups.items():
+        if len(group) < 3:
+            continue
+        # Check for distinct content via thesis_statements
+        statements: set[str] = set()
+        for p in group:
+            pid = p.get("paper_id")
+            if not pid:
+                continue
+            ext = extractions.get(pid, {})
+            ext_data = ext.get("extraction", ext)
+            thesis = ext_data.get("thesis_statement") or ""
+            if thesis.strip():
+                statements.add(thesis.strip())
+        if len(statements) < 2:
+            continue
+        # Create virtual parent node ID
+        virtual_parent_id = f"virtual_collection_{normalized_title[:40].replace(' ', '_')}"
+        for p in group:
+            child_id = p.get("paper_id")
+            if child_id and child_id not in used_children:
+                results.append((child_id, virtual_parent_id, "reading_in_syllabus"))
+                used_children.add(child_id)
+
+    # Heuristic 3: Chapter numbering in title
+    for paper in papers:
+        child_id = paper.get("paper_id")
+        if not child_id or child_id in used_children:
+            continue
+        title = paper.get("title") or ""
+        if not _CHAPTER_PATTERN.search(title):
+            continue
+        # Match to parent book by same authors + similar title prefix
+        paper_authors = _normalize_title(paper.get("authors") or "")
+        if not paper_authors:
+            continue
+        title_prefix = _normalize_title(title).split()[:3]
+        for candidate in papers:
+            cand_id = candidate.get("paper_id")
+            if not cand_id or cand_id == child_id:
+                continue
+            cand_type = candidate.get("item_type") or ""
+            cand_authors = _normalize_title(candidate.get("authors") or "")
+            if cand_authors != paper_authors:
+                continue
+            cand_title_words = _normalize_title(candidate.get("title") or "").split()
+            # Check if candidate title shares prefix and doesn't have chapter pattern
+            if (
+                len(cand_title_words) >= 3
+                and cand_title_words[:3] == title_prefix
+                and not _CHAPTER_PATTERN.search(candidate.get("title") or "")
+            ):
+                results.append((child_id, cand_id, "chapter_in_book"))
+                used_children.add(child_id)
+                break
+
+    return results
+
+
 def _deduplicate_papers(
     papers: list[dict],
     part_of_pairs: set[tuple[str, str]] | None = None,
@@ -370,6 +479,72 @@ def _find_doi_matches(
     return matches
 
 
+def _find_reference_matches(
+    papers: list[dict],
+    extractions: dict[str, dict],
+    title_index: dict[str, dict],
+    fuzzy_threshold: float,
+) -> list[tuple[str, str, float, str]]:
+    """Find citation links from parsed reference lists.
+
+    Matches references against the paper index by DOI (confidence 1.0)
+    or title fuzzy match (confidence 0.95).
+
+    Returns list of (source_id, target_id, confidence, source_type).
+    """
+    # Build DOI lookup
+    doi_to_id: dict[str, str] = {}
+    for paper in papers:
+        doi = paper.get("doi")
+        paper_id = paper.get("paper_id")
+        if doi and paper_id:
+            doi_to_id[doi.lower().rstrip(".")] = paper_id
+
+    matches = []
+
+    for paper in papers:
+        source_id = paper.get("paper_id")
+        if not source_id:
+            continue
+
+        extraction = extractions.get(source_id, {})
+        ext_data = extraction.get("extraction", extraction)
+        reference_list = ext_data.get("reference_list") or []
+
+        for ref in reference_list:
+            if not isinstance(ref, dict):
+                continue
+
+            # Try DOI match first (highest confidence)
+            ref_doi = ref.get("parsed_doi")
+            if ref_doi:
+                doi_clean = ref_doi.lower().rstrip(".")
+                target_id = doi_to_id.get(doi_clean)
+                if target_id and target_id != source_id:
+                    matches.append((source_id, target_id, 1.0, "reference_doi_match"))
+                    continue
+
+            # Try title fuzzy match
+            ref_title = ref.get("parsed_title")
+            if not ref_title or len(ref_title) < _MIN_TITLE_LENGTH:
+                continue
+
+            ref_tokens = _tokenize_title(ref_title)
+            if len(ref_tokens) < 3:
+                continue
+
+            for paper_id, info in title_index.items():
+                if paper_id == source_id:
+                    continue
+
+                similarity = _jaccard_similarity(ref_tokens, info["tokens"])
+                if similarity >= max(fuzzy_threshold, 0.85):
+                    matches.append((source_id, paper_id, 0.95, "reference_title_match"))
+                    break  # One match per reference entry
+
+    return matches
+
+
 def build_citation_graph(
     papers: list[dict],
     extractions: dict[str, dict],
@@ -391,9 +566,12 @@ def build_citation_graph(
     # Filter papers by collection/year if configured
     filtered_papers = _filter_papers(papers, config)
 
-    # Deduplicate papers (after filtering, before node/edge building)
-    # part_of_pairs will be populated when part_of detection is implemented
-    filtered_papers, redirect_map = _deduplicate_papers(filtered_papers)
+    # Detect part_of relationships before dedup
+    part_of_triples = _find_part_of_relationships(filtered_papers, extractions)
+    part_of_pairs: set[tuple[str, str]] = {(c, p) for c, p, _ in part_of_triples}
+
+    # Deduplicate papers (excluding part_of members)
+    filtered_papers, redirect_map = _deduplicate_papers(filtered_papers, part_of_pairs)
 
     title_index = _build_title_index(filtered_papers, config.min_title_length)
 
@@ -415,7 +593,39 @@ def build_citation_graph(
             doi=paper.get("doi"),
         )
 
-    # Find edges
+    # Add virtual parent nodes for syllabus bundles
+    virtual_parents: set[str] = set()
+    for child_id, parent_id, subtype in part_of_triples:
+        if subtype == "reading_in_syllabus" and parent_id not in nodes:
+            virtual_parents.add(parent_id)
+            # Derive label from the virtual parent ID
+            label = parent_id.replace("virtual_collection_", "").replace("_", " ")
+            nodes[parent_id] = GraphNode(
+                id=parent_id,
+                node_type="collection",
+                label=label[:config.max_label_length],
+                title=label,
+                in_library=False,
+                color="#8a6a3a",
+            )
+
+    # Build part_of edges
+    part_of_edges: list[GraphEdge] = []
+    for child_id, parent_id, subtype in part_of_triples:
+        if child_id in nodes or child_id in redirect_map:
+            resolved_child = redirect_map.get(child_id, child_id)
+            resolved_parent = redirect_map.get(parent_id, parent_id)
+            if resolved_child != resolved_parent:
+                part_of_edges.append(GraphEdge(
+                    source=resolved_child,
+                    target=resolved_parent,
+                    edge_type="part_of",
+                    confidence=1.0,
+                    source_type="metadata_match",
+                    context=subtype,
+                ))
+
+    # Find citation edges
     edges: list[GraphEdge] = []
     edge_set: set[tuple[str, str]] = set()
 
@@ -430,6 +640,21 @@ def build_citation_graph(
                 target=target_id,
                 confidence=confidence,
                 source_type="doi_match",
+            ))
+
+    # Reference-list-based matches (higher confidence than title matching)
+    ref_matches = _find_reference_matches(
+        filtered_papers, extractions, title_index, config.fuzzy_threshold
+    )
+    for source_id, target_id, confidence, source_type in ref_matches:
+        key = (source_id, target_id)
+        if key not in edge_set:
+            edge_set.add(key)
+            edges.append(GraphEdge(
+                source=source_id,
+                target=target_id,
+                confidence=confidence,
+                source_type=source_type,
             ))
 
     # Title-based matches
@@ -461,10 +686,14 @@ def build_citation_graph(
     if redirect_map:
         edges = _redirect_edges(edges, redirect_map)
 
-    # Update node sizes based on in-degree (citation count)
+    # Combine citation edges and part_of edges
+    all_edges = edges + part_of_edges
+
+    # Update node sizes based on in-degree (citation count, excluding part_of)
     in_degree: dict[str, int] = defaultdict(int)
-    for edge in edges:
-        in_degree[edge.target] += 1
+    for edge in all_edges:
+        if edge.edge_type != "part_of":
+            in_degree[edge.target] += 1
 
     for node_id, node in nodes.items():
         citations = in_degree.get(node_id, 0)
@@ -477,9 +706,10 @@ def build_citation_graph(
         "metadata": {
             "generated": datetime.now().isoformat(),
             "node_count": len(nodes),
-            "edge_count": len(edges),
+            "edge_count": len(all_edges),
             "papers_analyzed": len(filtered_papers),
             "duplicates_merged": len(redirect_map),
+            "part_of_count": len(part_of_edges),
             "extractions_used": sum(
                 1 for p in filtered_papers
                 if p.get("paper_id") in extractions
@@ -514,7 +744,7 @@ def build_citation_graph(
                 "source_type": e.source_type,
                 "context": e.context,
             }
-            for e in edges
+            for e in all_edges
         ],
     }
 

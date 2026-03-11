@@ -103,6 +103,28 @@ class KeyClaim(BaseModel):
     )
 
 
+class ReferenceEntry(BaseModel):
+    """A parsed entry from the paper's bibliography/reference list."""
+
+    raw_text: str = Field(description="The raw bibliography entry text")
+    parsed_title: str | None = Field(
+        default=None,
+        description="Parsed title of the referenced work",
+    )
+    parsed_authors: str | None = Field(
+        default=None,
+        description="Parsed author(s) of the referenced work",
+    )
+    parsed_year: int | None = Field(
+        default=None,
+        description="Parsed publication year",
+    )
+    parsed_doi: str | None = Field(
+        default=None,
+        description="Parsed DOI if present",
+    )
+
+
 class PaperExtraction(BaseModel):
     """Complete extraction from an academic paper."""
 
@@ -164,6 +186,12 @@ class PaperExtraction(BaseModel):
         description="Relevant discipline or topic tags",
     )
 
+    # Bibliography / reference list
+    reference_list: list[ReferenceEntry] = Field(
+        default_factory=list,
+        description="Parsed bibliography entries (up to 50) for citation graph matching",
+    )
+
     # Document type classification
     document_type: str | None = Field(
         default=None,
@@ -209,6 +237,7 @@ class PaperExtraction(BaseModel):
             "contribution_summary": self.contribution_summary,
             "keywords": self.keywords,
             "discipline_tags": self.discipline_tags,
+            "reference_list": [r.model_dump() for r in self.reference_list],
             "document_type": self.document_type,
             "quality_rating": self.quality_rating,
             "quality_explanation": self.quality_explanation,

@@ -91,7 +91,7 @@ class ExtractionCache:
 
             # Reconstruct nested objects
             if "extraction" in data and data["extraction"]:
-                from src.analysis.schemas import KeyClaim, KeyFinding, Methodology
+                from src.analysis.schemas import KeyClaim, KeyFinding, Methodology, ReferenceEntry
 
                 ext_data = data["extraction"]
                 if "methodology" in ext_data and isinstance(ext_data["methodology"], dict):
@@ -105,6 +105,11 @@ class ExtractionCache:
                     ext_data["key_claims"] = [
                         KeyClaim(**c) if isinstance(c, dict) else c
                         for c in ext_data["key_claims"]
+                    ]
+                if "reference_list" in ext_data and isinstance(ext_data["reference_list"], list):
+                    ext_data["reference_list"] = [
+                        ReferenceEntry(**r) if isinstance(r, dict) else r
+                        for r in ext_data["reference_list"]
                     ]
                 data["extraction"] = PaperExtraction(**ext_data)
 

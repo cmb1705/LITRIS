@@ -5,6 +5,8 @@ from pathlib import Path
 from src.analysis.citation_graph import (
     GraphConfig,
     _deduplicate_papers,
+    _find_part_of_relationships,
+    _find_reference_matches,
     _redirect_edges,
     GraphEdge,
     build_citation_graph,
@@ -335,3 +337,257 @@ def test_dedup_metadata_count():
     extractions = {}
     graph = build_citation_graph(papers, extractions)
     assert graph["metadata"]["duplicates_merged"] == 1
+
+
+# --- Part-of relationship tests ---
+
+
+def test_book_section_creates_part_of_edge():
+    """bookSection item + matching book item -> part_of edge."""
+    papers = [
+        {
+            "paper_id": "book1",
+            "title": "Introduction to Network Science",
+            "item_type": "book",
+            "zotero_key": "ZK100",
+            "authors": "Barabasi",
+            "publication_year": 2016,
+        },
+        {
+            "paper_id": "ch1",
+            "title": "Scale-Free Networks",
+            "item_type": "bookSection",
+            "zotero_key": "ZK100",
+            "authors": "Barabasi",
+            "publication_year": 2016,
+        },
+    ]
+    triples = _find_part_of_relationships(papers)
+    assert len(triples) == 1
+    child_id, parent_id, subtype = triples[0]
+    assert child_id == "ch1"
+    assert parent_id == "book1"
+    assert subtype == "chapter_in_book"
+
+    # Also verify via full graph build
+    graph = build_citation_graph(papers, {})
+    part_of_edges = [e for e in graph["edges"] if e["type"] == "part_of"]
+    assert len(part_of_edges) == 1
+    assert part_of_edges[0]["source"] == "ch1"
+    assert part_of_edges[0]["target"] == "book1"
+    assert part_of_edges[0]["source_type"] == "metadata_match"
+
+
+def test_syllabus_bundle_detection():
+    """3+ papers with same title, different content -> virtual parent + part_of edges."""
+    papers = [
+        {"paper_id": f"paf{i}", "title": "PAF540 Advanced Research Methods", "publication_year": 2020}
+        for i in range(4)
+    ]
+    extractions = {
+        "paf0": {"extraction": {"thesis_statement": "Network analysis is fundamental."}},
+        "paf1": {"extraction": {"thesis_statement": "Clustering improves outcomes."}},
+        "paf2": {"extraction": {"thesis_statement": "Optimization under constraints."}},
+        "paf3": {"extraction": {"thesis_statement": "Policy analysis frameworks."}},
+    }
+    graph = build_citation_graph(papers, extractions)
+
+    part_of_edges = [e for e in graph["edges"] if e["type"] == "part_of"]
+    assert len(part_of_edges) == 4
+
+    # Virtual parent node exists with collection type
+    virtual_nodes = [n for n in graph["nodes"] if n["type"] == "collection"]
+    assert len(virtual_nodes) == 1
+    assert virtual_nodes[0]["in_library"] is False
+    assert virtual_nodes[0]["color"] == "#8a6a3a"
+
+    assert graph["metadata"]["part_of_count"] == 4
+
+
+def test_part_of_not_counted_as_citation():
+    """part_of edges should not inflate citation in-degree counts."""
+    papers = [
+        {
+            "paper_id": "book1",
+            "title": "Introduction to Network Science",
+            "item_type": "book",
+            "zotero_key": "ZK100",
+            "authors": "Barabasi",
+            "publication_year": 2016,
+        },
+        {
+            "paper_id": "ch1",
+            "title": "Scale-Free Networks Chapter One",
+            "item_type": "bookSection",
+            "zotero_key": "ZK100",
+            "authors": "Barabasi",
+            "publication_year": 2016,
+        },
+    ]
+    graph = build_citation_graph(papers, {})
+
+    # book1 is a part_of target but should not get inflated size
+    book_node = next(n for n in graph["nodes"] if n["id"] == "book1")
+    assert book_node["size"] == 10  # Base size, no citation boost
+
+
+def test_chapter_numbering_detection():
+    """Title with 'Chapter 7' pattern detected as part_of."""
+    papers = [
+        {
+            "paper_id": "parent_book",
+            "title": "Advanced Methods in Policy Analysis",
+            "item_type": "book",
+            "authors": "Smith, J.",
+            "publication_year": 2020,
+        },
+        {
+            "paper_id": "ch7",
+            "title": "Advanced Methods in Policy Analysis Chapter 7",
+            "authors": "Smith, J.",
+            "publication_year": 2020,
+        },
+    ]
+    triples = _find_part_of_relationships(papers)
+    assert len(triples) >= 1
+    child_ids = {t[0] for t in triples}
+    assert "ch7" in child_ids
+    parent_ids = {t[1] for t in triples}
+    assert "parent_book" in parent_ids
+
+
+# --- Reference list matching tests ---
+
+
+def _reference_corpus():
+    """Build a corpus with reference lists for testing."""
+    papers = [
+        {
+            "paper_id": "r1",
+            "title": "Deep Learning for Natural Language Processing Tasks",
+            "authors": "Author A",
+            "publication_year": 2021,
+            "collections": ["NLP"],
+            "doi": "10.1234/nlp.2021.001",
+        },
+        {
+            "paper_id": "r2",
+            "title": "Attention Is All You Need for Sequence Modeling",
+            "authors": "Vaswani et al.",
+            "publication_year": 2017,
+            "collections": ["Transformers"],
+            "doi": "10.48550/arXiv.1706.03762",
+        },
+        {
+            "paper_id": "r3",
+            "title": "Graph Neural Networks for Citation Analysis Research",
+            "authors": "Smith et al.",
+            "publication_year": 2022,
+            "collections": ["GNN"],
+            "doi": "10.5678/gnn.2022.042",
+        },
+    ]
+
+    extractions = {
+        "r1": {
+            "extraction": {
+                "thesis_statement": "We apply deep learning to NLP.",
+                "reference_list": [
+                    {
+                        "raw_text": "Vaswani et al. (2017). Attention Is All You Need for Sequence Modeling. arXiv:1706.03762.",
+                        "parsed_title": "Attention Is All You Need for Sequence Modeling",
+                        "parsed_authors": "Vaswani et al.",
+                        "parsed_year": 2017,
+                        "parsed_doi": "10.48550/arXiv.1706.03762",
+                    },
+                    {
+                        "raw_text": "Smith et al. (2022). Graph Neural Networks for Citation Analysis Research.",
+                        "parsed_title": "Graph Neural Networks for Citation Analysis Research",
+                        "parsed_authors": "Smith et al.",
+                        "parsed_year": 2022,
+                        "parsed_doi": None,
+                    },
+                ],
+            }
+        },
+    }
+
+    return papers, extractions
+
+
+def test_reference_doi_match():
+    """Reference with DOI matching another paper creates confidence-1.0 edge."""
+    papers, extractions = _reference_corpus()
+    graph = build_citation_graph(papers, extractions)
+
+    doi_ref_edges = [
+        e for e in graph["edges"]
+        if e["source_type"] == "reference_doi_match"
+    ]
+    assert any(
+        e["source"] == "r1" and e["target"] == "r2" for e in doi_ref_edges
+    )
+    for e in doi_ref_edges:
+        assert e["confidence"] == 1.0
+
+
+def test_reference_title_match():
+    """Reference title matching a paper creates confidence-0.95 edge."""
+    papers, extractions = _reference_corpus()
+    graph = build_citation_graph(papers, extractions)
+
+    title_ref_edges = [
+        e for e in graph["edges"]
+        if e["source_type"] == "reference_title_match"
+    ]
+    assert any(
+        e["source"] == "r1" and e["target"] == "r3" for e in title_ref_edges
+    )
+    for e in title_ref_edges:
+        assert e["confidence"] == 0.95
+
+
+def test_reference_no_self_cite():
+    """Paper's own DOI in references does not create a self-edge."""
+    papers = [
+        {
+            "paper_id": "s1",
+            "title": "Some Paper About Self-Referencing in Academic Literature",
+            "authors": "Author X",
+            "publication_year": 2023,
+            "doi": "10.9999/self.2023",
+        },
+    ]
+    extractions = {
+        "s1": {
+            "extraction": {
+                "thesis_statement": "Self-referencing study.",
+                "reference_list": [
+                    {
+                        "raw_text": "Author X (2023). Some Paper About Self-Referencing...",
+                        "parsed_title": "Some Paper About Self-Referencing in Academic Literature",
+                        "parsed_authors": "Author X",
+                        "parsed_year": 2023,
+                        "parsed_doi": "10.9999/self.2023",
+                    },
+                ],
+            }
+        },
+    }
+    graph = build_citation_graph(papers, extractions)
+    for edge in graph["edges"]:
+        assert edge["source"] != edge["target"], "Self-citation edge found"
+
+
+def test_reference_dedup_with_title_match():
+    """Reference DOI match takes precedence; no duplicate edge from title match."""
+    papers, extractions = _reference_corpus()
+    graph = build_citation_graph(papers, extractions)
+
+    # r1 -> r2 should appear only once (via DOI match, not also title match)
+    r1_to_r2 = [
+        e for e in graph["edges"]
+        if e["source"] == "r1" and e["target"] == "r2"
+    ]
+    assert len(r1_to_r2) == 1
+    assert r1_to_r2[0]["source_type"] == "reference_doi_match"
