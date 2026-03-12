@@ -187,6 +187,12 @@ def parse_args():
         action="store_true",
         help="Analyze DOI overlap without processing (useful before switching databases)",
     )
+    parser.add_argument(
+        "--collection",
+        type=str,
+        default=None,
+        help="Filter to papers in collections matching this substring",
+    )
     return parser.parse_args()
 
 
@@ -704,6 +710,9 @@ def main():
     # Get all papers
     with LogContext(logger, "Loading papers from Zotero"):
         all_papers = list(zotero.get_all_papers())
+        if args.collection:
+            all_papers = [p for p in all_papers if any(args.collection in c for c in p.collections)]
+            logger.info(f"Collection filter '{args.collection}': {len(all_papers)} papers matched")
         # Filter to only papers with actual PDF files
         papers = [p for p in all_papers if p.pdf_path]
         papers_without_pdf = [p for p in all_papers if not p.pdf_path]
