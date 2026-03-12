@@ -1,10 +1,15 @@
 """Tests for topic clustering with UMAP + HDBSCAN."""
 
-from unittest.mock import MagicMock
+import pytest
 
-import numpy as np
+umap = pytest.importorskip("umap", reason="umap-learn not installed")
+hdbscan = pytest.importorskip("hdbscan", reason="hdbscan not installed")
 
-from src.analysis.clustering import (
+from unittest.mock import MagicMock  # noqa: E402
+
+import numpy as np  # noqa: E402
+
+from src.analysis.clustering import (  # noqa: E402
     ClusteringResult,
     TopicCluster,
     cluster_papers,

@@ -4,11 +4,10 @@ from pathlib import Path
 
 from src.analysis.citation_graph import (
     GraphConfig,
+    GraphEdge,
     _deduplicate_papers,
     _find_part_of_relationships,
-    _find_reference_matches,
     _redirect_edges,
-    GraphEdge,
     build_citation_graph,
     save_citation_graph,
 )
@@ -104,7 +103,7 @@ def test_edges_have_required_fields():
 
     required = {"source", "target", "type", "confidence", "source_type", "context"}
     for edge in graph["edges"]:
-        assert required <= set(edge.keys()), f"Missing fields in edge"
+        assert required <= set(edge.keys()), "Missing fields in edge"
 
 
 def test_title_matching_finds_references():
@@ -186,7 +185,7 @@ def test_highly_cited_node_color():
     for i in range(1, 8):
         extractions[f"p{i}"] = {
             "extraction": {
-                "thesis_statement": f"Building on the foundational work on graph neural network architectures.",
+                "thesis_statement": "Building on the foundational work on graph neural network architectures.",
             }
         }
 
