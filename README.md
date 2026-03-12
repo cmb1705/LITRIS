@@ -32,6 +32,18 @@ Embedding Generation --> ChromaDB Vector Store --> Semantic Search
 - **Flexible Extraction Modes**: CLI (free with subscriptions) or API (pay-per-use)
 - **PDF Processing**: PyMuPDF extraction with OCR fallback for scanned documents
 - **Semantic Search**: Vector similarity search with metadata filtering
+- **RRF Search**: Reciprocal Rank Fusion combining semantic and keyword search for better recall
+- **Agentic Search**: Multi-step iterative search with query refinement for complex questions
+- **Citation Graph**: Build and analyze citation relationships between papers
+- **Similarity Graph**: Visualize paper similarity networks using embeddings
+- **Gap Detection**: Identify underexplored topics, sparse years, and future research directions
+- **Topic Clustering**: UMAP + HDBSCAN clustering to discover topic groups in the corpus
+- **Research Digest**: Generate summaries of newly indexed papers
+- **Research Questions**: LLM-generated research questions from gap analysis reports
+- **LLM Council**: Multi-model consensus extraction for higher quality results
+- **Quality Rating**: Automated quality scoring of paper extractions
+- **Deep Review**: In-depth analysis of individual papers with full-text retrieval
+- **Discord Bot**: Search your index from Discord with `/litris` commands
 - **Incremental Updates**: Detect and process new/modified papers without full rebuild
 - **Config Migration**: Automatic schema versioning and migration
 
@@ -87,8 +99,12 @@ Direct tool access for Claude Code enables seamless research collaboration:
 | Tool | Purpose |
 |------|---------|
 | `litris_search` | Semantic search with filters (year, collection, chunk type) |
+| `litris_search_rrf` | Reciprocal Rank Fusion search combining semantic and keyword matching |
+| `litris_search_agentic` | Multi-step iterative search with automatic query refinement |
+| `litris_deep_review` | In-depth analysis of a paper with full-text retrieval |
 | `litris_get_paper` | Full extraction + PDF path for deep reading |
 | `litris_similar` | Find papers similar to a given paper |
+| `litris_clusters` | Topic clustering via UMAP + HDBSCAN on paper embeddings |
 | `litris_summary` | Index coverage and statistics |
 | `litris_collections` | List available Zotero collections |
 | `litris_save_query` | Save search results to query_results/ folder |
@@ -151,7 +167,7 @@ python -m venv .venv
 pip install -r requirements.txt
 
 # Configure paths
-cp config.yaml.example config.yaml
+cp config.example.yaml config.yaml
 # Edit config.yaml with your reference source paths
 ```
 
@@ -162,7 +178,7 @@ For a containerized workflow, use the provided `Dockerfile` and `docker-compose.
 Step 1: Copy the config template and update Zotero paths (or rely on Compose env overrides).
 
 ```bash
-cp config.yaml.example config.yaml
+cp config.example.yaml config.yaml
 ```
 
 Step 2: Copy the environment template and set host paths for Docker mounts.
@@ -407,6 +423,9 @@ python scripts/build_index.py --show-skipped
 
 # Limit processing to N papers
 python scripts/build_index.py --limit 50 --use-subscription
+
+# Build only papers from a specific collection
+python scripts/build_index.py --collection "Machine Learning" --use-subscription
 ```
 
 ### Incremental Updates
@@ -416,6 +435,61 @@ The build script automatically detects new papers and only processes those not a
 ```bash
 # Just run build again - it skips already-extracted papers
 python scripts/build_index.py --use-subscription
+```
+
+### Gap Analysis
+
+Identify underexplored topics, sparse publication years, and future research directions:
+
+```bash
+# Generate gap analysis report
+python scripts/gap_analysis.py
+
+# Limit to specific collections
+python scripts/gap_analysis.py --collections "Network Science"
+
+# Custom output path
+python scripts/gap_analysis.py --output data/gap_report.json
+```
+
+### Research Questions
+
+Generate LLM-powered research questions from gap analysis reports:
+
+```bash
+# Generate questions from an existing gap report
+python scripts/research_questions.py
+
+# Specify provider and scope
+python scripts/research_questions.py --provider anthropic --scope narrow
+```
+
+### Research Digest
+
+Summarize newly indexed papers:
+
+```bash
+# Generate digest of recent additions
+python scripts/research_digest.py
+
+# Limit papers and output as JSON
+python scripts/research_digest.py --max-papers 20 --output-format json
+
+# Dry run (don't mark papers as processed)
+python scripts/research_digest.py --dry-run
+```
+
+### Discord Bot
+
+Search your LITRIS index from Discord:
+
+```bash
+# Set token and run
+export DISCORD_BOT_TOKEN=your-token-here
+python scripts/run_discord_bot.py
+
+# Or pass token directly
+python scripts/run_discord_bot.py --token your-token-here
 ```
 
 ## Documentation
