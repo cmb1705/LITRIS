@@ -119,10 +119,10 @@ class TestFormatExtraction:
 class TestPromptVersion:
     """Test that prompt version was bumped."""
 
-    def test_prompt_version_1_3(self):
+    def test_prompt_version_1_4(self):
         from src.analysis.prompts import EXTRACTION_PROMPT_VERSION
 
-        assert EXTRACTION_PROMPT_VERSION == "1.3.0"
+        assert EXTRACTION_PROMPT_VERSION == "1.4.0"
 
     def test_quality_in_system_prompt(self):
         from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT
