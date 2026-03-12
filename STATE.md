@@ -1,7 +1,7 @@
 # LITRIS - Build State
 
 **Project:** LITRIS (Literature Review Indexing System)
-**Current Phase:** Complete (Active Development)
+**Current Phase:** Phase 5 Complete
 **Status:** Production Ready
 
 ---
@@ -27,12 +27,23 @@ LITRIS is fully operational with comprehensive integrations:
 - Incremental update support
 - MCP tools for Claude Code integration
 - Citation verification agent for academic writing support
-- **Streamlit Web UI** for interactive search and exploration
+- **Streamlit Web UI** with Citation Network and Research Questions tabs
 - **Multi-provider LLM support** (Anthropic, OpenAI, Google, Ollama, llama.cpp)
 - **Multiple reference sources** (Zotero, BibTeX, PDF Folder, Mendeley, EndNote, Paperpile)
 - **Docker containerization** for portable deployments
+- **Citation graph** with DOI and title matching, node deduplication
+- **Similarity graph** with pre-computed topical similarity
+- **Gap detection** with confidence scoring pipeline
+- **Research questions** generation from literature analysis
+- **Clustering** for automatic paper grouping by theme
+- **LLM Council** for multi-provider consensus with cost limits
+- **Research digest** generation with paper starvation fix
+- **Quality rating** integrated into extraction schema
+- **Discord bot** for interactive search and formatting
+- **RRF search** (Reciprocal Rank Fusion) for hybrid retrieval
+- **Agentic search** for multi-step research queries
 
-All implementation phases complete. System is production-ready for research workflows.
+All five implementation phases complete. System is production-ready for research workflows.
 
 ---
 
@@ -99,10 +110,11 @@ All six MCP tools are implemented and working:
 LITRIS/
 +-- src/
 |   +-- zotero/           # Zotero database reader
-|   +-- analysis/         # PDF and LLM extraction
+|   +-- analysis/         # PDF/LLM extraction, citation graph, clustering, gap detection, research digest
 |   +-- indexing/         # Embeddings and storage
-|   +-- query/            # Search interface
+|   +-- query/            # Search interface (semantic, RRF, agentic)
 |   +-- mcp/              # MCP server and tools
+|   +-- discord_bot/      # Discord bot integration
 +-- .claude/
 |   +-- agents/           # Custom agents (citation-verifier, etc.)
 |   +-- commands/         # Slash commands
@@ -141,30 +153,48 @@ LITRIS/
 - Query result auto-save and PDF export
 - Cross-reference capabilities against index
 
+### Phase 4: Advanced Analysis (Complete)
+
+- **Citation graph**: DOI and title matching pipeline with node deduplication
+- **Similarity graph**: Pre-computed topical similarity network (PyVis visualization)
+- **Gap detection**: Confidence scoring pipeline for underexplored research areas
+- **Research questions**: Automatic generation from literature analysis
+- **Clustering**: Automatic paper grouping by research themes
+- **Quality rating**: Integrated into extraction schema and search results
+
+### Phase 5: Multi-Provider and Deployment (Complete)
+
+- **LLM Council**: Multi-provider consensus with per-provider cost limits and timeout handling
+- **Research digest**: Generation module with paper starvation fix and atomic state writes
+- **Discord bot**: Interactive search with rich formatting
+- **RRF search**: Reciprocal Rank Fusion for hybrid retrieval
+- **Agentic search**: Multi-step research query execution
+- **Web UI tabs**: Citation Network and Research Questions tabs in Streamlit
+- **Reference list parsing**: Citation graph ground truth from parsed references
+- **Cross-platform hooks**: Python-based pre-commit hooks (replaces PowerShell)
+- **Collection filtering**: `--collection` flag for selective Zotero indexing
+
 ---
 
-## Future Expansion Ideas
+## Remaining Work
 
-### Near-term Enhancements
+### Requires User Infrastructure
 
-- **Full-text search**: Add keyword search alongside semantic search
-- **Citation graph**: Build paper citation network from DOI references
-- **Author profiles**: Aggregate papers by author for collaboration analysis
-- **Topic modeling**: Automatic clustering of papers by research themes
+- **NAS deployment** (li-33k): Docker/systemd deployment to NAS hardware — needs NAS access
+- **Open WebUI + MCP integration** (li-6s7): Blocked by NAS deployment
 
-### Advanced Features
-
-- **Research gap detection**: Identify underexplored intersections in the literature
-- **Trend forecasting**: Use temporal patterns to predict emerging topics
-- **Collaborative annotations**: Share extractions and notes across researchers
+### Future Expansion Ideas
 
 ### Integration Opportunities
 
 - **Zotero plugin**: Direct integration with Zotero desktop
 - **Browser extension**: One-click paper addition and extraction
 - **API service**: REST API for programmatic access
+- **Trend forecasting**: Use temporal patterns to predict emerging topics
+- **Collaborative annotations**: Share extractions and notes across researchers
+- **Author profiles**: Aggregate papers by author for collaboration analysis
 
-### Recently Completed (January 2026)
+### Completed (January 2026)
 
 - **Web interface**: Streamlit-based search workbench with export
 - **Multi-database support**: Zotero, BibTeX, PDF Folder, Mendeley, EndNote, Paperpile
@@ -172,7 +202,7 @@ LITRIS/
 - **Local LLM support**: Ollama and llama.cpp for offline extraction
 - **CI/CD pipeline**: GitHub Actions with pre-commit hooks
 
-### Recently Completed (February 2026)
+### Completed (February 2026)
 
 - **Non-publication filtering**: Skip fragments, forms, and notes based on word/page count and section markers
 - **OCR fallback on fail**: Automatically retry with OCR when initial text extraction produces poor results
@@ -181,6 +211,18 @@ LITRIS/
 - **Provider comparison script**: Side-by-side extraction quality comparison between Anthropic and OpenAI
 - **Improved prompt schema**: Explicit enum rules to improve LLM compliance with expected values
 - **Windows compatibility**: Fixed Unicode encoding in Codex CLI, WinGet Poppler path detection
+
+### Completed (March 2026)
+
+- **Citation graph pipeline**: DOI and title matching with node deduplication
+- **Pre-computed similarity graph**: Topical similarity with containment matching
+- **Gap detection scoring**: Confidence-scored research gap identification
+- **Research questions tab**: Web UI tab for generated research questions
+- **Citation network tab**: Web UI tab for interactive citation graph
+- **LLM Council**: Multi-provider consensus with cost limits and integration tests
+- **Research digest**: Generation with paper starvation fix and silent failure hardening
+- **Cross-platform hooks**: Python scripts replacing PowerShell for Linux compatibility
+- **Package updates**: Requirements lock updated to latest versions
 
 ---
 
@@ -196,4 +238,4 @@ LITRIS/
 
 ---
 
-Last Updated: 2026-02-02
+Last Updated: 2026-03-11

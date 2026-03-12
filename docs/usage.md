@@ -481,6 +481,183 @@ ProviderConfig(name="anthropic", weight=1.5)
 ProviderConfig(name="openai", weight=1.0)
 ```
 
+## Citation Graph
+
+LITRIS can build a citation graph from your indexed papers, showing how papers in
+your library reference each other. The graph is generated automatically during
+`build_index.py` (unless skipped), or you can access it through the Web UI's
+Citation Network tab.
+
+The citation graph is built from reference lists extracted during indexing. Papers
+are linked when one cites another, and duplicate papers are merged by DOI.
+
+### Controlling Graph Generation During Build
+
+```bash
+# Normal build includes citation graph
+python scripts/build_index.py
+
+# Skip citation graph generation
+python scripts/build_index.py --skip-similarity
+```
+
+### Viewing the Citation Graph
+
+The Web UI provides an interactive citation network visualization (requires
+`pyvis` and `networkx`). Launch the UI and navigate to the **Citation Network**
+tab to explore connections between papers in your library.
+
+## Collection Filtering for Builds
+
+Use `--collection` to restrict a build to papers belonging to a specific Zotero
+collection. The filter matches collection names by substring (case-sensitive).
+
+```bash
+# Build only papers in collections containing "Methods"
+python scripts/build_index.py --collection "Methods"
+
+# Build only PhD-related papers
+python scripts/build_index.py --collection "PhD"
+
+# Combine with other options
+python scripts/build_index.py --collection "Core" --limit 20 --dry-run
+```
+
+## Research Digest
+
+Generate a digest summarizing newly indexed papers. The digest tracks which
+papers have already been reported, so each run only covers new additions.
+
+```bash
+# Generate a digest of recent papers
+python scripts/research_digest.py
+
+# Include up to 20 papers, output as JSON
+python scripts/research_digest.py --max-papers 20 --output-format json
+
+# Preview without marking papers as processed
+python scripts/research_digest.py --dry-run
+
+# Verbose progress output
+python scripts/research_digest.py --verbose
+```
+
+### Digest Options
+
+| Option | Description |
+| ------ | ----------- |
+| `--index-dir PATH` | Path to index directory (default: data/index) |
+| `--output-dir PATH` | Directory to save digest (default: data/out/digests) |
+| `--output-format` | `markdown` or `json` (default: markdown) |
+| `--max-papers N` | Maximum papers to include (default: 10) |
+| `--dry-run` | Generate without marking papers as processed |
+| `--verbose` | Show detailed progress |
+
+## Discord Bot
+
+LITRIS includes a Discord bot that exposes search functionality via slash
+commands with embed formatting and button-based pagination.
+
+### Prerequisites
+
+1. Install the `discord.py` package: `pip install discord.py`
+2. Create a Discord application at https://discord.com/developers/applications
+3. Add a bot to the application and copy the token
+4. Invite the bot to your server with the `applications.commands` scope
+
+### Running the Bot
+
+```bash
+# Set token via environment variable
+export DISCORD_BOT_TOKEN=your-token-here
+python scripts/run_discord_bot.py
+
+# Or pass token directly
+python scripts/run_discord_bot.py --token your-token-here
+
+# With debug logging
+python scripts/run_discord_bot.py --log-level DEBUG
+```
+
+### Bot Options
+
+| Option | Description |
+| ------ | ----------- |
+| `--token` | Discord bot token (default: `DISCORD_BOT_TOKEN` env var) |
+| `--log-level` | Logging level: DEBUG, INFO, WARNING, ERROR (default: INFO) |
+
+### Slash Commands
+
+| Command | Description |
+| ------- | ----------- |
+| `/search <query>` | Semantic search across indexed papers |
+| `/paper <id>` | Get full details for a specific paper |
+| `/similar <id>` | Find papers similar to a given paper |
+| `/summary` | Get index statistics |
+
+Search results are paginated with Previous/Next buttons.
+
+## Web UI (Streamlit)
+
+The Streamlit-based web interface provides a full-featured search workbench.
+
+### Launching
+
+```bash
+python -m streamlit run scripts/web_ui.py
+```
+
+### Tabs
+
+The UI is organized into four tabs:
+
+- **Search** -- Semantic search with filters for year range, collections, item
+  types, and chunk types. Includes quick-filter presets (Recent, Methods, etc.),
+  sort options (relevance, year, title), a detail panel with full extraction data
+  and PDF access, and one-click citation copy in APA, MLA, Chicago, or BibTeX.
+  Results can be exported to CSV, BibTeX, or PDF.
+
+- **Index Summary** -- Full overview of your indexed library with statistics on
+  paper counts, collection distribution, and extraction coverage.
+
+- **Research Questions** -- Generate research questions directly from the UI.
+  Runs gap analysis on your index and uses an LLM to propose questions based on
+  identified gaps.
+
+- **Citation Network** -- Interactive graph visualization of citation
+  relationships between papers in your library (requires `pyvis` and
+  `networkx`).
+
+### Keyboard Shortcuts
+
+| Key | Action |
+| --- | ------ |
+| `j` / `k` | Navigate results up/down |
+| `o` | Open detail panel |
+| `Esc` | Close detail panel |
+
+## Additional Build Options
+
+The following `build_index.py` options were added in recent releases:
+
+| Option | Description |
+| ------ | ----------- |
+| `--collection SUBSTR` | Filter to papers in collections matching this substring |
+| `--parallel N` | Number of parallel extraction workers (CLI mode only) |
+| `--summary-model MODEL` | Override model for summary extraction fields |
+| `--methodology-model MODEL` | Override model for methodology extraction fields |
+| `--no-cache` | Disable extraction caching (re-extract all papers) |
+| `--clear-cache` | Clear extraction cache before running |
+| `--use-subscription` | Use Claude subscription (Max/Pro) instead of API billing |
+| `--dedupe-by-doi` | Skip papers with DOIs already in index |
+| `--show-doi-overlap` | Analyze DOI overlap without processing |
+| `--skip-similarity` | Skip pre-computed similarity pair generation |
+| `--rebuild-embeddings` | Rebuild embeddings even if they exist |
+| `--paper PAPER_ID` | Process only this paper (repeatable) |
+| `--skip-paper PAPER_ID` | Skip specific paper ID (repeatable) |
+| `--show-failed` | Show list of failed papers from previous run |
+| `--show-skipped` | Show list of papers without PDFs |
+
 ## Next Steps
 
 - See [Query Guide](query_guide.md) for search examples
