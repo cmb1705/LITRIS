@@ -1,7 +1,6 @@
 """Tests for research digest generation."""
 
 import json
-from pathlib import Path
 
 from src.analysis.research_digest import (
     DigestConfig,

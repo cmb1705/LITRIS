@@ -8,11 +8,11 @@ import io
 import json
 import subprocess
 import sys
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from html import escape
 from pathlib import Path
-from typing import Callable, cast
+from typing import cast
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -33,15 +33,12 @@ except ImportError:
 from src.analysis.citation_graph import GraphConfig, load_and_build_graph
 from src.analysis.gap_detection import GapDetectionConfig, load_gap_report
 from src.analysis.research_questions import (
-    GeneratedQuestion,
-    GenerationResult,
     QuestionScope,
     QuestionStyle,
     ResearchQuestionConfig,
     build_prompts_from_gap_report,
     format_questions_markdown,
     generate_questions_from_prompts,
-    parse_llm_response,
 )
 from src.config import Config
 from src.indexing.embeddings import CHUNK_TYPES, ChunkType

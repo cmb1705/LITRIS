@@ -156,7 +156,7 @@ def _find_part_of_relationships(
             by_zotero_key[zk].append(paper)
 
     # Heuristic 1: bookSection -> book via shared zotero_key
-    for zk, group in by_zotero_key.items():
+    for _zk, group in by_zotero_key.items():
         if len(group) < 2:
             continue
         books = [p for p in group if p.get("item_type") == "book"]
@@ -177,7 +177,7 @@ def _find_part_of_relationships(
         if normalized and normalized != "untitled":
             title_groups[normalized].append(paper)
 
-    for normalized_title, group in title_groups.items():
+    for _normalized_title, group in title_groups.items():
         if len(group) < 3:
             continue
         # Check for distinct content via thesis_statements
@@ -194,7 +194,7 @@ def _find_part_of_relationships(
         if len(statements) < 2:
             continue
         # Create virtual parent node ID
-        virtual_parent_id = f"virtual_collection_{normalized_title[:40].replace(' ', '_')}"
+        virtual_parent_id = f"virtual_collection_{_normalized_title[:40].replace(' ', '_')}"
         for p in group:
             child_id = p.get("paper_id")
             if child_id and child_id not in used_children:
@@ -218,7 +218,6 @@ def _find_part_of_relationships(
             cand_id = candidate.get("paper_id")
             if not cand_id or cand_id == child_id:
                 continue
-            cand_type = candidate.get("item_type") or ""
             cand_authors = _normalize_title(candidate.get("authors") or "")
             if cand_authors != paper_authors:
                 continue
@@ -279,7 +278,7 @@ def _deduplicate_papers(
     redirect_map: dict[str, str] = {}
     surviving_papers: dict[str, dict] = {}
 
-    for normalized_title, group in title_groups.items():
+    for _normalized_title, group in title_groups.items():
         if len(group) < 2:
             # No duplicates
             pid = group[0].get("paper_id")
@@ -598,7 +597,7 @@ def build_citation_graph(
 
     # Add virtual parent nodes for syllabus bundles
     virtual_parents: set[str] = set()
-    for child_id, parent_id, subtype in part_of_triples:
+    for _child_id, parent_id, subtype in part_of_triples:
         if subtype == "reading_in_syllabus" and parent_id not in nodes:
             virtual_parents.add(parent_id)
             # Derive label from the virtual parent ID
