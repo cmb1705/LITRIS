@@ -332,8 +332,11 @@ class TestCliSectionExtractor:
             def extract(self, prompt, input_text):
                 captured["prompt"] = prompt
                 captured["input_text"] = input_text
-                # Minimal valid response
-                return {"thesis_statement": "Thesis", "research_questions": []}
+                # Minimal valid SemanticAnalysis response (q-field format)
+                return {
+                    "q02_thesis": "Thesis",
+                    "q01_research_question": "RQ1",
+                }
 
         dummy_rate = MagicMock()
         dummy_rate.record_request = MagicMock()
@@ -362,29 +365,21 @@ class TestCliSectionExtractor:
         assert "2020" in captured["prompt"]
 
     def test_parse_response_full(self, tmp_path):
-        """Test parsing a full extraction response."""
+        """Test parsing a full SemanticAnalysis response."""
         from src.analysis.cli_section_extractor import CliSectionExtractor
         from src.zotero.models import PaperMetadata
 
         extractor = CliSectionExtractor(cache_dir=tmp_path)
 
         response = {
-            "thesis_statement": "This is the thesis",
-            "research_questions": ["RQ1", "RQ2"],
-            "methodology": {
-                "approach": "qualitative",
-                "design": "case study",
-            },
-            "key_findings": [
-                {"finding": "Finding 1", "evidence_type": "qualitative", "significance": "high"},
-                "Finding 2 as string",
-            ],
-            "key_claims": [
-                {"claim": "Claim 1", "support_type": "data"},
-            ],
-            "limitations": ["Limitation 1"],
-            "future_directions": ["Direction 1"],
-            "extraction_confidence": 0.85,
+            "q01_research_question": "What is the effect of X on Y?",
+            "q02_thesis": "This is the thesis",
+            "q03_key_claims": "X correlates with Y significantly",
+            "q04_evidence": "Regression on 500 participants (p<0.01)",
+            "q05_limitations": "Small sample, single institution",
+            "q07_methods": "Quantitative survey with regression",
+            "q17_field": "network science",
+            "q22_contribution": "Novel measurement approach",
         }
 
         metadata = PaperMetadata(
@@ -398,12 +393,10 @@ class TestCliSectionExtractor:
 
         extraction = extractor._parse_response(response, "paper1", metadata)
 
-        # PaperExtraction doesn't have paper_id - that's in ExtractionResult wrapper
-        assert extraction.thesis_statement == "This is the thesis"
-        assert len(extraction.research_questions) == 2
-        assert extraction.methodology.approach == "qualitative"
-        assert len(extraction.key_findings) == 2
-        assert extraction.extraction_confidence == 0.85
+        assert extraction.paper_id == "paper1"
+        assert extraction.q02_thesis == "This is the thesis"
+        assert extraction.q01_research_question == "What is the effect of X on Y?"
+        assert extraction.q07_methods == "Quantitative survey with regression"
 
     def test_parse_response_minimal(self, tmp_path):
         """Test parsing minimal response."""
@@ -413,7 +406,7 @@ class TestCliSectionExtractor:
         extractor = CliSectionExtractor(cache_dir=tmp_path)
 
         response = {
-            "thesis_statement": "Minimal thesis",
+            "q02_thesis": "Minimal thesis",
         }
 
         metadata = PaperMetadata(
@@ -427,10 +420,10 @@ class TestCliSectionExtractor:
 
         extraction = extractor._parse_response(response, "paper1", metadata)
 
-        # PaperExtraction doesn't have paper_id - that's in ExtractionResult wrapper
-        assert extraction.thesis_statement == "Minimal thesis"
-        assert extraction.key_findings == []
-        assert extraction.extraction_confidence == 0.7  # Default
+        assert extraction.paper_id == "paper1"
+        assert extraction.q02_thesis == "Minimal thesis"
+        assert extraction.q03_key_claims is None
+        assert extraction.prompt_version == "2.0.0"
 
 
 class TestCliIntegration:

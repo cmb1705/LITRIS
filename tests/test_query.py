@@ -35,7 +35,7 @@ class TestEnrichedResult:
             matched_text="This is the matched text from the paper.",
             score=0.85,
             paper_data={"doi": "10.1234/test"},
-            extraction_data={"thesis_statement": "Main thesis"},
+            extraction_data={"q02_thesis": "Main thesis"},
         )
 
     def test_result_creation(self, sample_result):
@@ -88,20 +88,20 @@ class TestStructuredStore:
 
     @pytest.fixture
     def sample_extractions(self):
-        """Create sample extraction data."""
+        """Create sample extraction data using SemanticAnalysis q-fields."""
         return {
             "paper_001": {
                 "paper_id": "paper_001",
                 "extraction": {
-                    "thesis_statement": "Paper one thesis",
-                    "discipline_tags": ["Machine Learning"],
+                    "q02_thesis": "Paper one thesis",
+                    "q17_field": "Machine Learning",
                 },
             },
             "paper_002": {
                 "paper_id": "paper_002",
                 "extraction": {
-                    "thesis_statement": "Paper two thesis",
-                    "discipline_tags": ["NLP", "Deep Learning"],
+                    "q02_thesis": "Paper two thesis",
+                    "q17_field": "NLP, Deep Learning",
                 },
             },
         }
@@ -264,8 +264,8 @@ class TestResultFormatting:
                 year=2023,
                 collections=["NLP"],
                 item_type="conferencePaper",
-                chunk_type="thesis",
-                matched_text="This is the matched thesis statement.",
+                chunk_type="dim_q02",
+                matched_text="This is the matched thesis dimension.",
                 score=0.85,
             ),
         ]
@@ -314,9 +314,9 @@ class TestResultFormatting:
         """Test formatting with extraction data."""
         sample_results[0].extraction_data = {
             "extraction": {
-                "thesis_statement": "The main thesis",
-                "contribution_summary": "Novel contribution",
-                "key_findings": [{"finding": "Key finding 1"}],
+                "q02_thesis": "The main thesis",
+                "q22_contribution": "Novel contribution",
+                "q03_key_claims": "Key claim 1. Key claim 2.",
             }
         }
 
@@ -370,23 +370,24 @@ class TestFormatPaperDetail:
         assert "This is the abstract." in output
 
     def test_format_paper_with_extraction(self):
-        """Test formatting paper with extraction data."""
+        """Test formatting paper with SemanticAnalysis extraction data."""
         paper = {"title": "Test Paper", "paper_id": "p1"}
         extraction = {
             "extraction": {
-                "thesis_statement": "Main thesis",
-                "research_questions": ["RQ1", "RQ2"],
-                "conclusions": "Final conclusions",
-                "limitations": ["Limit 1"],
-                "future_directions": ["Direction 1"],
+                "q01_research_question": "RQ1. RQ2.",
+                "q02_thesis": "Main thesis",
+                "q05_limitations": "Limit 1",
+                "q19_implications": "Implication 1",
+                "q20_future_work": "Direction 1",
+                "q22_contribution": "Key contribution",
             }
         }
 
         output = format_paper_detail(paper, extraction)
-        assert "## Thesis Statement" in output
+        assert "## Thesis" in output
         assert "Main thesis" in output
-        assert "## Research Questions" in output
-        assert "## Conclusions" in output
+        assert "## Research Question" in output
+        assert "## Contribution" in output
 
 
 class TestFormatSummary:
