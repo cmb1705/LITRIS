@@ -1,7 +1,7 @@
 """Topic clustering with UMAP dimensionality reduction and HDBSCAN.
 
 Clusters paper embeddings to identify topic groups and micro-topics.
-Uses full_summary embeddings (one per paper) for paper-level clustering.
+Uses raptor_overview embeddings (one per paper) for paper-level clustering.
 """
 
 from __future__ import annotations
@@ -61,13 +61,13 @@ class ClusteringResult:
 
 def extract_embeddings(
     vector_store,
-    chunk_type: str = "full_summary",
+    chunk_type: str = "raptor_overview",
 ) -> tuple[list[str], np.ndarray]:
     """Extract paper embeddings from ChromaDB.
 
     Args:
         vector_store: VectorStore instance.
-        chunk_type: Chunk type to extract (default: full_summary).
+        chunk_type: Chunk type to extract (default: raptor_overview).
 
     Returns:
         Tuple of (paper_ids, embeddings_matrix).
@@ -177,7 +177,7 @@ def run_clustering(
     Returns:
         ClusteringResult with cluster assignments and coordinates.
     """
-    logger.info("Extracting full_summary embeddings...")
+    logger.info("Extracting raptor_overview embeddings...")
     paper_ids, embeddings = extract_embeddings(vector_store)
 
     if len(paper_ids) < 5:
