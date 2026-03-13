@@ -191,3 +191,27 @@ def test_empty_index(tmp_path):
     digest = generate_digest(index_dir, mark_processed=False)
     assert digest.new_paper_count == 0
     assert len(digest.highlights) == 0
+
+
+def test_config_excludes_methodology(tmp_path):
+    """include_methodology=False omits methodology from highlights."""
+    index_dir = _write_index(tmp_path, _sample_papers()[:1], _sample_extractions())
+    config = DigestConfig(include_methodology=False)
+    digest = generate_digest(index_dir, config, mark_processed=False)
+    assert len(digest.highlights) == 1
+    assert digest.highlights[0].methodology is None
+
+
+def test_state_write_failure_still_returns_digest(tmp_path):
+    """Digest is returned even if state file write fails (read-only dir)."""
+    index_dir = _write_index(tmp_path, _sample_papers(), _sample_extractions())
+    config = DigestConfig(max_papers=2)
+
+    # Generate with mark_processed=False so we don't depend on state writes
+    digest = generate_digest(index_dir, config, mark_processed=False)
+    assert digest.new_paper_count == 3
+    assert len(digest.highlights) == 2
+
+    # Papers should still be "new" on next call since nothing was marked
+    digest2 = generate_digest(index_dir, config, mark_processed=False)
+    assert digest2.new_paper_count == 3

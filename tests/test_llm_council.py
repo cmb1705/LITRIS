@@ -8,6 +8,7 @@ from src.analysis.llm_council import (
     LLMCouncil,
     ProviderConfig,
     ProviderResponse,
+    _normalize_discipline_tags,
     aggregate_extractions,
     calculate_consensus_confidence,
 )
@@ -597,3 +598,121 @@ class TestLLMCouncilIntegration:
         assert not result.success
         assert result.consensus is None
         assert len(result.errors) >= 2
+
+
+class TestNormalizeDisciplineTags:
+    """Tests for _normalize_discipline_tags edge cases."""
+
+    def test_none_returns_empty(self):
+        """None input returns empty list."""
+        assert _normalize_discipline_tags(None) == []
+
+    def test_empty_list_returns_empty(self):
+        """Empty list returns empty list."""
+        assert _normalize_discipline_tags([]) == []
+
+    def test_mixed_case_deduplication(self):
+        """Tags differing only in case are treated as duplicates."""
+        result = _normalize_discipline_tags(
+            ["Machine Learning", "machine learning", "MACHINE LEARNING"]
+        )
+        assert result == ["machine learning"]
+
+    def test_non_string_items_skipped(self):
+        """Non-string items (int, None, dict) are silently skipped."""
+        result = _normalize_discipline_tags(["valid", 42, None, {"bad": True}, "also valid"])
+        assert result == ["valid", "also valid"]
+
+    def test_whitespace_stripped(self):
+        """Leading/trailing whitespace is stripped before dedup."""
+        result = _normalize_discipline_tags(["  NLP ", "NLP", " nlp"])
+        assert result == ["nlp"]
+
+
+class TestParallelExecution:
+    """Tests for council parallel execution path."""
+
+    def test_parallel_collects_all_results(self):
+        """Parallel execution collects results from all providers."""
+        from unittest.mock import MagicMock, patch
+
+        config = CouncilConfig(
+            providers=[
+                ProviderConfig(name="provider_a"),
+                ProviderConfig(name="provider_b"),
+            ],
+            min_responses=2,
+            parallel=True,
+        )
+        council = LLMCouncil(config)
+
+        def make_client(thesis: str):
+            client = MagicMock()
+            result = MagicMock()
+            result.success = True
+            result.extraction = PaperExtraction(thesis_statement=thesis)
+            result.cost = 0.01
+            client.extract.return_value = result
+            return client
+
+        clients = {
+            "provider_a": make_client("Thesis A"),
+            "provider_b": make_client("Thesis B from provider B is longer"),
+        }
+
+        with patch.object(council, "_get_client", side_effect=lambda name: clients[name]):
+            result = council.extract(
+                paper_id="test",
+                title="Test",
+                authors="Author",
+                year=2024,
+                item_type="article",
+                text="Content",
+            )
+
+        assert result.success
+        assert len(result.provider_responses) == 2
+        # Longest thesis wins consensus
+        assert "provider B" in result.consensus.thesis_statement
+
+    def test_provider_timeout_recorded_as_failure(self):
+        """Provider that raises exception is recorded as failed response."""
+        from unittest.mock import MagicMock, patch
+
+        config = CouncilConfig(
+            providers=[
+                ProviderConfig(name="fast"),
+                ProviderConfig(name="slow"),
+            ],
+            min_responses=1,
+            fallback_to_single=True,
+            parallel=False,  # Sequential so behavior is deterministic
+        )
+        council = LLMCouncil(config)
+
+        fast_client = MagicMock()
+        fast_result = MagicMock()
+        fast_result.success = True
+        fast_result.extraction = PaperExtraction(thesis_statement="Fast result")
+        fast_result.cost = 0.01
+        fast_client.extract.return_value = fast_result
+
+        slow_client = MagicMock()
+        slow_client.extract.side_effect = TimeoutError("Provider timed out")
+
+        clients = {"fast": fast_client, "slow": slow_client}
+
+        with patch.object(council, "_get_client", side_effect=lambda name: clients[name]):
+            result = council.extract(
+                paper_id="test",
+                title="Test",
+                authors="Author",
+                year=2024,
+                item_type="article",
+                text="Content",
+            )
+
+        assert result.success  # Fallback to single
+        failed = [r for r in result.provider_responses if not r.success]
+        assert len(failed) == 1
+        assert "slow" in failed[0].provider
