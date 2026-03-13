@@ -715,6 +715,167 @@ async def litris_save_query(
         }
 
 
+@mcp.tool()
+async def litris_search_dimension(
+    query: str,
+    dimension: str,
+    top_k: int = 10,
+    year_min: int | None = None,
+    year_max: int | None = None,
+    collections: list[str] | None = None,
+    quality_min: int | None = None,
+) -> dict[str, Any]:
+    """Search within a specific SemanticAnalysis dimension.
+
+    Searches only embeddings from a single question dimension (q01-q40),
+    enabling targeted retrieval like "find papers with similar methodology"
+    by searching dim_q07 only.
+
+    Args:
+        query: Natural language search query
+        dimension: Dimension identifier, e.g. "q07" or "q07_methods".
+            Short form (q01-q40) or full field name accepted.
+        top_k: Number of results to return (default: 10, max: 50)
+        year_min: Minimum publication year
+        year_max: Maximum publication year
+        collections: Filter by Zotero collection names
+        quality_min: Minimum paper quality rating 1-5
+
+    Returns:
+        Search results filtered to the specified dimension
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+    logger.info(f"[{request_id}] litris_search_dimension called: query='{query[:50]}...' dimension={dimension}")
+
+    try:
+        from src.query.dimension_search import search_dimension
+
+        validate_query(query)
+        top_k = validate_top_k(top_k)
+        if year_min is not None:
+            validate_year(year_min, "year_min")
+        if year_max is not None:
+            validate_year(year_max, "year_max")
+        if quality_min is not None:
+            validate_quality_min(quality_min)
+
+        adapter = get_adapter()
+        results = search_dimension(
+            engine=adapter.engine,
+            query=query,
+            dimension=dimension,
+            top_k=top_k,
+            year_min=year_min,
+            year_max=year_max,
+            collections=collections,
+            quality_min=quality_min,
+        )
+
+        formatted = []
+        for i, result in enumerate(results, 1):
+            formatted.append({
+                "rank": i,
+                "score": round(result.score, 4),
+                "paper_id": result.paper_id,
+                "title": result.title,
+                "authors": result.authors,
+                "year": result.year,
+                "chunk_type": result.chunk_type,
+                "matched_text": result.matched_text[:500] if result.matched_text else "",
+            })
+
+        elapsed = time.time() - start_time
+        logger.info(f"[{request_id}] litris_search_dimension returning {len(formatted)} results in {elapsed:.3f}s")
+        return {"query": query, "dimension": dimension, "result_count": len(formatted), "results": formatted}
+
+    except ValueError as e:
+        return {"error": "VALIDATION_ERROR", "message": str(e), "result_count": 0, "results": []}
+    except Exception as e:
+        logger.error(f"[{request_id}] Dimension search failed: {e}")
+        return {"error": "SEARCH_FAILED", "message": str(e), "result_count": 0, "results": []}
+
+
+@mcp.tool()
+async def litris_search_group(
+    query: str,
+    group: str,
+    top_k: int = 10,
+    year_min: int | None = None,
+    year_max: int | None = None,
+    collections: list[str] | None = None,
+    quality_min: int | None = None,
+) -> dict[str, Any]:
+    """Search across all dimensions in a thematic group.
+
+    Searches embeddings from all questions in a dimension group, enabling
+    broad thematic queries like "search only methodology dimensions."
+
+    Args:
+        query: Natural language search query
+        group: Group name: research_core, methodology, context, meta,
+            scholarly, or impact
+        top_k: Number of results to return (default: 10, max: 50)
+        year_min: Minimum publication year
+        year_max: Maximum publication year
+        collections: Filter by Zotero collection names
+        quality_min: Minimum paper quality rating 1-5
+
+    Returns:
+        Search results filtered to the specified dimension group
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+    logger.info(f"[{request_id}] litris_search_group called: query='{query[:50]}...' group={group}")
+
+    try:
+        from src.query.dimension_search import search_group
+
+        validate_query(query)
+        top_k = validate_top_k(top_k)
+        if year_min is not None:
+            validate_year(year_min, "year_min")
+        if year_max is not None:
+            validate_year(year_max, "year_max")
+        if quality_min is not None:
+            validate_quality_min(quality_min)
+
+        adapter = get_adapter()
+        results = search_group(
+            engine=adapter.engine,
+            query=query,
+            group=group,
+            top_k=top_k,
+            year_min=year_min,
+            year_max=year_max,
+            collections=collections,
+            quality_min=quality_min,
+        )
+
+        formatted = []
+        for i, result in enumerate(results, 1):
+            formatted.append({
+                "rank": i,
+                "score": round(result.score, 4),
+                "paper_id": result.paper_id,
+                "title": result.title,
+                "authors": result.authors,
+                "year": result.year,
+                "chunk_type": result.chunk_type,
+                "matched_text": result.matched_text[:500] if result.matched_text else "",
+            })
+
+        elapsed = time.time() - start_time
+        logger.info(f"[{request_id}] litris_search_group returning {len(formatted)} results in {elapsed:.3f}s")
+        return {"query": query, "group": group, "result_count": len(formatted), "results": formatted}
+
+    except ValueError as e:
+        return {"error": "VALIDATION_ERROR", "message": str(e), "result_count": 0, "results": []}
+    except Exception as e:
+        logger.error(f"[{request_id}] Group search failed: {e}")
+        return {"error": "SEARCH_FAILED", "message": str(e), "result_count": 0, "results": []}
+
+
 def create_server() -> FastMCP:
     """Create and return the MCP server instance.
 

@@ -59,7 +59,7 @@ class TestConstruction:
 
     def test_missing_required_field_raises(self):
         """Missing required field raises ValidationError."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             SemanticAnalysis(
                 prompt_version="2.0.0",
                 extraction_model="test-model",
@@ -71,10 +71,10 @@ class TestConstruction:
         sa = _make_analysis(dimension_coverage=0.75)
         assert sa.dimension_coverage == 0.75
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             _make_analysis(dimension_coverage=1.5)
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             _make_analysis(dimension_coverage=-0.1)
 
 

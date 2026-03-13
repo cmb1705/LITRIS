@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from src.analysis.coverage import (
     CORE_ATTRS,
     FLAG_CORE_GAPS,
@@ -12,7 +10,6 @@ from src.analysis.coverage import (
     FLAG_SPARSE_COVERAGE,
     QUESTION_ATTRS,
     TOTAL_DIMENSIONS,
-    CoverageResult,
     apply_coverage,
     generate_coverage_report,
     score_coverage,
