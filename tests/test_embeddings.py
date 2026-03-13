@@ -37,7 +37,7 @@ class TestEmbeddingChunk:
             paper_id="paper_001",
             chunk_id="paper_001_dim_q02",
             chunk_type="dim_q02",
-            text="Central thesis of the paper.",
+            text="Main thesis statement.",
             metadata={"year": 2024},
         )
         d = chunk.to_dict()
@@ -80,21 +80,23 @@ class TestEmbeddingGenerator:
 
     @pytest.fixture
     def sample_extraction(self):
-        """Create sample SemanticAnalysis."""
+        """Create sample SemanticAnalysis extraction."""
         return SemanticAnalysis(
-            paper_id="test-paper",
+            paper_id="test_id",
             prompt_version="2.0.0",
-            extraction_model="test",
+            extraction_model="test-model",
             extracted_at="2026-01-01T00:00:00Z",
-            q01_research_question="What is the impact of attention mechanisms?",
+            q01_research_question="RQ1: What is the impact?",
             q02_thesis="This paper presents a novel approach.",
-            q03_key_claims="Claim 1: Attention improves performance.",
-            q04_evidence="Quantitative evidence from experiments.",
+            q03_key_claims="Claim 1: The approach outperforms baselines.",
+            q04_evidence="Strong quantitative evidence from controlled experiments.",
             q05_limitations="Limited sample size.",
-            q07_methods="Quantitative experimental design with regression analysis.",
+            q06_paradigm="Quantitative research paradigm.",
+            q07_methods="Regression analysis, experimental design.",
+            q08_data="Survey data from 500 participants.",
+            q17_field="Machine Learning",
+            q19_implications="Novel contribution to the field.",
             q20_future_work="Expand to more domains.",
-            q21_quality="Strong methodology with rigorous evaluation. Rating: 4/5.",
-            q22_contribution="Novel contribution to the field.",
         )
 
     def test_generator_initialization(self, mock_model):
@@ -123,30 +125,24 @@ class TestEmbeddingGenerator:
         assert len(chunks) > 0
         chunk_types = [c.chunk_type for c in chunks]
         assert "abstract" in chunk_types
-        # Dimension chunks should be present for non-None q fields
+        # Dimension chunks should be present for non-None q-fields
         assert "dim_q01" in chunk_types
         assert "dim_q02" in chunk_types
-        assert "dim_q22" in chunk_types
 
-    def test_create_chunks_all_dim_types(self, mock_model, sample_paper, sample_extraction):
-        """Test that dimension chunks are created for all non-None q fields."""
+    def test_create_chunks_all_types(self, mock_model, sample_paper, sample_extraction):
+        """Test that all expected chunk types are created for populated q-fields."""
         gen = EmbeddingGenerator()
         chunks = gen.create_chunks(sample_paper, sample_extraction)
 
         chunk_types = {c.chunk_type for c in chunks}
-        # Should have abstract + dimension chunks for each non-None q field
+        # Should have abstract plus dimension chunks for each non-None q-field
         assert "abstract" in chunk_types
         assert "dim_q01" in chunk_types  # q01_research_question
         assert "dim_q02" in chunk_types  # q02_thesis
         assert "dim_q03" in chunk_types  # q03_key_claims
-        assert "dim_q04" in chunk_types  # q04_evidence
         assert "dim_q05" in chunk_types  # q05_limitations
         assert "dim_q07" in chunk_types  # q07_methods
         assert "dim_q20" in chunk_types  # q20_future_work
-        assert "dim_q21" in chunk_types  # q21_quality
-        assert "dim_q22" in chunk_types  # q22_contribution
-        # q06 is None, so no dim_q06
-        assert "dim_q06" not in chunk_types
 
     def test_create_chunks_metadata(self, mock_model, sample_paper, sample_extraction):
         """Test that chunks have correct metadata."""
@@ -584,10 +580,7 @@ class TestChunkTypes:
 
     def test_chunk_types_defined(self):
         """Test that all chunk types are defined."""
-        expected_types = [
-            "abstract",
-            *[f"dim_q{i:02d}" for i in range(1, 41)],
-            "raptor_overview",
-            "raptor_core",
-        ]
-        assert set(CHUNK_TYPES) == set(expected_types)
+        # New schema: abstract + 40 dimension chunks + raptor_overview + raptor_core
+        expected_types = {"abstract", "raptor_overview", "raptor_core"}
+        expected_types |= {f"dim_q{i:02d}" for i in range(1, 41)}
+        assert set(CHUNK_TYPES) == expected_types
