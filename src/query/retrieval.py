@@ -148,35 +148,35 @@ def format_markdown(
         if include_extraction and result.extraction_data:
             ext = result.extraction_data.get("extraction", result.extraction_data)
 
-            if ext.get("thesis_statement"):
+            if ext.get("q02_thesis"):
                 lines.extend(
                     [
                         "### Thesis",
                         "",
-                        ext["thesis_statement"],
+                        ext["q02_thesis"],
                         "",
                     ]
                 )
 
-            if ext.get("contribution_summary"):
+            if ext.get("q22_contribution"):
                 lines.extend(
                     [
                         "### Contribution",
                         "",
-                        ext["contribution_summary"],
+                        ext["q22_contribution"],
                         "",
                     ]
                 )
 
-            if ext.get("key_findings"):
-                lines.append("### Key Findings")
-                lines.append("")
-                for finding in ext["key_findings"][:3]:
-                    if isinstance(finding, dict):
-                        lines.append(f"- {finding.get('finding', finding)}")
-                    else:
-                        lines.append(f"- {finding}")
-                lines.append("")
+            if ext.get("q03_key_claims"):
+                lines.extend(
+                    [
+                        "### Key Claims",
+                        "",
+                        ext["q03_key_claims"],
+                        "",
+                    ]
+                )
 
         lines.append("---")
         lines.append("")
@@ -374,8 +374,8 @@ def _results_to_html(
 
         if include_extraction and result.extraction_data:
             ext = result.extraction_data.get("extraction", result.extraction_data)
-            if ext.get("thesis_statement"):
-                html.append(f'<div class="matched"><b>Thesis:</b> {ext["thesis_statement"][:400]}</div>')
+            if ext.get("q02_thesis"):
+                html.append(f'<div class="matched"><b>Thesis:</b> {ext["q02_thesis"][:400]}</div>')
 
         html.append("</div>")
 
@@ -726,117 +726,46 @@ def format_paper_detail(
     if extraction_data:
         ext = extraction_data.get("extraction", extraction_data)
 
-        if ext.get("thesis_statement"):
-            lines.extend(
-                [
-                    "## Thesis Statement",
-                    "",
-                    ext["thesis_statement"],
-                    "",
-                ]
-            )
+        # Pass 1: Research Core
+        if ext.get("q01_research_question"):
+            lines.extend(["## Research Question", "", ext["q01_research_question"], ""])
 
-        if ext.get("research_questions"):
-            lines.extend(
-                [
-                    "## Research Questions",
-                    "",
-                ]
-            )
-            for rq in ext["research_questions"]:
-                lines.append(f"- {rq}")
+        if ext.get("q02_thesis"):
+            lines.extend(["## Thesis", "", ext["q02_thesis"], ""])
+
+        if ext.get("q03_key_claims"):
+            lines.extend(["## Key Claims", "", ext["q03_key_claims"], ""])
+
+        if ext.get("q04_evidence"):
+            lines.extend(["## Evidence", "", ext["q04_evidence"], ""])
+
+        if ext.get("q05_limitations"):
+            lines.extend(["## Limitations", "", ext["q05_limitations"], ""])
+
+        # Pass 2: Methodology
+        if ext.get("q07_methods"):
+            lines.extend(["## Methods", "", ext["q07_methods"], ""])
+
+        if ext.get("q08_data"):
+            lines.extend(["## Data", "", ext["q08_data"], ""])
+
+        # Pass 3: Context & Discourse
+        if ext.get("q15_novelty"):
+            lines.extend(["## Novelty", "", ext["q15_novelty"], ""])
+
+        # Pass 4: Meta & Audience
+        if ext.get("q17_field"):
+            lines.append(f"**Field:** {ext['q17_field']}")
             lines.append("")
 
-        if ext.get("methodology"):
-            method = ext["methodology"]
-            lines.extend(
-                [
-                    "## Methodology",
-                    "",
-                ]
-            )
-            if isinstance(method, dict):
-                if method.get("approach"):
-                    lines.append(f"**Approach:** {method['approach']}")
-                if method.get("design"):
-                    lines.append(f"**Design:** {method['design']}")
-                if method.get("data_sources"):
-                    lines.append(f"**Data Sources:** {', '.join(method['data_sources'])}")
-                if method.get("analysis_methods"):
-                    lines.append(f"**Analysis:** {', '.join(method['analysis_methods'])}")
-                if method.get("sample_size"):
-                    lines.append(f"**Sample:** {method['sample_size']}")
-            else:
-                lines.append(str(method))
-            lines.append("")
+        if ext.get("q19_implications"):
+            lines.extend(["## Implications", "", ext["q19_implications"], ""])
 
-        if ext.get("key_findings"):
-            lines.extend(
-                [
-                    "## Key Findings",
-                    "",
-                ]
-            )
-            for finding in ext["key_findings"]:
-                if isinstance(finding, dict):
-                    lines.append(f"- **{finding.get('finding', '')}**")
-                    if finding.get("evidence_type"):
-                        lines.append(f"  - Evidence: {finding['evidence_type']}")
-                    if finding.get("significance"):
-                        lines.append(f"  - Significance: {finding['significance']}")
-                else:
-                    lines.append(f"- {finding}")
-            lines.append("")
+        if ext.get("q20_future_work"):
+            lines.extend(["## Future Directions", "", ext["q20_future_work"], ""])
 
-        if ext.get("conclusions"):
-            lines.extend(
-                [
-                    "## Conclusions",
-                    "",
-                    ext["conclusions"],
-                    "",
-                ]
-            )
-
-        if ext.get("limitations"):
-            lines.extend(
-                [
-                    "## Limitations",
-                    "",
-                ]
-            )
-            for lim in ext["limitations"]:
-                lines.append(f"- {lim}")
-            lines.append("")
-
-        if ext.get("future_directions"):
-            lines.extend(
-                [
-                    "## Future Directions",
-                    "",
-                ]
-            )
-            for fd in ext["future_directions"]:
-                lines.append(f"- {fd}")
-            lines.append("")
-
-        if ext.get("contribution_summary"):
-            lines.extend(
-                [
-                    "## Contribution Summary",
-                    "",
-                    ext["contribution_summary"],
-                    "",
-                ]
-            )
-
-        if ext.get("discipline_tags"):
-            lines.append(f"**Discipline Tags:** {', '.join(ext['discipline_tags'])}")
-            lines.append("")
-
-        if ext.get("extraction_confidence"):
-            lines.append(f"**Extraction Confidence:** {ext['extraction_confidence']:.2f}")
-            lines.append("")
+        if ext.get("q22_contribution"):
+            lines.extend(["## Contribution", "", ext["q22_contribution"], ""])
 
     return "\n".join(lines)
 
