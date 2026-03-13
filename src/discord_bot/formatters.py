@@ -57,7 +57,7 @@ def format_paper_embed(paper: dict[str, Any]) -> dict[str, Any]:
             "inline": False,
         })
 
-    thesis = extraction.get("thesis_statement", "") if extraction else ""
+    thesis = extraction.get("q02_thesis", "") if extraction else ""
     if thesis:
         fields.append({
             "name": "Thesis",
@@ -65,25 +65,19 @@ def format_paper_embed(paper: dict[str, Any]) -> dict[str, Any]:
             "inline": False,
         })
 
-    methodology = extraction.get("methodology", {}) if extraction else {}
-    if methodology:
-        approach = methodology.get("approach", "")
-        if approach:
-            fields.append({
-                "name": "Methodology",
-                "value": _truncate(approach, MAX_FIELD_VALUE),
-                "inline": False,
-            })
-
-    key_findings = extraction.get("key_findings", []) if extraction else []
-    if key_findings:
-        findings_text = "\n".join(
-            f"- {_truncate(str(f.get('finding', f) if isinstance(f, dict) else f), 200)}"
-            for f in key_findings[:5]
-        )
+    methods = extraction.get("q07_methods", "") if extraction else ""
+    if methods:
         fields.append({
-            "name": "Key Findings",
-            "value": _truncate(findings_text, MAX_FIELD_VALUE),
+            "name": "Methods",
+            "value": _truncate(methods, MAX_FIELD_VALUE),
+            "inline": False,
+        })
+
+    key_claims = extraction.get("q03_key_claims", "") if extraction else ""
+    if key_claims:
+        fields.append({
+            "name": "Key Claims",
+            "value": _truncate(key_claims, MAX_FIELD_VALUE),
             "inline": False,
         })
 
@@ -145,7 +139,7 @@ def format_search_result_embed(
 
     extraction = result.get("extraction", {})
     if extraction:
-        thesis = extraction.get("thesis_statement", "")
+        thesis = extraction.get("q02_thesis", "")
         if thesis:
             description_parts.append(
                 f"**Thesis:** {_truncate(thesis, 200)}"
