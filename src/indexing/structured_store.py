@@ -28,7 +28,7 @@ class StructuredStore:
         self.index_dir.mkdir(parents=True, exist_ok=True)
 
         self.papers_file = self.index_dir / "papers.json"
-        self.extractions_file = self.index_dir / "extractions.json"
+        self.extractions_file = self.index_dir / "semantic_analyses.json"
         self.metadata_file = self.index_dir / "metadata.json"
         self.summary_file = self.index_dir / "summary.json"
         self.similarity_pairs_file = self.index_dir / "similarity_pairs.json"
@@ -94,7 +94,7 @@ class StructuredStore:
             return self._extractions_cache
 
         if self._extractions_cache is not None:
-            logger.debug("extractions.json changed on disk, reloading cache")
+            logger.debug("semantic_analyses.json changed on disk, reloading cache")
 
         data = safe_read_json(self.extractions_file, default={})
 
@@ -306,12 +306,13 @@ class StructuredStore:
             for p in sorted_papers[:10]
         ]
 
-        # Extract discipline tags
+        # Extract field/discipline from q17_field
         discipline_counts = Counter()
         for ext in extractions.values():
             ext_data = ext.get("extraction", ext)
-            for tag in ext_data.get("discipline_tags", []):
-                discipline_counts[tag] += 1
+            field_val = ext_data.get("q17_field", "")
+            if field_val:
+                discipline_counts[field_val] += 1
 
         # Similarity pairs stats
         similarity_stats = {}
