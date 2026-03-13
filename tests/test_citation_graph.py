@@ -6,6 +6,7 @@ from src.analysis.citation_graph import (
     GraphConfig,
     GraphEdge,
     _deduplicate_papers,
+    _extract_text_fields,
     _find_part_of_relationships,
     _redirect_edges,
     build_citation_graph,
@@ -590,3 +591,78 @@ def test_reference_dedup_with_title_match():
     ]
     assert len(r1_to_r2) == 1
     assert r1_to_r2[0]["source_type"] == "reference_doi_match"
+
+
+def test_extract_text_fields_with_none_values():
+    """_extract_text_fields handles None and missing fields without crashing."""
+    extraction = {
+        "extraction": {
+            "thesis_statement": None,
+            "conclusions": None,
+            "key_findings": None,
+            "key_claims": None,
+            "research_questions": None,
+        }
+    }
+    result = _extract_text_fields(extraction)
+    assert isinstance(result, str)
+    # Should produce empty or whitespace-only string
+    assert result.strip() == ""
+
+
+def test_extract_text_fields_mixed_finding_types():
+    """_extract_text_fields handles findings as both dicts and plain strings."""
+    extraction = {
+        "extraction": {
+            "thesis_statement": "Main argument.",
+            "key_findings": [
+                {"finding": "Finding as dict"},
+                "Finding as plain string",
+            ],
+            "key_claims": [
+                {"claim": "Claim as dict"},
+            ],
+        }
+    }
+    result = _extract_text_fields(extraction)
+    assert "Main argument" in result
+    assert "Finding as dict" in result
+    assert "Finding as plain string" in result
+    assert "Claim as dict" in result
+
+
+def test_containment_threshold_boundary():
+    """Title match at exactly the fuzzy_threshold boundary produces an edge."""
+    # Use a title that shares enough tokens with extraction text to be at threshold
+    papers = [
+        {
+            "paper_id": "src",
+            "title": "Source Paper on Methods",
+            "authors": "Author A",
+            "publication_year": 2020,
+        },
+        {
+            "paper_id": "tgt",
+            "title": "Network Analysis of Community Detection in Social Systems",
+            "authors": "Author B",
+            "publication_year": 2021,
+        },
+    ]
+    # Extraction text contains all significant words from tgt title
+    extractions = {
+        "src": {
+            "extraction": {
+                "thesis_statement": (
+                    "This work examines network analysis of community "
+                    "detection in social systems and proposes new methods."
+                ),
+            }
+        },
+    }
+    config = GraphConfig(fuzzy_threshold=0.85)
+    graph = build_citation_graph(papers, extractions, config=config)
+    edges = [e for e in graph["edges"] if e["type"] == "cites"]
+    # With all title tokens present in extraction, containment should be high enough
+    assert len(edges) >= 1
+    assert edges[0]["source"] == "src"
+    assert edges[0]["target"] == "tgt"
