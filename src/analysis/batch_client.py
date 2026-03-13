@@ -1,5 +1,7 @@
 """Anthropic Batch API client for paper extraction."""
 
+# NOTE: This module constructs PaperExtraction objects and is non-functional after the SemanticAnalysis migration. Retained for future multi-provider support.
+
 import json
 import time
 from collections.abc import Callable, Iterator

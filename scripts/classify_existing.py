@@ -3,7 +3,7 @@
 
 Classifies all existing papers and extractions using metadata (Tier 1) and
 cached text statistics (Tier 2). Writes document_type and type_confidence
-into extractions.json without requiring LLM re-extraction.
+into semantic_analyses.json without requiring LLM re-extraction.
 """
 
 import argparse
@@ -176,7 +176,7 @@ def main():
     logger.info(f"Loaded {len(papers_by_id)} papers")
 
     # Load extractions
-    extractions_file = args.index_dir / "extractions.json"
+    extractions_file = args.index_dir / "semantic_analyses.json"
     extractions_data = {}
     raw_extractions: dict = {}
     extractions_nested = False

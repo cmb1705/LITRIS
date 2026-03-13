@@ -54,8 +54,8 @@ class ExtractionValidator:
     """
 
     # Legacy defaults for backward compatibility (no document_type)
-    LEGACY_REQUIRED_FIELDS = ["research_questions", "methodology", "key_findings"]
-    LEGACY_RECOMMENDED_FIELDS = ["key_claims", "conclusions", "limitations"]
+    LEGACY_REQUIRED_FIELDS = ["q01_research_question", "q07_methods", "q03_key_claims"]
+    LEGACY_RECOMMENDED_FIELDS = ["q02_thesis", "q04_evidence", "q05_limitations"]
 
     MIN_CONFIDENCE = 0.5
     LOW_CONFIDENCE_THRESHOLD = 0.7
@@ -146,20 +146,20 @@ class ExtractionValidator:
             if not has_value:
                 result.warnings.append(f"Missing recommended field: {field_name}")
 
-        # Check methodology structure (only when methodology is a required field)
-        if "methodology" in required_fields:
-            methodology = extraction_data.get("methodology", {})
-            if isinstance(methodology, dict):
-                if not methodology.get("approach"):
-                    result.warnings.append("Methodology missing approach")
-                if not methodology.get("sample_size"):
-                    result.warnings.append("Methodology missing sample_size info")
-
-        # Check key_findings quality (only when key_findings is required)
-        if "key_findings" in required_fields:
-            findings = extraction_data.get("key_findings", [])
-            if findings and len(findings) < 2:
-                result.warnings.append("Only one key finding extracted")
+        # Check dimension coverage across all q-fields
+        dim_fields = [f"q{i:02d}" for i in range(1, 41)]
+        populated_dims = sum(
+            1 for d in dim_fields
+            if any(
+                self._has_meaningful_value(extraction_data.get(k))
+                for k in extraction_data
+                if k.startswith(f"{d}_")
+            )
+        )
+        if populated_dims < 5:
+            result.warnings.append(
+                f"Low dimension coverage: {populated_dims}/40 q-fields populated"
+            )
 
         return result
 
@@ -289,7 +289,7 @@ def main():
     logger = setup_logging(level="DEBUG" if args.verbose else "INFO")
 
     # Load extractions
-    extractions_file = args.index_dir / "extractions.json"
+    extractions_file = args.index_dir / "semantic_analyses.json"
     if not extractions_file.exists():
         logger.error(f"Extractions file not found: {extractions_file}")
         return 1

@@ -8,6 +8,8 @@ References:
 - https://developers.openai.com/codex/cli/
 """
 
+# NOTE: This module constructs PaperExtraction objects and is non-functional after the SemanticAnalysis migration. Retained for future multi-provider support.
+
 import json
 import os
 import re

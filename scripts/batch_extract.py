@@ -30,13 +30,12 @@ from src.zotero.database import ZoteroDatabase
 
 # Key fields that indicate a populated extraction
 EXTRACTION_KEY_FIELDS = [
-    "thesis_statement",
-    "research_questions",
-    "key_findings",
-    "key_claims",
-    "conclusions",
-    "discipline_tags",
-    "keywords",
+    "q02_thesis",
+    "q01_research_question",
+    "q03_key_claims",
+    "q04_evidence",
+    "q17_field",
+    "q07_methods",
 ]
 
 
@@ -175,7 +174,7 @@ def cmd_submit(args, logger):
 
     # Check for already-extracted papers
     existing_extractions = safe_read_json(
-        index_dir / "extractions.json", default={}
+        index_dir / "semantic_analyses.json", default={}
     )
     if isinstance(existing_extractions, dict) and "extractions" in existing_extractions:
         extractions_dict = existing_extractions["extractions"]
@@ -346,7 +345,7 @@ def cmd_collect(args, logger):
     else:
         _papers_dict = {}
 
-    existing_extractions = safe_read_json(index_dir / "extractions.json", default={})
+    existing_extractions = safe_read_json(index_dir / "semantic_analyses.json", default={})
     if isinstance(existing_extractions, dict) and "extractions" in existing_extractions:
         extractions_dict = existing_extractions["extractions"]
     else:
@@ -380,7 +379,7 @@ def cmd_collect(args, logger):
         "extraction_count": len(extractions_dict),
         "extractions": extractions_dict,
     }
-    safe_write_json(index_dir / "extractions.json", extractions_data)
+    safe_write_json(index_dir / "semantic_analyses.json", extractions_data)
 
     print(f"\nCollected {successful} successful, {failed} failed")
     print(f"Total extractions: {len(extractions_dict)}")

@@ -294,7 +294,7 @@ def format_search_result_markdown(
     # Key extraction info
     if extraction:
         ext = extraction.get("extraction", extraction)
-        if thesis := ext.get("thesis_statement"):
+        if thesis := ext.get("q02_thesis"):
             lines.append(f"**Thesis:** {thesis}")
         if conclusions := ext.get("conclusions"):
             lines.append(f"**Conclusions:** {conclusions}")

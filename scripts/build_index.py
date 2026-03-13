@@ -14,7 +14,7 @@ sys.path.insert(0, str(project_root))
 from tqdm import tqdm
 
 from src.analysis.cli_executor import ClaudeCliAuthenticator
-from src.analysis.schemas import PaperExtraction
+from src.analysis.schemas import SemanticAnalysis
 from src.analysis.section_extractor import SectionExtractor
 from src.config import Config
 from src.indexing.embeddings import EmbeddingGenerator
@@ -198,7 +198,7 @@ def parse_args():
 
 def load_checkpoint(index_dir: Path) -> set[str]:
     """Load set of already-processed paper IDs."""
-    extractions_file = index_dir / "extractions.json"
+    extractions_file = index_dir / "semantic_analyses.json"
     if not extractions_file.exists():
         return set()
 
@@ -231,7 +231,7 @@ def save_checkpoint(
         "extraction_count": len(extractions),
         "extractions": extractions,
     }
-    safe_write_json(index_dir / "extractions.json", extractions_data)
+    safe_write_json(index_dir / "semantic_analyses.json", extractions_data)
 
     # Save metadata
     safe_write_json(index_dir / "metadata.json", metadata)
@@ -526,7 +526,7 @@ def run_embedding_generation(
             papers_with_extractions.append(paper)
             # Extract the actual extraction data
             ext = ext_data.get("extraction", ext_data)
-            extraction_lookup[paper.paper_id] = PaperExtraction(**ext)
+            extraction_lookup[paper.paper_id] = SemanticAnalysis(**ext)
 
     if not papers_with_extractions:
         # Provide diagnostic info to help debug matching issues
@@ -579,9 +579,9 @@ def compute_similarity_pairs(
     top_n: int = 20,
     logger=None,
 ) -> int:
-    """Compute pairwise paper similarity from full_summary embeddings.
+    """Compute pairwise paper similarity from raptor_overview embeddings.
 
-    Retrieves all full_summary chunk embeddings from ChromaDB,
+    Retrieves all raptor_overview chunk embeddings from ChromaDB,
     computes cosine similarity between all pairs, and stores
     the top_n most similar papers for each paper.
 
@@ -600,15 +600,15 @@ def compute_similarity_pairs(
     store = StructuredStore(index_dir)
     vector_store = VectorStore(chroma_dir)
 
-    # Get all full_summary chunks with embeddings
+    # Get all raptor_overview chunks with embeddings
     results = vector_store.collection.get(
-        where={"chunk_type": "full_summary"},
+        where={"chunk_type": "raptor_overview"},
         include=["embeddings", "metadatas"],
     )
 
     if not results["ids"]:
         if logger:
-            logger.warning("No full_summary chunks found for similarity computation")
+            logger.warning("No raptor_overview chunks found for similarity computation")
         return 0
 
     paper_ids = []
@@ -623,7 +623,7 @@ def compute_similarity_pairs(
 
     if len(embeddings) < 2:
         if logger:
-            logger.info("Fewer than 2 papers with full_summary -- skipping similarity")
+            logger.info("Fewer than 2 papers with raptor_overview -- skipping similarity")
         return 0
 
     if logger:
@@ -792,7 +792,7 @@ def main():
 
     # Load existing extractions early (for filtering and dry-run accuracy)
     existing_extractions_data = safe_read_json(
-        index_dir / "extractions.json", default={}
+        index_dir / "semantic_analyses.json", default={}
     )
     if isinstance(existing_extractions_data, dict) and "extractions" in existing_extractions_data:
         existing_extraction_ids = set(existing_extractions_data["extractions"].keys())

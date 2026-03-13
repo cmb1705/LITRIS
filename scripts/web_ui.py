@@ -2084,12 +2084,33 @@ def main() -> None:
 
         # Only show chunk type filter for semantic search (not metadata-only)
         if not st.session_state.get("metadata_only", False):
-            chunk_types = st.multiselect(
-                "Chunk types",
-                options=CHUNK_TYPES,
-                default=st.session_state.get("filter_chunk_types", CHUNK_TYPES),
-                key="filter_chunk_types",
-            )
+            with st.expander("Chunk types", expanded=False):
+                _dim_research = [f"dim_q{i:02d}" for i in range(1, 6)]
+                _dim_methods = [f"dim_q{i:02d}" for i in range(6, 11)]
+                _dim_context = [f"dim_q{i:02d}" for i in range(11, 17)]
+                _dim_meta = [f"dim_q{i:02d}" for i in range(17, 25)]
+                _dim_synthesis = [f"dim_q{i:02d}" for i in range(25, 33)]
+                _dim_impact = [f"dim_q{i:02d}" for i in range(33, 41)]
+                _non_dim = ["abstract", "raptor_overview", "raptor_core"]
+
+                _default = st.session_state.get("filter_chunk_types", CHUNK_TYPES)
+                st.caption("Non-dimension")
+                sel_non_dim = st.multiselect("Non-dim", _non_dim, default=[c for c in _default if c in _non_dim], label_visibility="collapsed", key="_ct_nondim")
+                st.caption("Pass 1: Research Core (q01-q05)")
+                sel_p1 = st.multiselect("P1", _dim_research, default=[c for c in _default if c in _dim_research], label_visibility="collapsed", key="_ct_p1")
+                st.caption("Pass 2: Methodology (q06-q10)")
+                sel_p2 = st.multiselect("P2", _dim_methods, default=[c for c in _default if c in _dim_methods], label_visibility="collapsed", key="_ct_p2")
+                st.caption("Pass 3: Context & Discourse (q11-q16)")
+                sel_p3 = st.multiselect("P3", _dim_context, default=[c for c in _default if c in _dim_context], label_visibility="collapsed", key="_ct_p3")
+                st.caption("Pass 4: Meta & Audience (q17-q24)")
+                sel_p4 = st.multiselect("P4", _dim_meta, default=[c for c in _default if c in _dim_meta], label_visibility="collapsed", key="_ct_p4")
+                st.caption("Pass 5: Synthesis (q25-q32)")
+                sel_p5 = st.multiselect("P5", _dim_synthesis, default=[c for c in _default if c in _dim_synthesis], label_visibility="collapsed", key="_ct_p5")
+                st.caption("Pass 6: Impact & Legacy (q33-q40)")
+                sel_p6 = st.multiselect("P6", _dim_impact, default=[c for c in _default if c in _dim_impact], label_visibility="collapsed", key="_ct_p6")
+
+                chunk_types = sel_non_dim + sel_p1 + sel_p2 + sel_p3 + sel_p4 + sel_p5 + sel_p6
+                st.session_state["filter_chunk_types"] = chunk_types
         else:
             chunk_types = CHUNK_TYPES  # Use all types, but don't show filter
         sort_label = st.selectbox(
