@@ -39,37 +39,28 @@ def _sample_corpus():
         "p1": {
             "paper_id": "p1",
             "extraction": {
-                "discipline_tags": ["Topic A"],
-                "keywords": ["alpha"],
-                "methodology": {
-                    "approach": "Qualitative",
-                    "analysis_methods": ["interviews"],
-                },
-                "future_directions": ["Explore beta networks"],
+                "q17_field": "Topic A",
+                "q06_paradigm": "Qualitative",
+                "q07_methods": "interviews",
+                "q20_future_work": "Explore beta networks.",
             },
         },
         "p2": {
             "paper_id": "p2",
             "extraction": {
-                "discipline_tags": ["Topic A"],
-                "keywords": ["alpha"],
-                "methodology": {
-                    "approach": "Quantitative",
-                    "analysis_methods": ["regression"],
-                },
-                "future_directions": ["Explore beta networks"],
+                "q17_field": "Topic A",
+                "q06_paradigm": "Quantitative",
+                "q07_methods": "regression",
+                "q20_future_work": "Explore beta networks.",
             },
         },
         "p3": {
             "paper_id": "p3",
             "extraction": {
-                "discipline_tags": ["Topic B"],
-                "keywords": ["beta"],
-                "methodology": {
-                    "approach": "Mixed",
-                    "analysis_methods": ["survey"],
-                },
-                "future_directions": ["Investigate gamma datasets"],
+                "q17_field": "Topic B",
+                "q06_paradigm": "Mixed",
+                "q07_methods": "survey",
+                "q20_future_work": "Investigate gamma datasets.",
             },
         },
     }
@@ -91,7 +82,7 @@ def test_gap_analysis_outputs_expected_sections():
     assert "topic b" in topic_labels
 
     method_labels = {item["label"] for item in report["methodologies_underrepresented"]}
-    assert any(label.startswith("approach:") for label in method_labels)
+    assert any(label.startswith("paradigm:") or label.startswith("methods:") for label in method_labels)
 
     year_gaps = report["year_gaps"]["missing_ranges"]
     assert year_gaps
@@ -271,9 +262,8 @@ class TestAnalyzeGapReportEdgeCases:
         extractions["p4"] = {
             "paper_id": "p4",
             "extraction": {
-                "discipline_tags": ["Topic C"],
-                "keywords": ["gamma"],
-                "methodology": {"approach": "Qualitative"},
+                "q17_field": "Topic C",
+                "q06_paradigm": "Qualitative",
             },
         }
         report = analyze_gap_report(
@@ -296,8 +286,8 @@ class TestAnalyzeGapReportEdgeCases:
             {"paper_id": "p2", "title": "Also no year", "collections": []},
         ]
         extractions = {
-            "p1": {"extraction": {"discipline_tags": ["A"]}},
-            "p2": {"extraction": {"discipline_tags": ["B"]}},
+            "p1": {"extraction": {"q17_field": "A"}},
+            "p2": {"extraction": {"q17_field": "B"}},
         }
         report = analyze_gap_report(
             papers,
@@ -319,7 +309,7 @@ class TestAnalyzeGapReportEdgeCases:
             for i in range(5)
         ]
         extractions = {
-            f"p{i}": {"extraction": {"discipline_tags": [f"T{i}"]}}
+            f"p{i}": {"extraction": {"q17_field": f"T{i}"}}
             for i in range(5)
         }
         report = analyze_gap_report(
@@ -342,8 +332,8 @@ class TestAnalyzeGapReportEdgeCases:
         extractions = {
             "p1": {
                 "extraction": {
-                    "discipline_tags": ["A"],
-                    "future_directions": ["Unique direction only mentioned once"],
+                    "q17_field": "A",
+                    "q20_future_work": "Unique direction only mentioned once.",
                 },
             },
         }
