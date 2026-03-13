@@ -131,12 +131,13 @@ class TestReadPapers:
             "found": True,
             "paper": {"title": "Paper One"},
             "extraction": {
-                "thesis_statement": "Main thesis.",
-                "methodology": {"approach": "Quantitative"},
-                "key_findings": [{"finding": "Result A"}],
-                "conclusions": "Summary.",
-                "limitations": ["Small sample"],
-                "discipline_tags": ["ML"],
+                "q02_thesis": "Main thesis.",
+                "q07_methods": "Quantitative",
+                "q03_key_claims": "Result A",
+                "q04_evidence": "Strong evidence for A",
+                "q19_implications": "Summary.",
+                "q05_limitations": "Small sample",
+                "q17_field": "ML",
             },
         }
 
@@ -145,7 +146,9 @@ class TestReadPapers:
         assert len(readings) == 1
         assert readings[0].thesis == "Main thesis."
         assert readings[0].methodology == "Quantitative"
-        assert readings[0].key_findings == ["Result A"]
+        # key_findings comes from q03_key_claims and q04_evidence
+        assert "Result A" in readings[0].key_findings
+        assert "Strong evidence for A" in readings[0].key_findings
 
     def test_skips_not_found_papers(self):
         mock_result = MagicMock()
@@ -158,7 +161,7 @@ class TestReadPapers:
 
         assert len(readings) == 0
 
-    def test_handles_string_findings(self):
+    def test_handles_empty_extraction(self):
         mock_result = MagicMock()
         mock_result.paper_id = "p1"
         mock_result.title = "Paper"
@@ -169,15 +172,14 @@ class TestReadPapers:
         mock_adapter.get_paper.return_value = {
             "found": True,
             "extraction": {
-                "key_findings": ["Finding as string"],
-                "methodology": "Simple method",
+                "q07_methods": "Simple method",
             },
         }
 
         readings = read_papers([mock_result], mock_adapter)
 
-        assert readings[0].key_findings == ["Finding as string"]
         assert readings[0].methodology == "Simple method"
+        assert readings[0].thesis == ""
 
 
 class TestSynthesize:
@@ -294,20 +296,22 @@ class TestDeepReviewPipeline:
         ])
         store.save_extractions({
             "p1": {"paper_id": "p1", "extraction": {
-                "thesis_statement": "Thesis 1",
-                "methodology": {"approach": "Quantitative"},
-                "key_findings": [{"finding": "F1"}],
-                "conclusions": "C1",
-                "limitations": ["L1"],
-                "discipline_tags": ["DS"],
+                "q02_thesis": "Thesis 1",
+                "q07_methods": "Quantitative",
+                "q03_key_claims": "F1",
+                "q04_evidence": "Evidence for F1",
+                "q19_implications": "C1",
+                "q05_limitations": "L1",
+                "q17_field": "DS",
             }},
             "p2": {"paper_id": "p2", "extraction": {
-                "thesis_statement": "Thesis 2",
-                "methodology": {"approach": "Qualitative"},
-                "key_findings": [{"finding": "F2"}],
-                "conclusions": "C2",
-                "limitations": ["L2"],
-                "discipline_tags": ["ML"],
+                "q02_thesis": "Thesis 2",
+                "q07_methods": "Qualitative",
+                "q03_key_claims": "F2",
+                "q04_evidence": "Evidence for F2",
+                "q19_implications": "C2",
+                "q05_limitations": "L2",
+                "q17_field": "ML",
             }},
         })
 
@@ -331,9 +335,9 @@ class TestDeepReviewPipeline:
         from src.indexing.vector_store import SearchResult
 
         engine.vector_store.search.return_value = [
-            SearchResult(paper_id="p1", chunk_id="c1", chunk_type="thesis",
+            SearchResult(paper_id="p1", chunk_id="c1", chunk_type="dim_q02",
                          text="text1", score=0.9, metadata={"title": "Paper One"}),
-            SearchResult(paper_id="p2", chunk_id="c2", chunk_type="thesis",
+            SearchResult(paper_id="p2", chunk_id="c2", chunk_type="dim_q02",
                          text="text2", score=0.8, metadata={"title": "Paper Two"}),
         ]
 
@@ -398,7 +402,7 @@ class TestDeepReviewPipeline:
         from src.indexing.vector_store import SearchResult
 
         engine.vector_store.search.return_value = [
-            SearchResult(paper_id="p1", chunk_id="c1", chunk_type="thesis",
+            SearchResult(paper_id="p1", chunk_id="c1", chunk_type="dim_q02",
                          text="text1", score=0.9, metadata={"title": "Paper One"}),
         ]
 

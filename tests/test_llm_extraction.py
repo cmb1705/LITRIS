@@ -11,111 +11,106 @@ from src.analysis.prompts import (
     build_validation_prompt,
 )
 from src.analysis.schemas import (
-    EvidenceType,
     ExtractionResult,
-    KeyClaim,
-    KeyFinding,
-    Methodology,
-    PaperExtraction,
     SemanticAnalysis,
-    SignificanceLevel,
-    SupportType,
 )
 
 
+# --- Helper ---
+
+def _make_analysis(**overrides) -> SemanticAnalysis:
+    """Create a SemanticAnalysis with required fields and optional overrides."""
+    defaults = {
+        "paper_id": "test_id",
+        "prompt_version": "2.0.0",
+        "extraction_model": "test-model",
+        "extracted_at": "2026-01-01T00:00:00Z",
+    }
+    defaults.update(overrides)
+    return SemanticAnalysis(**defaults)
+
+
 class TestSchemas:
-    """Tests for extraction schemas."""
+    """Tests for SemanticAnalysis schema."""
 
-    def test_methodology_default(self):
-        """Test Methodology with defaults."""
-        method = Methodology()
-        assert method.approach is None
-        assert method.data_sources == []
+    def test_semantic_analysis_minimal(self):
+        """Test SemanticAnalysis with only required fields."""
+        analysis = _make_analysis()
+        assert analysis.paper_id == "test_id"
+        assert analysis.prompt_version == "2.0.0"
+        assert analysis.extraction_model == "test-model"
+        assert analysis.q01_research_question is None
+        assert analysis.q02_thesis is None
+        assert analysis.dimension_coverage == 0.0
+        assert analysis.coverage_flags == []
 
-    def test_methodology_full(self):
-        """Test Methodology with all fields."""
-        method = Methodology(
-            approach="quantitative",
-            design="experimental",
-            data_sources=["survey", "interviews"],
-            analysis_methods=["regression", "thematic analysis"],
-            sample_size="500 participants",
-            time_period="2020-2023",
-        )
-        assert method.approach == "quantitative"
-        assert len(method.data_sources) == 2
-
-    def test_key_finding_default(self):
-        """Test KeyFinding with defaults."""
-        finding = KeyFinding(finding="Test finding")
-        assert finding.evidence_type == EvidenceType.EMPIRICAL
-        assert finding.significance == SignificanceLevel.MEDIUM
-
-    def test_key_finding_full(self):
-        """Test KeyFinding with all fields."""
-        finding = KeyFinding(
-            finding="Significant correlation found",
-            evidence_type=EvidenceType.QUANTITATIVE,
-            significance=SignificanceLevel.HIGH,
-            page_reference="p. 15",
-        )
-        assert finding.evidence_type == EvidenceType.QUANTITATIVE
-        assert finding.page_reference == "p. 15"
-
-    def test_key_claim_default(self):
-        """Test KeyClaim with defaults."""
-        claim = KeyClaim(claim="Test claim")
-        assert claim.support_type == SupportType.LOGIC
-        assert claim.strength == SignificanceLevel.MEDIUM
-
-    def test_paper_extraction_minimal(self):
-        """Test PaperExtraction with minimal fields."""
-        extraction = PaperExtraction()
-        assert extraction.thesis_statement is None
-        assert extraction.research_questions == []
-        assert extraction.extraction_confidence == 0.5
-
-    def test_paper_extraction_full(self):
-        """Test PaperExtraction with all fields."""
-        extraction = PaperExtraction(
-            thesis_statement="This paper argues that X leads to Y",
-            research_questions=["RQ1: Does X affect Y?", "RQ2: How?"],
-            theoretical_framework="Social network theory",
-            methodology=Methodology(approach="mixed"),
-            key_findings=[KeyFinding(finding="X correlates with Y")],
-            key_claims=[KeyClaim(claim="X is important")],
-            conclusions="The findings support the hypothesis",
-            limitations=["Small sample size"],
-            future_directions=["Longitudinal study"],
-            contribution_summary="Novel method for X",
-            discipline_tags=["network science", "bibliometrics"],
-            extraction_confidence=0.85,
+    def test_semantic_analysis_with_dimensions(self):
+        """Test SemanticAnalysis with populated q-fields."""
+        analysis = _make_analysis(
+            q01_research_question="Does X affect Y?",
+            q02_thesis="This paper argues that X leads to Y",
+            q03_key_claims="X is correlated with Y at p<0.01",
+            q04_evidence="Regression analysis on 500-participant survey",
+            q05_limitations="Small sample size, single institution",
+            q07_methods="Quantitative survey with regression analysis",
+            q17_field="network science, bibliometrics",
+            q22_contribution="Novel method for X",
+            dimension_coverage=0.85,
         )
 
-        assert extraction.thesis_statement is not None
-        assert len(extraction.research_questions) == 2
-        assert extraction.extraction_confidence == 0.85
+        assert analysis.q01_research_question == "Does X affect Y?"
+        assert analysis.q02_thesis is not None
+        assert analysis.q07_methods is not None
+        assert analysis.dimension_coverage == 0.85
 
-    def test_paper_extraction_to_index_dict(self):
+    def test_semantic_analysis_to_index_dict(self):
         """Test conversion to index dictionary."""
-        extraction = PaperExtraction(
-            thesis_statement="Test thesis",
-            discipline_tags=["tag1", "tag2"],
+        analysis = _make_analysis(
+            q02_thesis="Test thesis",
+            q17_field="tag1, tag2",
         )
-        result = extraction.to_index_dict()
+        result = analysis.to_index_dict()
 
-        assert result["thesis_statement"] == "Test thesis"
-        assert result["discipline_tags"] == ["tag1", "tag2"]
-        assert "extraction_confidence" in result
+        assert result["q02_thesis"] == "Test thesis"
+        assert result["q17_field"] == "tag1, tag2"
+        assert result["paper_id"] == "test_id"
+        assert "dimension_coverage" in result
+
+    def test_semantic_analysis_non_none_dimensions(self):
+        """Test non_none_dimensions returns only populated fields."""
+        analysis = _make_analysis(
+            q01_research_question="RQ1",
+            q02_thesis="Thesis",
+        )
+        non_none = analysis.non_none_dimensions()
+
+        assert "q01_research_question" in non_none
+        assert "q02_thesis" in non_none
+        assert "q03_key_claims" not in non_none
+        assert len(non_none) == 2
+
+    def test_semantic_analysis_dimension_fields(self):
+        """Test that DIMENSION_FIELDS class var lists all 40 q-fields."""
+        assert len(SemanticAnalysis.DIMENSION_FIELDS) == 40
+        assert SemanticAnalysis.DIMENSION_FIELDS[0] == "q01_research_question"
+        assert SemanticAnalysis.DIMENSION_FIELDS[-1] == "q40_policy_recommendations"
+
+    def test_semantic_analysis_core_fields(self):
+        """Test CORE_FIELDS contains the essential dimensions."""
+        assert "q01_research_question" in SemanticAnalysis.CORE_FIELDS
+        assert "q02_thesis" in SemanticAnalysis.CORE_FIELDS
+        assert len(SemanticAnalysis.CORE_FIELDS) == 5
+
+    def test_semantic_analysis_dimension_groups(self):
+        """Test DIMENSION_GROUPS covers all 40 dimensions."""
+        all_grouped = []
+        for fields in SemanticAnalysis.DIMENSION_GROUPS.values():
+            all_grouped.extend(fields)
+        assert set(all_grouped) == set(SemanticAnalysis.DIMENSION_FIELDS)
 
     def test_extraction_result_success(self):
         """Test ExtractionResult for successful extraction."""
-        extraction = SemanticAnalysis(
-            paper_id="test123",
-            prompt_version="2.0.0",
-            extraction_model="claude-opus-4-5-20251101",
-            extracted_at="2026-01-01T00:00:00Z",
-        )
+        extraction = _make_analysis(paper_id="test123")
         result = ExtractionResult(
             paper_id="test123",
             success=True,
@@ -181,36 +176,14 @@ class TestPrompts:
 
     def test_build_validation_prompt(self):
         """Test validation prompt building."""
-        extraction_json = json.dumps({"thesis_statement": "Test"})
+        extraction_json = json.dumps({"q02_thesis": "Test"})
         prompt = build_validation_prompt(
             text_excerpt="Sample text excerpt",
             extraction_json=extraction_json,
         )
 
         assert "Sample text excerpt" in prompt
-        assert "thesis_statement" in prompt
-
-
-class TestEnumValues:
-    """Tests for enum values."""
-
-    def test_evidence_type_values(self):
-        """Test EvidenceType enum values."""
-        assert EvidenceType.EMPIRICAL.value == "empirical"
-        assert EvidenceType.THEORETICAL.value == "theoretical"
-        assert EvidenceType.MIXED.value == "mixed"
-
-    def test_significance_level_values(self):
-        """Test SignificanceLevel enum values."""
-        assert SignificanceLevel.HIGH.value == "high"
-        assert SignificanceLevel.MEDIUM.value == "medium"
-        assert SignificanceLevel.LOW.value == "low"
-
-    def test_support_type_values(self):
-        """Test SupportType enum values."""
-        assert SupportType.DATA.value == "data"
-        assert SupportType.CITATION.value == "citation"
-        assert SupportType.LOGIC.value == "logic"
+        assert "q02_thesis" in prompt
 
 
 class TestExtractionStats:
@@ -274,7 +247,11 @@ class TestLLMClientMocked:
 
     @pytest.fixture
     def mock_response_json(self):
-        """Sample valid JSON response."""
+        """Sample valid JSON response for PaperExtraction (legacy format).
+
+        Note: AnthropicLLMClient._parse_response still returns PaperExtraction.
+        This fixture provides the old-format JSON it expects.
+        """
         return json.dumps({
             "thesis_statement": "Test thesis",
             "research_questions": ["RQ1"],
@@ -303,7 +280,7 @@ class TestLLMClientMocked:
         })
 
     def test_parse_response(self, mock_response_json):
-        """Test JSON response parsing."""
+        """Test JSON response parsing returns PaperExtraction."""
         from src.analysis.llm_client import LLMClient
 
         with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):

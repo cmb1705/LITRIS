@@ -52,12 +52,9 @@ class TestFormatPaperEmbed:
                 "collections": ["ML", "NLP"],
             },
             "extraction": {
-                "thesis_statement": "Tests are important.",
-                "methodology": {"approach": "Mixed methods"},
-                "key_findings": [
-                    {"finding": "Finding 1"},
-                    {"finding": "Finding 2"},
-                ],
+                "q02_thesis": "Tests are important.",
+                "q07_methods": "Mixed methods approach",
+                "q03_key_claims": "Claim 1. Claim 2.",
                 "quality_rating": 4,
                 "extraction_confidence": 0.85,
             },
@@ -70,7 +67,7 @@ class TestFormatPaperEmbed:
         assert "10.1234/test" in embed["description"]
         assert embed["color"] == 0x3498DB
         assert any(f["name"] == "Thesis" for f in embed["fields"])
-        assert any(f["name"] == "Key Findings" for f in embed["fields"])
+        assert any(f["name"] == "Key Claims" for f in embed["fields"])
         assert "abc123" in embed["footer"]["text"]
 
     def test_minimal_paper(self):
@@ -85,21 +82,21 @@ class TestFormatPaperEmbed:
         assert embed["title"] == "Unknown Title"
         assert embed["fields"] == []
 
-    def test_paper_with_string_findings(self):
+    def test_paper_with_methods(self):
         paper = {
-            "paper_id": "str1",
-            "paper": {"title": "String Findings"},
+            "paper_id": "meth1",
+            "paper": {"title": "Methods Paper"},
             "extraction": {
-                "key_findings": ["Finding A", "Finding B"],
+                "q07_methods": "Quantitative regression analysis",
             },
         }
 
         embed = format_paper_embed(paper)
 
-        findings_field = next(
-            f for f in embed["fields"] if f["name"] == "Key Findings"
+        methods_field = next(
+            f for f in embed["fields"] if f["name"] == "Methods"
         )
-        assert "Finding A" in findings_field["value"]
+        assert "Quantitative" in methods_field["value"]
 
 
 class TestFormatSearchResultEmbed:
@@ -113,7 +110,7 @@ class TestFormatSearchResultEmbed:
             "score": 0.8765,
             "paper_id": "res1",
             "matched_text": "Matched content here.",
-            "extraction": {"thesis_statement": "Main argument."},
+            "extraction": {"q02_thesis": "Main argument."},
         }
 
         embed = format_search_result_embed(result, rank=1)
