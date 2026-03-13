@@ -201,15 +201,15 @@ class TestSearchEngineRRF:
         engine.embedding_generator.embed_text.return_value = [0.1] * 384
         engine.vector_store.search.side_effect = [
             [
-                SearchResult(paper_id="p1", chunk_id="c1", chunk_type="thesis",
+                SearchResult(paper_id="p1", chunk_id="c1", chunk_type="dim_q02",
                              text="text1", score=0.9, metadata={"title": "Paper One"}),
-                SearchResult(paper_id="p2", chunk_id="c2", chunk_type="thesis",
+                SearchResult(paper_id="p2", chunk_id="c2", chunk_type="dim_q02",
                              text="text2", score=0.8, metadata={"title": "Paper Two"}),
             ],
             [
-                SearchResult(paper_id="p2", chunk_id="c3", chunk_type="thesis",
+                SearchResult(paper_id="p2", chunk_id="c3", chunk_type="dim_q02",
                              text="text2b", score=0.85, metadata={"title": "Paper Two"}),
-                SearchResult(paper_id="p3", chunk_id="c4", chunk_type="thesis",
+                SearchResult(paper_id="p3", chunk_id="c4", chunk_type="dim_q02",
                              text="text3", score=0.7, metadata={"title": "Paper Three"}),
             ],
         ]
@@ -230,11 +230,11 @@ class TestSearchEngineRRF:
 
         engine.embedding_generator.embed_text.return_value = [0.1] * 384
         engine.vector_store.search.return_value = [
-            SearchResult(paper_id="p1", chunk_id="c1", chunk_type="thesis",
+            SearchResult(paper_id="p1", chunk_id="c1", chunk_type="dim_q02",
                          text="t1", score=0.9, metadata={"title": "Paper One"}),
-            SearchResult(paper_id="p2", chunk_id="c2", chunk_type="thesis",
+            SearchResult(paper_id="p2", chunk_id="c2", chunk_type="dim_q02",
                          text="t2", score=0.8, metadata={"title": "Paper Two"}),
-            SearchResult(paper_id="p3", chunk_id="c3", chunk_type="thesis",
+            SearchResult(paper_id="p3", chunk_id="c3", chunk_type="dim_q02",
                          text="t3", score=0.7, metadata={"title": "Paper Three"}),
         ]
 
@@ -287,15 +287,15 @@ class TestSearchEngineRRF:
         # p1 appears in both rankings, p2 only in first, p3 only in second
         engine.vector_store.search.side_effect = [
             [
-                SearchResult(paper_id="p1", chunk_id="c1", chunk_type="thesis",
+                SearchResult(paper_id="p1", chunk_id="c1", chunk_type="dim_q02",
                              text="t1", score=0.9, metadata={"title": "Paper One"}),
-                SearchResult(paper_id="p2", chunk_id="c2", chunk_type="thesis",
+                SearchResult(paper_id="p2", chunk_id="c2", chunk_type="dim_q02",
                              text="t2", score=0.8, metadata={"title": "Paper Two"}),
             ],
             [
-                SearchResult(paper_id="p1", chunk_id="c3", chunk_type="thesis",
+                SearchResult(paper_id="p1", chunk_id="c3", chunk_type="dim_q02",
                              text="t1b", score=0.85, metadata={"title": "Paper One"}),
-                SearchResult(paper_id="p3", chunk_id="c4", chunk_type="thesis",
+                SearchResult(paper_id="p3", chunk_id="c4", chunk_type="dim_q02",
                              text="t3", score=0.7, metadata={"title": "Paper Three"}),
             ],
         ]
@@ -336,7 +336,7 @@ class TestRRFAdapterIntegration:
             EnrichedResult(
                 paper_id="p1", title="Paper One", authors="Smith",
                 year=2024, collections=[], item_type="journalArticle",
-                chunk_type="thesis", matched_text="some text",
+                chunk_type="dim_q02", matched_text="some text",
                 score=0.032, paper_data={}, extraction_data={},
             ),
         ]
