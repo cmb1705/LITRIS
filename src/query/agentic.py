@@ -84,8 +84,8 @@ def _format_results_for_analysis(results: list[dict]) -> str:
         thesis = ""
         extraction = r.get("extraction", {})
         if extraction:
-            thesis = extraction.get("thesis_statement", "")
-        disciplines = extraction.get("discipline_tags", []) if extraction else []
+            thesis = extraction.get("q02_thesis", "")
+        disciplines = [extraction.get("q17_field", "")] if extraction and extraction.get("q17_field") else []
 
         line = f"{i}. [{year}] {title} ({authors})"
         if thesis:
