@@ -9,7 +9,7 @@ from pathlib import Path
 from threading import Lock
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode
-from src.analysis.coverage import compute_coverage
+from src.analysis.coverage import score_coverage
 from src.analysis.document_classifier import classify as classify_document
 from src.analysis.document_types import DocumentType
 from src.analysis.llm_factory import create_llm_client
@@ -17,8 +17,7 @@ from src.analysis.schemas import ExtractionResult, SemanticAnalysis
 from src.analysis.semantic_prompts import (
     PASS_DEFINITIONS,
     SEMANTIC_PROMPT_VERSION,
-    build_pass_prompt,
-    get_document_type_framing,
+    build_pass_user_prompt,
 )
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
@@ -455,14 +454,11 @@ class SectionExtractor:
             # Truncate for LLM if needed
             text = self.text_cleaner.truncate_for_llm(text)
 
-            # Get document type framing for prompts
-            doc_type_framing = get_document_type_framing(doc_type.value)
-
             # Run 6-pass extraction
             result = self._extract_6_pass(
                 paper=paper,
                 text=text,
-                doc_type_framing=doc_type_framing,
+                document_type=doc_type.value,
             )
 
             # Attach classification to result
@@ -485,7 +481,7 @@ class SectionExtractor:
         self,
         paper: PaperMetadata,
         text: str,
-        doc_type_framing: str,
+        document_type: str,
     ) -> ExtractionResult:
         """Run 6-pass sequential extraction and merge results.
 
@@ -495,7 +491,7 @@ class SectionExtractor:
         Args:
             paper: Paper metadata.
             text: Cleaned, truncated paper text.
-            doc_type_framing: Document type framing note for prompts.
+            document_type: Document type key for prompt framing.
 
         Returns:
             Merged ExtractionResult with all dimensions.
@@ -507,7 +503,8 @@ class SectionExtractor:
         errors: list[str] = []
 
         for pass_num in range(1, NUM_PASSES + 1):
-            pass_def = PASS_DEFINITIONS[pass_num]
+            pass_label, pass_questions = PASS_DEFINITIONS[pass_num - 1]
+            pass_fields = [q[0] for q in pass_questions]
 
             # Check per-pass cache
             cached_answers = None
@@ -531,14 +528,13 @@ class SectionExtractor:
                 continue
 
             # Build pass-specific prompt
-            prompt = build_pass_prompt(
+            prompt = build_pass_user_prompt(
                 pass_number=pass_num,
                 title=paper.title,
                 authors=paper.author_string,
                 year=paper.publication_year,
-                item_type=paper.item_type,
+                document_type=document_type,
                 text=text,
-                doc_type_framing=doc_type_framing,
             )
 
             # Execute LLM call
@@ -557,7 +553,7 @@ class SectionExtractor:
             total_duration += result.duration_seconds
 
             if not result.success:
-                error_msg = f"pass {pass_num} ({pass_def['name']}): {result.error or 'Unknown error'}"
+                error_msg = f"pass {pass_num} ({pass_label}): {result.error or 'Unknown error'}"
                 errors.append(error_msg)
                 logger.warning(
                     f"Pass {pass_num} failed for {paper.paper_id}: {result.error}"
@@ -565,7 +561,7 @@ class SectionExtractor:
                 continue
 
             # Parse pass answers from extraction result
-            pass_answers = self._extract_pass_answers(result, pass_def["fields"])
+            pass_answers = self._extract_pass_answers(result, pass_fields)
 
             # Cache per-pass result
             if self.extraction_cache and pass_hash:
@@ -579,7 +575,7 @@ class SectionExtractor:
             all_answers.update(pass_answers)
 
             logger.debug(
-                f"Pass {pass_num} ({pass_def['name']}) complete for {paper.paper_id} "
+                f"Pass {pass_num} ({pass_label}) complete for {paper.paper_id} "
                 f"({result.duration_seconds:.1f}s)"
             )
 
@@ -605,7 +601,7 @@ class SectionExtractor:
         )
 
         # Compute coverage scoring
-        coverage_result = compute_coverage(analysis)
+        coverage_result = score_coverage(analysis)
         analysis.dimension_coverage = coverage_result.coverage
         analysis.coverage_flags = coverage_result.flags
 
