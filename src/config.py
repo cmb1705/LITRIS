@@ -252,7 +252,7 @@ class FederatedIndexConfig(BaseModel):
     models and schema versions.
     """
 
-    path: Path = Field(description="Path to index directory (must contain papers.json, extractions.json, chroma/)")
+    path: Path = Field(description="Path to index directory (must contain papers.json, semantic_analyses.json, chroma/)")
     label: str = Field(description="Display name for this index in search results")
     enabled: bool = Field(default=True, description="Whether to include this index in federated searches")
     weight: float = Field(default=1.0, ge=0.0, le=2.0, description="Relevance weight for results from this index (0.0-2.0)")
