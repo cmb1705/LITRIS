@@ -116,6 +116,100 @@ python scripts/query_index.py -q "query" -f markdown
 python scripts/query_index.py -q "query" -f csv
 ```
 
+## RRF Search (Multi-Query Fusion)
+
+Reciprocal Rank Fusion (RRF) improves recall by automatically generating query
+reformulations via LLM, running each through vector search, and fusing results
+using the RRF formula:
+
+```
+score(d) = sum(1 / (k + rank_i(d)))
+```
+
+This surfaces papers that would be missed by a single query phrasing.
+
+### Usage via MCP
+
+The `litris_search_rrf` MCP tool exposes RRF search directly:
+
+```
+litris_search_rrf(query="network analysis methods", n_results=10)
+```
+
+### Programmatic Usage
+
+```python
+from src.query.rrf import generate_query_variants, rrf_score
+
+# Generate query variants via LLM
+variants = generate_query_variants("network analysis", n_variants=4)
+# Returns: ["network analysis", "graph theory methods", ...]
+
+# Run each variant through your search, collect ranked paper IDs
+rankings = [search(v) for v in variants]
+
+# Fuse results
+fused = rrf_score(rankings, k=60)
+# Returns: [("paper_id_1", 0.048), ("paper_id_2", 0.032), ...]
+```
+
+### Parameters
+
+| Parameter | Default | Description |
+| --------- | ------- | ----------- |
+| `n_variants` | 4 | Number of LLM-generated query reformulations |
+| `k` | 60 | RRF constant (from the original RRF paper) |
+| `provider` | anthropic | LLM provider for reformulation |
+
+## Agentic Search (Multi-Round with Gap Analysis)
+
+Agentic search implements an iterative search loop that identifies topical gaps
+in results and generates follow-up queries to fill them:
+
+1. Initial query runs vector search
+2. LLM analyzes results for missing sub-topics, methods, or perspectives
+3. LLM generates follow-up queries to fill gaps
+4. Re-searches with follow-up queries and merges results
+5. Repeats for up to `max_rounds` gap-analysis rounds
+
+This is particularly useful for comprehensive literature reviews where a single
+query cannot capture all relevant dimensions of a topic.
+
+### Usage via MCP
+
+The `litris_search_agentic` MCP tool exposes agentic search:
+
+```
+litris_search_agentic(query="social network analysis in education", n_results=15, max_rounds=2)
+```
+
+### Programmatic Usage
+
+```python
+from src.query.agentic import analyze_gaps, AgenticSearchResult
+
+# Analyze search results for gaps
+gap_analysis = analyze_gaps(
+    query="network analysis",
+    results=initial_results,
+    provider="anthropic",
+)
+
+print(gap_analysis.gaps)
+# ["No papers on temporal network analysis", ...]
+
+print(gap_analysis.follow_up_queries)
+# ["temporal dynamics in network evolution", ...]
+```
+
+### Parameters
+
+| Parameter | Default | Description |
+| --------- | ------- | ----------- |
+| `max_rounds` | 2 | Maximum gap-analysis rounds |
+| `n_results` | 10 | Results per search round |
+| `provider` | anthropic | LLM provider for gap analysis |
+
 ## Incremental Updates
 
 Keep your index synchronized with Zotero changes:
@@ -507,6 +601,49 @@ The Web UI provides an interactive citation network visualization (requires
 `pyvis` and `networkx`). Launch the UI and navigate to the **Citation Network**
 tab to explore connections between papers in your library.
 
+## Similarity Graph
+
+LITRIS pre-computes a topical similarity graph alongside the citation graph.
+It uses cosine similarity on paper centroid embeddings (the mean of each
+paper's chunk embeddings) to identify related papers that may not directly
+cite each other.
+
+The similarity graph is generated automatically during `build_index.py`
+(unless skipped with `--skip-similarity`). Output is saved to
+`data/index/similarity_graph.json`.
+
+### Configuration
+
+The similarity graph uses the following defaults:
+
+| Parameter | Default | Description |
+| --------- | ------- | ----------- |
+| `min_similarity` | 0.75 | Minimum cosine similarity to create an edge |
+| `max_edges_per_node` | 10 | Maximum edges per paper (keeps top-N) |
+| `use_paper_centroid` | True | Use mean of chunk embeddings as paper vector |
+| `batch_size` | 100 | Papers processed per batch |
+
+### Programmatic Usage
+
+```python
+from src.analysis.similarity_graph import (
+    SimilarityConfig,
+    load_and_build_similarity_graph,
+)
+
+config = SimilarityConfig(min_similarity=0.8, max_edges_per_node=5)
+graph = load_and_build_similarity_graph("data/index", config)
+
+print(f"Edges: {len(graph['edges'])}")
+print(f"Nodes: {len(graph['nodes'])}")
+```
+
+### Jaccard Validation
+
+Pass `compute_jaccard=True` to add a token-level Jaccard score to each edge.
+This helps identify cross-disciplinary connections where cosine similarity is
+high but vocabulary overlap is low.
+
 ## Collection Filtering for Builds
 
 Use `--collection` to restrict a build to papers belonging to a specific Zotero
@@ -657,6 +794,25 @@ The following `build_index.py` options were added in recent releases:
 | `--skip-paper PAPER_ID` | Skip specific paper ID (repeatable) |
 | `--show-failed` | Show list of failed papers from previous run |
 | `--show-skipped` | Show list of papers without PDFs |
+
+## Hook Scripts
+
+LITRIS includes hook scripts in `scripts/hooks/` that integrate with Claude Code
+for automated quality checks during development. These scripts are
+cross-platform Python replacements for the original PowerShell hooks.
+
+| Hook | Trigger | Purpose |
+| ---- | ------- | ------- |
+| `zotero_guard.py` | PreToolUse (Write/Edit) | Blocks writes to Zotero directories |
+| `ruff_lint.py` | PostToolUse (Write/Edit) | Runs ruff on modified Python files |
+| `lint_markdown.py` | PostToolUse (Write/Edit) | Lints modified Markdown files |
+| `run_related_tests.py` | PostToolUse (Write/Edit) | Auto-runs tests for changed `src/` modules |
+| `verify_task_completion.py` | PreToolUse (Edit) | Verifies task completion before edits |
+| `operations_log.py` | PostToolUse (Bash/Write/Edit) | Logs operations to `operations.log` |
+| `test_file_runner.py` | PostToolUse (Write/Edit) | Runs test files after modification |
+
+Each script reads `CLAUDE_FILE_PATH` and `CLAUDE_TOOL_NAME` from environment
+variables set by Claude Code. They are configured in `.claude/settings.json`.
 
 ## Next Steps
 
