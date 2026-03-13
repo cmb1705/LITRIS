@@ -26,6 +26,7 @@ from src.analysis.schemas import (
     KeyFinding,
     Methodology,
     PaperExtraction,
+    SemanticAnalysis,
     SignificanceLevel,
     SupportType,
 )
@@ -39,6 +40,7 @@ except ImportError:  # Optional dependencies may be unavailable in tests
 __all__ = [
     # Schemas
     "PaperExtraction",
+    "SemanticAnalysis",
     "ExtractionResult",
     "Methodology",
     "KeyFinding",
