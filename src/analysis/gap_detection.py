@@ -289,7 +289,7 @@ def _load_papers(index_dir: Path) -> list[dict]:
 
 
 def _load_extractions(index_dir: Path) -> dict[str, dict]:
-    extractions_path = index_dir / "extractions.json"
+    extractions_path = index_dir / "semantic_analyses.json"
     data = safe_read_json(extractions_path, default={})
     if isinstance(data, dict) and "extractions" in data:
         data = data.get("extractions", {})
@@ -322,10 +322,11 @@ def _count_topics(
     paper: dict,
     config: GapDetectionConfig,
 ) -> None:
-    tags = extraction.get("discipline_tags") or []
-    keywords = extraction.get("keywords") or []
-    for value in tags + keywords:
-        label = _normalize_label(str(value))
+    # q17_field is prose; split on commas/semicolons to extract topic labels
+    field_text = extraction.get("q17_field") or ""
+    labels = [s.strip() for s in re.split(r"[,;]", field_text) if s.strip()]
+    for value in labels:
+        label = _normalize_label(value)
         if not label:
             continue
         counter[label] += 1
@@ -339,25 +340,16 @@ def _count_methods(
     paper: dict,
     config: GapDetectionConfig,
 ) -> None:
-    method = extraction.get("methodology") or {}
-    if not isinstance(method, dict):
-        method = {"approach": str(method)}
+    # q07_methods and q06_paradigm are prose strings
+    methods_text = extraction.get("q07_methods") or ""
+    paradigm_text = extraction.get("q06_paradigm") or ""
+    data_text = extraction.get("q08_data") or ""
 
-    fields = {
-        "approach": method.get("approach"),
-        "design": method.get("design"),
-        "time_period": method.get("time_period"),
-    }
-    for field, value in fields.items():
-        if value:
-            label = _normalize_label(f"{field}: {value}")
-            counter[label] += 1
-            _add_evidence(evidence[label], paper, config.evidence_limit)
-
-    for field in ("analysis_methods", "data_sources"):
-        values = method.get(field) or []
-        for value in values:
-            label = _normalize_label(f"{field}: {value}")
+    # Parse prose into labels by splitting on commas/semicolons
+    for prefix, text in [("methods", methods_text), ("paradigm", paradigm_text), ("data", data_text)]:
+        labels = [s.strip() for s in re.split(r"[,;]", text) if s.strip()]
+        for value in labels:
+            label = _normalize_label(f"{prefix}: {value}")
             if not label:
                 continue
             counter[label] += 1
@@ -540,8 +532,10 @@ def _build_token_index(
             text_parts.append(paper.get("abstract", ""))
         extraction = extractions.get(paper_id, {})
         ext_data = extraction.get("extraction", extraction)
-        text_parts.extend(ext_data.get("keywords", []) or [])
-        text_parts.extend(ext_data.get("discipline_tags", []) or [])
+        # Use q17_field (discipline/field) for topic tokens
+        field_text = ext_data.get("q17_field") or ""
+        if field_text:
+            text_parts.append(field_text)
         tokens = set(_tokenize(" ".join(map(str, text_parts)), token_min_len))
         for token in tokens:
             token_index[token].add(paper_id)
@@ -560,9 +554,15 @@ def _collect_future_directions(
             continue
         extraction = extractions.get(paper_id, {})
         ext_data = extraction.get("extraction", extraction)
-        directions = ext_data.get("future_directions") or []
-        for direction in directions:
-            direction_text = str(direction).strip()
+        # q20_future_work is a prose string; split on sentence boundaries
+        future_text = ext_data.get("q20_future_work") or ""
+        if not future_text.strip():
+            continue
+        # Split on periods followed by space or end, filtering empty
+        directions = [s.strip() for s in re.split(r"\.\s+", future_text) if s.strip()]
+        if not directions:
+            directions = [future_text.strip()]
+        for direction_text in directions:
             if not direction_text:
                 continue
             normalized = _normalize_label(direction_text)
