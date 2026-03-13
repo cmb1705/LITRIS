@@ -1,13 +1,12 @@
 """RAPTOR hierarchical summarization for multi-granularity search.
 
-Generates 3 summary layers per paper from existing LLM extraction data:
-1. Section summary (~300-500 words): Coherent narrative covering all extraction fields
-2. Paper overview (~100-150 words): Abstract-level synthesis
-3. Core contribution (1 sentence): Single-sentence distillation
+Generates 2 summary layers per paper from SemanticAnalysis q-field data:
+1. Paper overview (~100-150 words): Abstract-level synthesis
+2. Core contribution (1 sentence): Single-sentence distillation
 
 These layers are embedded as separate chunks, enabling search to match
-at different levels of abstraction -- a detailed methodology query hits
-the section summary, while a broad topic scan hits the core contribution.
+at different levels of abstraction -- a broad topic scan hits the core
+contribution, while a more detailed query hits the paper overview.
 
 Inspired by RAPTOR (Recursive Abstractive Processing for Tree-Organized Retrieval).
 """
@@ -15,7 +14,7 @@ Inspired by RAPTOR (Recursive Abstractive Processing for Tree-Organized Retrieva
 import json
 from dataclasses import dataclass
 
-from src.analysis.schemas import PaperExtraction
+from src.analysis.schemas import SemanticAnalysis
 from src.utils.logging_config import get_logger
 from src.zotero.models import PaperMetadata
 
@@ -24,32 +23,31 @@ logger = get_logger(__name__)
 _RAPTOR_PROMPT = """\
 You are a research librarian creating multi-level summaries of academic papers.
 
-Given the structured extraction below, generate exactly 3 summary layers:
+Given the semantic analysis below, generate exactly 2 summary layers:
 
 **Paper**: {title} ({year})
 **Authors**: {authors}
 
-**Extraction Data**:
+**Semantic Analysis**:
 - Thesis: {thesis}
 - Contribution: {contribution}
-- Theoretical Framework: {framework}
-- Research Questions: {research_questions}
-- Methodology: {methodology}
-- Key Findings: {findings}
-- Conclusions: {conclusions}
+- Framework: {framework}
+- Research Question: {research_question}
+- Methods: {methods}
+- Key Claims: {key_claims}
+- Evidence: {evidence}
+- Implications: {implications}
 - Limitations: {limitations}
-- Future Directions: {future_directions}
+- Future Work: {future_work}
+- Field: {field}
+- Paradigm: {paradigm}
 
-Generate a JSON object with exactly three fields:
+Generate a JSON object with exactly two fields:
 
-1. "section_summary": A coherent 300-500 word narrative synthesizing ALL extraction \
-fields into a detailed summary. Cover the research problem, methodology, findings, \
-contributions, and limitations in flowing prose. Do not use bullet points.
-
-2. "paper_overview": A concise 100-150 word abstract-level overview capturing the \
+1. "paper_overview": A concise 100-150 word abstract-level overview capturing the \
 paper's purpose, approach, and main contribution. Similar in style to a journal abstract.
 
-3. "core_contribution": A single sentence (max 40 words) capturing the paper's most \
+2. "core_contribution": A single sentence (max 40 words) capturing the paper's most \
 important contribution or finding.
 
 Return ONLY the JSON object, no other text."""
@@ -57,83 +55,65 @@ Return ONLY the JSON object, no other text."""
 
 @dataclass
 class RaptorSummaries:
-    """Three-layer RAPTOR summaries for a single paper."""
+    """Two-layer RAPTOR summaries for a single paper."""
 
     paper_id: str
-    section_summary: str
     paper_overview: str
     core_contribution: str
 
 
-def _format_extraction_for_prompt(
+def _format_analysis_for_prompt(
     paper: PaperMetadata,
-    extraction: PaperExtraction,
+    analysis: SemanticAnalysis,
 ) -> dict[str, str]:
-    """Format extraction fields into prompt template values.
+    """Format SemanticAnalysis fields into prompt template values.
 
     Args:
         paper: Paper metadata.
-        extraction: LLM extraction result.
+        analysis: SemanticAnalysis result.
 
     Returns:
         Dict of template field names to formatted values.
     """
-    # Methodology
-    method_parts = []
-    if extraction.methodology:
-        m = extraction.methodology
-        if m.approach:
-            method_parts.append(f"Approach: {m.approach}")
-        if m.design:
-            method_parts.append(f"Design: {m.design}")
-        if m.data_sources:
-            method_parts.append(f"Data sources: {', '.join(m.data_sources)}")
-        if m.analysis_methods:
-            method_parts.append(f"Analysis: {', '.join(m.analysis_methods)}")
-        if m.sample_size:
-            method_parts.append(f"Sample: {m.sample_size}")
-
-    # Findings
-    findings_parts = []
-    if extraction.key_findings:
-        findings_parts = [f.finding for f in extraction.key_findings]
-
     return {
         "title": paper.title or "Unknown",
         "year": str(paper.publication_year or "n/a"),
         "authors": paper.author_string or "Unknown",
-        "thesis": extraction.thesis_statement or "(not extracted)",
-        "contribution": extraction.contribution_summary or "(not extracted)",
-        "framework": extraction.theoretical_framework or "(not specified)",
-        "research_questions": "; ".join(extraction.research_questions) if extraction.research_questions else "(none)",
-        "methodology": "; ".join(method_parts) if method_parts else "(not extracted)",
-        "findings": "; ".join(findings_parts) if findings_parts else "(not extracted)",
-        "conclusions": extraction.conclusions or "(not extracted)",
-        "limitations": "; ".join(extraction.limitations) if extraction.limitations else "(none noted)",
-        "future_directions": "; ".join(extraction.future_directions) if extraction.future_directions else "(none noted)",
+        "thesis": analysis.q02_thesis or "(not extracted)",
+        "contribution": analysis.q22_contribution or "(not extracted)",
+        "framework": analysis.q10_framework or "(not specified)",
+        "research_question": analysis.q01_research_question or "(none)",
+        "methods": analysis.q07_methods or "(not extracted)",
+        "key_claims": analysis.q03_key_claims or "(not extracted)",
+        "evidence": analysis.q04_evidence or "(not extracted)",
+        "implications": analysis.q19_implications or "(not extracted)",
+        "limitations": analysis.q05_limitations or "(none noted)",
+        "future_work": analysis.q20_future_work or "(none noted)",
+        "field": analysis.q17_field or "(not specified)",
+        "paradigm": analysis.q06_paradigm or "(not specified)",
     }
 
 
 def generate_raptor_summaries(
     paper: PaperMetadata,
-    extraction: PaperExtraction,
+    analysis: SemanticAnalysis,
     provider: str = "anthropic",
     model: str | None = None,
 ) -> RaptorSummaries | None:
-    """Generate 3-layer RAPTOR summaries for a paper using LLM.
+    """Generate 2-layer RAPTOR summaries for a paper using LLM.
 
     Args:
         paper: Paper metadata.
-        extraction: LLM extraction for the paper.
+        analysis: SemanticAnalysis for the paper.
         provider: LLM provider for summarization.
         model: LLM model. Defaults to provider's default.
 
     Returns:
-        RaptorSummaries with 3 layers, or None if generation fails.
+        RaptorSummaries with 2 layers, or None if generation fails.
     """
     from src.analysis.llm_factory import create_llm_client
 
-    template_values = _format_extraction_for_prompt(paper, extraction)
+    template_values = _format_analysis_for_prompt(paper, analysis)
     prompt = _RAPTOR_PROMPT.format(**template_values)
 
     client = create_llm_client(
@@ -160,17 +140,15 @@ def generate_raptor_summaries(
             logger.warning(f"RAPTOR response not a dict for {paper.paper_id}")
             return None
 
-        section_summary = parsed.get("section_summary", "")
         paper_overview = parsed.get("paper_overview", "")
         core_contribution = parsed.get("core_contribution", "")
 
-        if not section_summary or not paper_overview or not core_contribution:
+        if not paper_overview or not core_contribution:
             logger.warning(f"RAPTOR response missing fields for {paper.paper_id}")
             return None
 
         return RaptorSummaries(
             paper_id=paper.paper_id,
-            section_summary=str(section_summary),
             paper_overview=str(paper_overview),
             core_contribution=str(core_contribution),
         )
@@ -185,7 +163,7 @@ def generate_raptor_summaries(
 
 def generate_raptor_batch(
     papers: list[PaperMetadata],
-    extractions: dict[str, PaperExtraction],
+    analyses: dict[str, SemanticAnalysis],
     provider: str = "anthropic",
     model: str | None = None,
 ) -> dict[str, RaptorSummaries]:
@@ -193,7 +171,7 @@ def generate_raptor_batch(
 
     Args:
         papers: List of paper metadata.
-        extractions: Dict of paper_id -> PaperExtraction.
+        analyses: Dict of paper_id -> SemanticAnalysis.
         provider: LLM provider.
         model: LLM model.
 
@@ -204,13 +182,13 @@ def generate_raptor_batch(
     total = len(papers)
 
     for i, paper in enumerate(papers):
-        if paper.paper_id not in extractions:
+        if paper.paper_id not in analyses:
             continue
 
         logger.info(f"RAPTOR [{i + 1}/{total}] Generating summaries for: {paper.title}")
         summaries = generate_raptor_summaries(
             paper=paper,
-            extraction=extractions[paper.paper_id],
+            analysis=analyses[paper.paper_id],
             provider=provider,
             model=model,
         )
