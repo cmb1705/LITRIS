@@ -142,7 +142,7 @@ class CliSectionExtractor:
             # Let caller handle rate limit
             raise
 
-        # Parse response into PaperExtraction
+        # Parse response into SemanticAnalysis
         return self._parse_response(response, paper_id, metadata)
 
     def extract_all(
