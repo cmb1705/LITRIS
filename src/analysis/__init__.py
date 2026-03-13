@@ -38,9 +38,9 @@ except ImportError:  # Optional dependencies may be unavailable in tests
     SectionExtractor = None
 
 __all__ = [
-    # Schemas
-    "PaperExtraction",
+    # Schemas (SemanticAnalysis is the primary analysis type)
     "SemanticAnalysis",
+    "PaperExtraction",  # retained for backward compatibility
     "ExtractionResult",
     "Methodology",
     "KeyFinding",
