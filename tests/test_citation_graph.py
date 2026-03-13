@@ -54,20 +54,23 @@ def _sample_corpus():
     extractions = {
         "p1": {
             "extraction": {
-                "thesis_statement": "We propose a heterogeneous graph approach.",
-                "key_claims": [
-                    {"claim": "Building on Attention Is All You Need for Sequence Modeling."}
-                ],
-                "future_directions": ["Apply to citation network analysis for research front detection."],
+                "paper_id": "p1",
+                "prompt_version": "2.0.0",
+                "extraction_model": "test-model",
+                "extracted_at": "2026-01-01T00:00:00Z",
+                "q02_thesis": "We propose a heterogeneous graph approach.",
+                "q03_key_claims": "Building on Attention Is All You Need for Sequence Modeling.",
+                "q20_future_work": "Apply to citation network analysis for research front detection.",
             }
         },
         "p3": {
             "extraction": {
-                "thesis_statement": "Citation networks reveal research fronts.",
-                "key_claims": [
-                    {"claim": "Uses heterogeneous graph transformer for web-scale recommender systems approach (doi: 10.1145/3366423.3380027)."}
-                ],
-                "future_directions": [],
+                "paper_id": "p3",
+                "prompt_version": "2.0.0",
+                "extraction_model": "test-model",
+                "extracted_at": "2026-01-01T00:00:00Z",
+                "q02_thesis": "Citation networks reveal research fronts.",
+                "q03_key_claims": "Uses heterogeneous graph transformer for web-scale recommender systems approach (doi: 10.1145/3366423.3380027).",
             }
         },
     }
@@ -186,7 +189,11 @@ def test_highly_cited_node_color():
     for i in range(1, 8):
         extractions[f"p{i}"] = {
             "extraction": {
-                "thesis_statement": "Building on the foundational work on graph neural network architectures.",
+                "paper_id": f"p{i}",
+                "prompt_version": "2.0.0",
+                "extraction_model": "test-model",
+                "extracted_at": "2026-01-01T00:00:00Z",
+                "q02_thesis": "Building on the foundational work on graph neural network architectures.",
             }
         }
 
@@ -385,10 +392,26 @@ def test_syllabus_bundle_detection():
         for i in range(4)
     ]
     extractions = {
-        "paf0": {"extraction": {"thesis_statement": "Network analysis is fundamental."}},
-        "paf1": {"extraction": {"thesis_statement": "Clustering improves outcomes."}},
-        "paf2": {"extraction": {"thesis_statement": "Optimization under constraints."}},
-        "paf3": {"extraction": {"thesis_statement": "Policy analysis frameworks."}},
+        "paf0": {"extraction": {
+            "paper_id": "paf0", "prompt_version": "2.0.0",
+            "extraction_model": "test-model", "extracted_at": "2026-01-01T00:00:00Z",
+            "q02_thesis": "Network analysis is fundamental.",
+        }},
+        "paf1": {"extraction": {
+            "paper_id": "paf1", "prompt_version": "2.0.0",
+            "extraction_model": "test-model", "extracted_at": "2026-01-01T00:00:00Z",
+            "q02_thesis": "Clustering improves outcomes.",
+        }},
+        "paf2": {"extraction": {
+            "paper_id": "paf2", "prompt_version": "2.0.0",
+            "extraction_model": "test-model", "extracted_at": "2026-01-01T00:00:00Z",
+            "q02_thesis": "Optimization under constraints.",
+        }},
+        "paf3": {"extraction": {
+            "paper_id": "paf3", "prompt_version": "2.0.0",
+            "extraction_model": "test-model", "extracted_at": "2026-01-01T00:00:00Z",
+            "q02_thesis": "Policy analysis frameworks.",
+        }},
     }
     graph = build_citation_graph(papers, extractions)
 
@@ -491,7 +514,11 @@ def _reference_corpus():
     extractions = {
         "r1": {
             "extraction": {
-                "thesis_statement": "We apply deep learning to NLP.",
+                "paper_id": "r1",
+                "prompt_version": "2.0.0",
+                "extraction_model": "test-model",
+                "extracted_at": "2026-01-01T00:00:00Z",
+                "q02_thesis": "We apply deep learning to NLP.",
                 "reference_list": [
                     {
                         "raw_text": "Vaswani et al. (2017). Attention Is All You Need for Sequence Modeling. arXiv:1706.03762.",
@@ -561,7 +588,11 @@ def test_reference_no_self_cite():
     extractions = {
         "s1": {
             "extraction": {
-                "thesis_statement": "Self-referencing study.",
+                "paper_id": "s1",
+                "prompt_version": "2.0.0",
+                "extraction_model": "test-model",
+                "extracted_at": "2026-01-01T00:00:00Z",
+                "q02_thesis": "Self-referencing study.",
                 "reference_list": [
                     {
                         "raw_text": "Author X (2023). Some Paper About Self-Referencing...",
@@ -594,14 +625,18 @@ def test_reference_dedup_with_title_match():
 
 
 def test_extract_text_fields_with_none_values():
-    """_extract_text_fields handles None and missing fields without crashing."""
+    """_extract_text_fields handles None and missing q-fields without crashing."""
     extraction = {
         "extraction": {
-            "thesis_statement": None,
-            "conclusions": None,
-            "key_findings": None,
-            "key_claims": None,
-            "research_questions": None,
+            "paper_id": "test",
+            "prompt_version": "2.0.0",
+            "extraction_model": "test-model",
+            "extracted_at": "2026-01-01T00:00:00Z",
+            "q01_research_question": None,
+            "q02_thesis": None,
+            "q03_key_claims": None,
+            "q04_evidence": None,
+            "q07_methods": None,
         }
     }
     result = _extract_text_fields(extraction)
@@ -610,25 +645,23 @@ def test_extract_text_fields_with_none_values():
     assert result.strip() == ""
 
 
-def test_extract_text_fields_mixed_finding_types():
-    """_extract_text_fields handles findings as both dicts and plain strings."""
+def test_extract_text_fields_concatenates_q_fields():
+    """_extract_text_fields concatenates all non-None q-fields into a single string."""
     extraction = {
         "extraction": {
-            "thesis_statement": "Main argument.",
-            "key_findings": [
-                {"finding": "Finding as dict"},
-                "Finding as plain string",
-            ],
-            "key_claims": [
-                {"claim": "Claim as dict"},
-            ],
+            "paper_id": "test",
+            "prompt_version": "2.0.0",
+            "extraction_model": "test-model",
+            "extracted_at": "2026-01-01T00:00:00Z",
+            "q02_thesis": "Main argument about networks.",
+            "q04_evidence": "Strong empirical evidence from experiments.",
+            "q03_key_claims": "Networks exhibit small-world properties.",
         }
     }
     result = _extract_text_fields(extraction)
     assert "Main argument" in result
-    assert "Finding as dict" in result
-    assert "Finding as plain string" in result
-    assert "Claim as dict" in result
+    assert "Strong empirical evidence" in result
+    assert "small-world properties" in result
 
 
 def test_containment_threshold_boundary():
@@ -652,7 +685,11 @@ def test_containment_threshold_boundary():
     extractions = {
         "src": {
             "extraction": {
-                "thesis_statement": (
+                "paper_id": "src",
+                "prompt_version": "2.0.0",
+                "extraction_model": "test-model",
+                "extracted_at": "2026-01-01T00:00:00Z",
+                "q02_thesis": (
                     "This work examines network analysis of community "
                     "detection in social systems and proposes new methods."
                 ),
