@@ -48,16 +48,16 @@ class TestGetRequiredFields:
     def test_none_returns_research_paper_fields(self):
         """None document_type falls back to research_paper requirements."""
         fields = get_required_fields(None)
-        assert "thesis_statement" in fields
-        assert "methodology" in fields
-        assert "key_findings" in fields
+        assert "q02_thesis" in fields
+        assert "q07_methods" in fields
+        assert "q04_evidence" in fields
 
     def test_known_type_returns_correct_fields(self):
         """Known types return their configured fields."""
         fields = get_required_fields("book_monograph")
-        assert "thesis_statement" in fields
-        assert "key_claims" in fields
-        assert "methodology" not in fields
+        assert "q02_thesis" in fields
+        assert "q03_key_claims" in fields
+        assert "q07_methods" not in fields
 
     def test_unknown_type_falls_back(self):
         """Unknown type string falls back to research_paper."""
@@ -65,22 +65,22 @@ class TestGetRequiredFields:
         assert fields == get_required_fields(None)
 
     def test_report_fields(self):
-        """Reports require key_findings and conclusions."""
+        """Reports require q04_evidence and q22_contribution."""
         fields = get_required_fields("report")
-        assert "key_findings" in fields
-        assert "conclusions" in fields
-        assert "methodology" not in fields
+        assert "q04_evidence" in fields
+        assert "q22_contribution" in fields
+        assert "q07_methods" not in fields
 
     def test_non_academic_has_no_required_fields(self):
         """Non-academic documents have no required extraction fields."""
         fields = get_required_fields("non_academic")
         assert fields == []
 
-    def test_thesis_requires_research_questions(self):
-        """Theses should require research_questions."""
+    def test_thesis_requires_research_question(self):
+        """Theses should require q01_research_question."""
         fields = get_required_fields("thesis")
-        assert "research_questions" in fields
-        assert "methodology" in fields
+        assert "q01_research_question" in fields
+        assert "q07_methods" in fields
 
 
 class TestGetRecommendedFields:
@@ -88,7 +88,7 @@ class TestGetRecommendedFields:
 
     def test_none_returns_research_paper_recommended(self):
         fields = get_recommended_fields(None)
-        assert "research_questions" in fields or "conclusions" in fields
+        assert "q01_research_question" in fields or "q22_contribution" in fields
 
     def test_non_academic_recommends_keywords(self):
         fields = get_recommended_fields("non_academic")
@@ -318,24 +318,24 @@ class TestClassifyFull:
 class TestValidationIntegration:
     """Test that type-aware validation works correctly."""
 
-    def test_book_valid_without_methodology(self):
-        """A book extraction should be valid without methodology."""
+    def test_book_valid_without_methods(self):
+        """A book extraction should be valid without q07_methods."""
         fields = get_required_fields("book_monograph")
-        assert "methodology" not in fields
+        assert "q07_methods" not in fields
 
-    def test_report_valid_without_research_questions(self):
-        """A report should be valid without research_questions."""
+    def test_report_valid_without_research_question(self):
+        """A report should be valid without q01_research_question."""
         fields = get_required_fields("report")
-        assert "research_questions" not in fields
+        assert "q01_research_question" not in fields
 
-    def test_research_paper_requires_methodology(self):
-        """Research papers should still require methodology."""
+    def test_research_paper_requires_methods(self):
+        """Research papers should still require q07_methods."""
         fields = get_required_fields("research_paper")
-        assert "methodology" in fields
+        assert "q07_methods" in fields
 
     def test_reference_material_minimal_requirements(self):
         """Reference materials have minimal requirements."""
         fields = get_required_fields("reference_material")
-        assert "keywords" in fields
-        assert "contribution_summary" in fields
+        assert "q17_field" in fields
+        assert "q22_contribution" in fields
         assert len(fields) == 2
