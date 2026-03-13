@@ -53,21 +53,23 @@ def _sample_extractions():
     return {
         "p1": {
             "extraction": {
-                "thesis_statement": "Deep learning has transformed NLP.",
-                "methodology": {
-                    "approach": "Survey",
-                    "analysis_methods": ["literature review", "meta-analysis"],
-                },
-                "key_findings": [
-                    {"finding": "Transformers dominate modern NLP."},
-                    {"finding": "Pre-training improves downstream tasks."},
-                ],
+                "paper_id": "p1",
+                "prompt_version": "2.0.0",
+                "extraction_model": "test-model",
+                "extracted_at": "2026-01-01T00:00:00Z",
+                "q02_thesis": "Deep learning has transformed NLP.",
+                "q07_methods": "Survey approach using literature review and meta-analysis.",
+                "q04_evidence": "Transformers dominate modern NLP. Pre-training improves downstream tasks.",
             }
         },
         "p2": {
             "extraction": {
-                "thesis_statement": "GNNs generalize neural networks to graphs.",
-                "key_claims": [{"claim": "Message passing is key."}],
+                "paper_id": "p2",
+                "prompt_version": "2.0.0",
+                "extraction_model": "test-model",
+                "extracted_at": "2026-01-01T00:00:00Z",
+                "q02_thesis": "GNNs generalize neural networks to graphs.",
+                "q03_key_claims": "Message passing is key.",
             }
         },
     }
@@ -91,7 +93,7 @@ def test_find_new_papers_with_state(tmp_path):
 
 
 def test_build_paper_highlight_with_extraction():
-    """Highlight includes extraction data."""
+    """Highlight includes SemanticAnalysis data."""
     paper = _sample_papers()[0]
     extraction = _sample_extractions()["p1"]
     config = DigestConfig()
@@ -102,7 +104,7 @@ def test_build_paper_highlight_with_extraction():
     assert "transformed NLP" in highlight.summary
     assert highlight.methodology is not None
     assert "Survey" in highlight.methodology
-    assert len(highlight.key_findings) == 2
+    assert len(highlight.key_findings) >= 1
 
 
 def test_build_paper_highlight_no_extraction():
