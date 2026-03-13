@@ -1,24 +1,25 @@
-"""Section extractor orchestrating PDF extraction and LLM analysis."""
+"""Section extractor orchestrating PDF extraction and 6-pass LLM analysis."""
 
 import hashlib
 import json
 from collections.abc import Callable, Generator
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode
+from src.analysis.coverage import compute_coverage
 from src.analysis.document_classifier import classify as classify_document
-from src.analysis.document_types import DocumentType, get_profile
+from src.analysis.document_types import DocumentType
 from src.analysis.llm_factory import create_llm_client
-from src.analysis.prompts import (
-    EXTRACTION_TYPE_FIELDS,
-    build_extraction_prompt_for_type,
-    build_prompt_for_document_type,
+from src.analysis.schemas import ExtractionResult, SemanticAnalysis
+from src.analysis.semantic_prompts import (
+    PASS_DEFINITIONS,
+    SEMANTIC_PROMPT_VERSION,
+    build_pass_prompt,
+    get_document_type_framing,
 )
-from src.analysis.schemas import ExtractionResult, PaperExtraction
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
 from src.utils.logging_config import LogContext, get_logger
@@ -26,7 +27,8 @@ from src.zotero.models import PaperMetadata
 
 logger = get_logger(__name__)
 
-PROMPT_VERSION = "1.0"
+# Number of extraction passes
+NUM_PASSES = 6
 
 
 class ExtractionCache:
@@ -43,18 +45,20 @@ class ExtractionCache:
         self._lock = Lock()
 
     def compute_content_hash(
-        self, pdf_path: Path, model: str, prompt_version: str = PROMPT_VERSION
+        self, pdf_path: Path, model: str, prompt_version: str = SEMANTIC_PROMPT_VERSION,
+        pass_number: int | None = None,
     ) -> str:
         """Compute content hash for cache key.
 
         Uses file modification time and size to detect changes without
-        reading the entire file. Includes model and prompt version to
-        invalidate cache when extraction logic changes.
+        reading the entire file. Includes model, prompt version, and
+        optional pass number to invalidate cache when extraction logic changes.
 
         Args:
             pdf_path: Path to PDF file.
             model: Model identifier.
             prompt_version: Version string for extraction prompts.
+            pass_number: Pass number (1-6) for per-pass caching. None for full result.
 
         Returns:
             16-character hex hash string.
@@ -63,21 +67,23 @@ class ExtractionCache:
         stat = pdf_path.stat()
         hasher.update(f"{stat.st_mtime}:{stat.st_size}".encode())
         hasher.update(f":{model}:{prompt_version}".encode())
+        if pass_number is not None:
+            hasher.update(f":pass{pass_number}".encode())
         return hasher.hexdigest()[:16]
 
     def _get_cache_path(self, paper_id: str, content_hash: str) -> Path:
         """Get cache file path for a paper."""
         return self.cache_dir / f"{paper_id}_{content_hash}.json"
 
-    def get(self, paper_id: str, content_hash: str) -> ExtractionResult | None:
-        """Retrieve cached extraction result.
+    def get(self, paper_id: str, content_hash: str) -> dict | None:
+        """Retrieve cached data.
 
         Args:
             paper_id: Paper identifier.
             content_hash: Content hash for cache key.
 
         Returns:
-            Cached ExtractionResult or None if not found/invalid.
+            Cached data dict or None if not found/invalid.
         """
         cache_path = self._get_cache_path(paper_id, content_hash)
 
@@ -87,40 +93,57 @@ class ExtractionCache:
         try:
             with self._lock:
                 with open(cache_path, encoding="utf-8") as f:
-                    data = json.load(f)
-
-            # Reconstruct nested objects
-            if "extraction" in data and data["extraction"]:
-                from src.analysis.schemas import KeyClaim, KeyFinding, Methodology, ReferenceEntry
-
-                ext_data = data["extraction"]
-                if "methodology" in ext_data and isinstance(ext_data["methodology"], dict):
-                    ext_data["methodology"] = Methodology(**ext_data["methodology"])
-                if "key_findings" in ext_data and isinstance(ext_data["key_findings"], list):
-                    ext_data["key_findings"] = [
-                        KeyFinding(**f) if isinstance(f, dict) else f
-                        for f in ext_data["key_findings"]
-                    ]
-                if "key_claims" in ext_data and isinstance(ext_data["key_claims"], list):
-                    ext_data["key_claims"] = [
-                        KeyClaim(**c) if isinstance(c, dict) else c
-                        for c in ext_data["key_claims"]
-                    ]
-                if "reference_list" in ext_data and isinstance(ext_data["reference_list"], list):
-                    ext_data["reference_list"] = [
-                        ReferenceEntry(**r) if isinstance(r, dict) else r
-                        for r in ext_data["reference_list"]
-                    ]
-                data["extraction"] = PaperExtraction(**ext_data)
-
-            return ExtractionResult(**data)
-
+                    return json.load(f)
         except Exception as e:
             logger.debug(f"Cache read failed for {paper_id}: {e}")
             return None
 
-    def set(self, paper_id: str, content_hash: str, result: ExtractionResult) -> None:
-        """Store extraction result in cache.
+    def get_extraction_result(
+        self, paper_id: str, content_hash: str
+    ) -> ExtractionResult | None:
+        """Retrieve cached full extraction result.
+
+        Args:
+            paper_id: Paper identifier.
+            content_hash: Content hash for cache key.
+
+        Returns:
+            Cached ExtractionResult or None if not found/invalid.
+        """
+        data = self.get(paper_id, content_hash)
+        if data is None:
+            return None
+
+        try:
+            if "extraction" in data and data["extraction"]:
+                data["extraction"] = SemanticAnalysis(**data["extraction"])
+            return ExtractionResult(**data)
+        except Exception as e:
+            logger.debug(f"Cache deserialization failed for {paper_id}: {e}")
+            return None
+
+    def set(self, paper_id: str, content_hash: str, data: dict) -> None:
+        """Store data in cache.
+
+        Args:
+            paper_id: Paper identifier.
+            content_hash: Content hash for cache key.
+            data: Data dict to cache.
+        """
+        cache_path = self._get_cache_path(paper_id, content_hash)
+
+        try:
+            with self._lock:
+                with open(cache_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+            logger.debug(f"Cached data for {paper_id}")
+        except Exception as e:
+            logger.warning(f"Cache write failed for {paper_id}: {e}")
+
+    def set_extraction_result(
+        self, paper_id: str, content_hash: str, result: ExtractionResult
+    ) -> None:
+        """Store full extraction result in cache.
 
         Args:
             paper_id: Paper identifier.
@@ -128,33 +151,22 @@ class ExtractionCache:
             result: Extraction result to cache.
         """
         if not result.success:
-            return  # Only cache successful extractions
+            return
 
-        cache_path = self._get_cache_path(paper_id, content_hash)
+        data = {
+            "paper_id": result.paper_id,
+            "success": result.success,
+            "error": result.error,
+            "duration_seconds": result.duration_seconds,
+            "model_used": result.model_used,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+        }
 
-        try:
-            # Convert to serializable dict
-            data = {
-                "paper_id": result.paper_id,
-                "success": result.success,
-                "error": result.error,
-                "duration_seconds": result.duration_seconds,
-                "model_used": result.model_used,
-                "input_tokens": result.input_tokens,
-                "output_tokens": result.output_tokens,
-            }
+        if result.extraction:
+            data["extraction"] = result.extraction.model_dump()
 
-            if result.extraction:
-                data["extraction"] = result.extraction.model_dump()
-
-            with self._lock:
-                with open(cache_path, "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=2)
-
-            logger.debug(f"Cached extraction for {paper_id}")
-
-        except Exception as e:
-            logger.warning(f"Cache write failed for {paper_id}: {e}")
+        self.set(paper_id, content_hash, data)
 
     def clear(self) -> int:
         """Clear all cached extractions.
@@ -204,7 +216,7 @@ class ExtractionStats:
 
 
 class SectionExtractor:
-    """Orchestrates extraction of structured content from papers."""
+    """Orchestrates extraction of structured content from papers using 6-pass analysis."""
 
     def __init__(
         self,
@@ -214,7 +226,6 @@ class SectionExtractor:
         model: str | None = None,
         max_tokens: int = 8192,
         timeout: int | None = None,
-        model_by_type: dict[str, str] | None = None,
         min_text_length: int = 100,
         ocr_on_fail: bool = True,
         skip_non_publications: bool = False,
@@ -237,7 +248,6 @@ class SectionExtractor:
             model: Model to use (None uses provider default).
             max_tokens: Maximum response tokens.
             timeout: Request timeout in seconds (defaults to provider/client default).
-            model_by_type: Optional mapping of extraction type to model name.
             min_text_length: Minimum text length to attempt extraction.
             ocr_on_fail: Attempt OCR when initial text check fails.
             skip_non_publications: Skip likely non-publication attachments.
@@ -277,22 +287,11 @@ class SectionExtractor:
         self.min_publication_words = min_publication_words
         self.min_publication_pages = min_publication_pages
         self.min_section_hits = min_section_hits
-        self.model = self.llm_client.model  # Use resolved model from client
+        self.model = self.llm_client.model
         self.mode = mode
         self.provider = provider
         self.parallel_workers = parallel_workers
         self.use_cache = use_cache
-        self.type_models = self._resolve_type_models(model_by_type)
-        self.model_signature = self._build_model_signature()
-        self._clients_by_model: dict[str, BaseLLMClient] = {
-            self.llm_client.model: self.llm_client
-        }
-
-        if self.type_models:
-            logger.info(
-                "Using extraction models by type: "
-                + ", ".join(f"{k}={v}" for k, v in self.type_models.items())
-            )
 
         # Initialize extraction cache
         if cache_dir and use_cache:
@@ -303,7 +302,7 @@ class SectionExtractor:
     def extract_paper(
         self, paper: PaperMetadata, check_cache: bool = True
     ) -> tuple[ExtractionResult, bool]:
-        """Extract structured content from a single paper.
+        """Extract structured content from a single paper via 6-pass analysis.
 
         Args:
             paper: Paper metadata including PDF path.
@@ -322,13 +321,15 @@ class SectionExtractor:
                     error="No PDF available",
                 ), False
 
-            # Check cache
-            content_hash = None
+            # Check full-result cache
+            full_hash = None
             if check_cache and self.extraction_cache:
-                content_hash = self.extraction_cache.compute_content_hash(
-                    paper.pdf_path, self.model_signature
+                full_hash = self.extraction_cache.compute_content_hash(
+                    paper.pdf_path, self.model
                 )
-                cached_result = self.extraction_cache.get(paper.paper_id, content_hash)
+                cached_result = self.extraction_cache.get_extraction_result(
+                    paper.paper_id, full_hash
+                )
                 if cached_result:
                     logger.info(f"Using cached extraction for {paper.paper_id}")
                     return cached_result, True
@@ -451,60 +452,208 @@ class SectionExtractor:
                     type_confidence=type_confidence,
                 ), False
 
-            # Select prompt template based on document type
-            type_profile = get_profile(doc_type)
-            prompt_key = type_profile.extraction_prompt_key
-
             # Truncate for LLM if needed
             text = self.text_cleaner.truncate_for_llm(text)
 
-            # Perform LLM extraction
-            if self.type_models:
-                result = self._extract_with_model_overrides(paper, text)
-            elif prompt_key != "full":
-                # Use document-type-specific prompt
-                prompt = build_prompt_for_document_type(
-                    prompt_key=prompt_key,
-                    title=paper.title,
-                    authors=paper.author_string,
-                    year=paper.publication_year,
-                    item_type=paper.item_type,
-                    text=text,
-                )
-                result = self.llm_client.extract(
-                    paper_id=paper.paper_id,
-                    title=paper.title,
-                    authors=paper.author_string,
-                    year=paper.publication_year,
-                    item_type=paper.item_type,
-                    text=text,
-                    prompt_override=prompt,
-                )
-            else:
-                result = self.llm_client.extract(
-                    paper_id=paper.paper_id,
-                    title=paper.title,
-                    authors=paper.author_string,
-                    year=paper.publication_year,
-                    item_type=paper.item_type,
-                    text=text,
-                )
+            # Get document type framing for prompts
+            doc_type_framing = get_document_type_framing(doc_type.value)
+
+            # Run 6-pass extraction
+            result = self._extract_6_pass(
+                paper=paper,
+                text=text,
+                doc_type_framing=doc_type_framing,
+            )
 
             # Attach classification to result
             result.document_type = doc_type.value
             result.type_confidence = type_confidence
-            if result.extraction:
-                result.extraction.document_type = doc_type.value
 
             # Set indexed timestamp on success
             if result.success:
                 paper.indexed_at = datetime.now()
 
-                # Cache the result
-                if self.extraction_cache and content_hash:
-                    self.extraction_cache.set(paper.paper_id, content_hash, result)
+                # Cache the full result
+                if self.extraction_cache and full_hash:
+                    self.extraction_cache.set_extraction_result(
+                        paper.paper_id, full_hash, result
+                    )
 
             return result, False
+
+    def _extract_6_pass(
+        self,
+        paper: PaperMetadata,
+        text: str,
+        doc_type_framing: str,
+    ) -> ExtractionResult:
+        """Run 6-pass sequential extraction and merge results.
+
+        Each pass extracts a subset of the 40 semantic dimensions.
+        Passes run sequentially per paper for consistent reasoning context.
+
+        Args:
+            paper: Paper metadata.
+            text: Cleaned, truncated paper text.
+            doc_type_framing: Document type framing note for prompts.
+
+        Returns:
+            Merged ExtractionResult with all dimensions.
+        """
+        all_answers: dict[str, str | None] = {}
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_duration = 0.0
+        errors: list[str] = []
+
+        for pass_num in range(1, NUM_PASSES + 1):
+            pass_def = PASS_DEFINITIONS[pass_num]
+
+            # Check per-pass cache
+            cached_answers = None
+            pass_hash = None
+            if self.extraction_cache:
+                pass_hash = self.extraction_cache.compute_content_hash(
+                    paper.pdf_path, self.model, pass_number=pass_num
+                )
+                cached_data = self.extraction_cache.get(paper.paper_id, pass_hash)
+                if cached_data and "answers" in cached_data:
+                    cached_answers = cached_data["answers"]
+                    total_input_tokens += cached_data.get("input_tokens", 0)
+                    total_output_tokens += cached_data.get("output_tokens", 0)
+                    total_duration += cached_data.get("duration_seconds", 0.0)
+                    logger.debug(
+                        f"Using cached pass {pass_num} for {paper.paper_id}"
+                    )
+
+            if cached_answers is not None:
+                all_answers.update(cached_answers)
+                continue
+
+            # Build pass-specific prompt
+            prompt = build_pass_prompt(
+                pass_number=pass_num,
+                title=paper.title,
+                authors=paper.author_string,
+                year=paper.publication_year,
+                item_type=paper.item_type,
+                text=text,
+                doc_type_framing=doc_type_framing,
+            )
+
+            # Execute LLM call
+            result = self.llm_client.extract(
+                paper_id=paper.paper_id,
+                title=paper.title,
+                authors=paper.author_string,
+                year=paper.publication_year,
+                item_type=paper.item_type,
+                text=text,
+                prompt_override=prompt,
+            )
+
+            total_input_tokens += result.input_tokens
+            total_output_tokens += result.output_tokens
+            total_duration += result.duration_seconds
+
+            if not result.success:
+                error_msg = f"pass {pass_num} ({pass_def['name']}): {result.error or 'Unknown error'}"
+                errors.append(error_msg)
+                logger.warning(
+                    f"Pass {pass_num} failed for {paper.paper_id}: {result.error}"
+                )
+                continue
+
+            # Parse pass answers from extraction result
+            pass_answers = self._extract_pass_answers(result, pass_def["fields"])
+
+            # Cache per-pass result
+            if self.extraction_cache and pass_hash:
+                self.extraction_cache.set(paper.paper_id, pass_hash, {
+                    "answers": pass_answers,
+                    "input_tokens": result.input_tokens,
+                    "output_tokens": result.output_tokens,
+                    "duration_seconds": result.duration_seconds,
+                })
+
+            all_answers.update(pass_answers)
+
+            logger.debug(
+                f"Pass {pass_num} ({pass_def['name']}) complete for {paper.paper_id} "
+                f"({result.duration_seconds:.1f}s)"
+            )
+
+        # If all passes failed, return error
+        if len(errors) == NUM_PASSES:
+            return ExtractionResult(
+                paper_id=paper.paper_id,
+                success=False,
+                error=f"All {NUM_PASSES} passes failed: " + "; ".join(errors),
+                duration_seconds=total_duration,
+                model_used=self.model,
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
+            )
+
+        # Build SemanticAnalysis from merged answers
+        analysis = SemanticAnalysis(
+            paper_id=paper.paper_id,
+            prompt_version=SEMANTIC_PROMPT_VERSION,
+            extraction_model=self.model,
+            extracted_at=datetime.now().isoformat(),
+            **all_answers,
+        )
+
+        # Compute coverage scoring
+        coverage_result = compute_coverage(analysis)
+        analysis.dimension_coverage = coverage_result.coverage
+        analysis.coverage_flags = coverage_result.flags
+
+        logger.info(
+            f"Extracted paper {paper.paper_id} in {total_duration:.1f}s "
+            f"({NUM_PASSES - len(errors)}/{NUM_PASSES} passes, "
+            f"coverage: {analysis.dimension_coverage:.0%})"
+        )
+
+        return ExtractionResult(
+            paper_id=paper.paper_id,
+            success=True,
+            extraction=analysis,
+            duration_seconds=total_duration,
+            model_used=self.model,
+            input_tokens=total_input_tokens,
+            output_tokens=total_output_tokens,
+        )
+
+    def _extract_pass_answers(
+        self, result: ExtractionResult, field_names: list[str]
+    ) -> dict[str, str | None]:
+        """Extract dimension answers from an LLM result for specific fields.
+
+        The LLM returns a JSON object with field names as keys. This method
+        extracts only the fields expected for the current pass.
+
+        Args:
+            result: LLM extraction result.
+            field_names: Expected field names for this pass (e.g., ["q01_research_question", ...]).
+
+        Returns:
+            Dict mapping field names to their string answers (or None).
+        """
+        answers: dict[str, str | None] = {}
+
+        if result.extraction is None:
+            # All fields are None if extraction failed
+            for field in field_names:
+                answers[field] = None
+            return answers
+
+        # Extract fields from the extraction object
+        for field in field_names:
+            value = getattr(result.extraction, field, None)
+            answers[field] = value
+
+        return answers
 
     def extract_batch(
         self,
@@ -523,11 +672,7 @@ class SectionExtractor:
         Returns:
             ExtractionStats with overall statistics.
         """
-        # Use parallel extraction for CLI mode with multiple workers
-        if self.mode == "cli" and self.parallel_workers > 1:
-            return self._extract_batch_parallel(papers, progress_callback)
-        else:
-            return self._extract_batch_sequential(papers, progress_callback)
+        return self._extract_batch_sequential(papers, progress_callback)
 
     def _extract_batch_sequential(
         self,
@@ -582,87 +727,6 @@ class SectionExtractor:
         self._log_completion_stats(stats)
         return stats
 
-    def _extract_batch_parallel(
-        self,
-        papers: list[PaperMetadata],
-        progress_callback: Callable | None = None,
-    ) -> Generator[ExtractionResult, None, ExtractionStats]:
-        """Parallel batch extraction using thread pool.
-
-        Args:
-            papers: List of papers to process.
-            progress_callback: Optional callback(current, total, paper_title).
-
-        Yields:
-            ExtractionResult for each paper.
-
-        Returns:
-            ExtractionStats with overall statistics.
-        """
-        stats = ExtractionStats(total=len(papers))
-        completed = 0
-        stats_lock = Lock()
-
-        # Filter papers with PDFs
-        papers_to_process = []
-        for paper in papers:
-            if not paper.pdf_path:
-                stats.skipped += 1
-            else:
-                papers_to_process.append(paper)
-
-        if not papers_to_process:
-            return stats
-
-        def extract_one(paper: PaperMetadata) -> tuple[PaperMetadata, ExtractionResult, bool]:
-            """Extract a single paper (thread-safe)."""
-            result, from_cache = self.extract_paper(paper)
-            return paper, result, from_cache
-
-        logger.info(
-            f"Starting parallel extraction with {self.parallel_workers} workers "
-            f"for {len(papers_to_process)} papers"
-        )
-
-        with ThreadPoolExecutor(max_workers=self.parallel_workers) as executor:
-            # Submit all tasks
-            future_to_paper = {
-                executor.submit(extract_one, paper): paper
-                for paper in papers_to_process
-            }
-
-            # Process results as they complete
-            for future in as_completed(future_to_paper):
-                paper, result, from_cache = future.result()
-
-                with stats_lock:
-                    completed += 1
-                    if progress_callback:
-                        progress_callback(completed, len(papers_to_process), paper.title)
-
-                    if from_cache:
-                        stats.cached += 1
-                        stats.successful += 1
-                    elif result.success:
-                        stats.successful += 1
-                        stats.total_input_tokens += result.input_tokens
-                        stats.total_output_tokens += result.output_tokens
-                        stats.total_duration += result.duration_seconds
-                    else:
-                        if result.error and (
-                            result.error.startswith("Likely non-publication")
-                            or result.error.startswith("Insufficient text content")
-                        ):
-                            stats.skipped += 1
-                        else:
-                            stats.failed += 1
-                        stats.total_duration += result.duration_seconds
-
-                yield result
-
-        self._log_completion_stats(stats)
-        return stats
-
     def _log_completion_stats(self, stats: ExtractionStats) -> None:
         """Log completion statistics."""
         cache_info = ""
@@ -702,7 +766,7 @@ class SectionExtractor:
                 content_hash = self.extraction_cache.compute_content_hash(
                     paper.pdf_path, self.model
                 )
-                if self.extraction_cache.get(paper.paper_id, content_hash):
+                if self.extraction_cache.get_extraction_result(paper.paper_id, content_hash):
                     cached_count += 1
 
         papers_to_extract = len(papers_with_pdf) - cached_count
@@ -730,7 +794,8 @@ class SectionExtractor:
             }
 
         avg_length = sum(sample_lengths) / len(sample_lengths)
-        per_paper_cost = self._estimate_per_paper_cost(int(avg_length))
+        # 6 passes per paper
+        per_paper_cost = self.llm_client.estimate_cost(int(avg_length)) * NUM_PASSES
         total_cost = per_paper_cost * papers_to_extract
 
         return {
@@ -738,154 +803,8 @@ class SectionExtractor:
             "papers_cached": cached_count,
             "papers_to_extract": papers_to_extract,
             "average_text_length": int(avg_length),
+            "passes_per_paper": NUM_PASSES,
             "estimated_cost_per_paper": round(per_paper_cost, 4),
             "estimated_total_cost": round(total_cost, 2),
-            "model": self.model_signature,
+            "model": self.model,
         }
-
-    def _resolve_type_models(self, model_by_type: dict[str, str] | None) -> dict[str, str]:
-        """Normalize model overrides for extraction types."""
-        if not model_by_type:
-            return {}
-
-        invalid_types = set(model_by_type) - set(EXTRACTION_TYPE_FIELDS.keys())
-        if invalid_types:
-            raise ValueError(
-                f"Unknown extraction types: {sorted(invalid_types)}. "
-                f"Valid types: {sorted(EXTRACTION_TYPE_FIELDS.keys())}."
-            )
-
-        return {
-            extraction_type: model_by_type.get(extraction_type, self.llm_client.model)
-            for extraction_type in EXTRACTION_TYPE_FIELDS
-        }
-
-    def _build_model_signature(self) -> str:
-        """Build a stable model signature for caching and metadata."""
-        if not self.type_models:
-            return self.llm_client.model
-        parts = [f"{name}={self.type_models[name]}" for name in EXTRACTION_TYPE_FIELDS]
-        return "|".join(parts)
-
-    def _get_client_for_model(self, model: str) -> BaseLLMClient:
-        """Get or create an LLM client for a specific model."""
-        client = self._clients_by_model.get(model)
-        if client:
-            return client
-
-        client = create_llm_client(
-            provider=self.provider,
-            mode=self.mode,
-            model=model,
-            max_tokens=self.max_tokens,
-            timeout=self.timeout,
-            reasoning_effort=self.reasoning_effort,
-        )
-        self._clients_by_model[model] = client
-        return client
-
-    def _merge_extractions(
-        self, partials: dict[str, PaperExtraction]
-    ) -> PaperExtraction:
-        """Merge partial extraction results into a full extraction."""
-        data: dict = {}
-        confidences = []
-        notes = []
-
-        for extraction_type, extraction in partials.items():
-            for field in EXTRACTION_TYPE_FIELDS[extraction_type]:
-                data[field] = getattr(extraction, field)
-
-            if extraction.extraction_confidence is not None:
-                confidences.append(extraction.extraction_confidence)
-            if extraction.extraction_notes:
-                notes.append(f"{extraction_type}: {extraction.extraction_notes}")
-
-        if confidences:
-            data["extraction_confidence"] = sum(confidences) / len(confidences)
-        if notes:
-            data["extraction_notes"] = " | ".join(notes)
-
-        return PaperExtraction(**data)
-
-    def _extract_with_model_overrides(
-        self, paper: PaperMetadata, text: str
-    ) -> ExtractionResult:
-        """Run multi-pass extraction using per-type model overrides."""
-        partials: dict[str, PaperExtraction] = {}
-        errors: list[str] = []
-        total_input_tokens = 0
-        total_output_tokens = 0
-        total_duration = 0.0
-
-        for extraction_type in EXTRACTION_TYPE_FIELDS:
-            model = self.type_models.get(extraction_type, self.llm_client.model)
-            client = self._get_client_for_model(model)
-            prompt = build_extraction_prompt_for_type(
-                extraction_type=extraction_type,
-                title=paper.title,
-                authors=paper.author_string,
-                year=paper.publication_year,
-                item_type=paper.item_type,
-                text=text,
-            )
-
-            result = client.extract(
-                paper_id=paper.paper_id,
-                title=paper.title,
-                authors=paper.author_string,
-                year=paper.publication_year,
-                item_type=paper.item_type,
-                text=text,
-                prompt_override=prompt,
-            )
-
-            total_input_tokens += result.input_tokens
-            total_output_tokens += result.output_tokens
-            total_duration += result.duration_seconds
-
-            if result.success and result.extraction:
-                partials[extraction_type] = result.extraction
-            else:
-                error_message = result.error or "Unknown error"
-                errors.append(f"{extraction_type}: {error_message}")
-
-        if errors:
-            return ExtractionResult(
-                paper_id=paper.paper_id,
-                success=False,
-                error="; ".join(errors),
-                duration_seconds=total_duration,
-                model_used=self.model_signature,
-                input_tokens=total_input_tokens,
-                output_tokens=total_output_tokens,
-            )
-
-        merged = self._merge_extractions(partials)
-
-        logger.info(
-            f"Extracted paper {paper.paper_id} in {total_duration:.1f}s "
-            f"(confidence: {merged.extraction_confidence:.2f})"
-        )
-
-        return ExtractionResult(
-            paper_id=paper.paper_id,
-            success=True,
-            extraction=merged,
-            duration_seconds=total_duration,
-            model_used=self.model_signature,
-            input_tokens=total_input_tokens,
-            output_tokens=total_output_tokens,
-        )
-
-    def _estimate_per_paper_cost(self, text_length: int) -> float:
-        """Estimate per-paper cost, accounting for multi-pass extraction."""
-        if not self.type_models:
-            return self.llm_client.estimate_cost(text_length)
-
-        total_cost = 0.0
-        for extraction_type in EXTRACTION_TYPE_FIELDS:
-            model = self.type_models.get(extraction_type, self.llm_client.model)
-            client = self._get_client_for_model(model)
-            total_cost += client.estimate_cost(text_length)
-        return total_cost
