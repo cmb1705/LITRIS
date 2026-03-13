@@ -116,7 +116,7 @@ def load_existing_index_stats(index_dir: Path) -> dict:
             )
             stats["last_updated"] = data.get("generated_at")
 
-    extractions_file = index_dir / "extractions.json"
+    extractions_file = index_dir / "semantic_analyses.json"
     if extractions_file.exists():
         data = safe_read_json(extractions_file, default={})
         if isinstance(data, dict) and "extractions" in data:

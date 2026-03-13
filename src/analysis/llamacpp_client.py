@@ -7,6 +7,8 @@ References:
 - https://github.com/abetlen/llama-cpp-python
 """
 
+# NOTE: This module constructs PaperExtraction objects and is non-functional after the SemanticAnalysis migration. Retained for future multi-provider support.
+
 import json
 import time
 from pathlib import Path

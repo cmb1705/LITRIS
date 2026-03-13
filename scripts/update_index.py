@@ -12,7 +12,7 @@ sys.path.insert(0, str(project_root))
 
 from tqdm import tqdm
 
-from src.analysis.schemas import PaperExtraction
+from src.analysis.schemas import SemanticAnalysis
 from src.analysis.section_extractor import SectionExtractor
 from src.config import Config
 from src.indexing.embeddings import EmbeddingGenerator
@@ -189,7 +189,7 @@ def process_new_papers(
             ext = ext_data.get("extraction", ext_data)
             if ext:
                 try:
-                    extraction = PaperExtraction(**ext)
+                    extraction = SemanticAnalysis(**ext)
                     chunks = embedding_gen.create_chunks(paper, extraction)
                     all_chunks.extend(chunks)
                 except Exception as e:
@@ -312,7 +312,7 @@ def process_modified_papers(
             ext = ext_data.get("extraction", ext_data)
             if ext:
                 try:
-                    extraction = PaperExtraction(**ext)
+                    extraction = SemanticAnalysis(**ext)
                     chunks = embedding_gen.create_chunks(paper, extraction)
                     all_chunks.extend(chunks)
                 except Exception as e:

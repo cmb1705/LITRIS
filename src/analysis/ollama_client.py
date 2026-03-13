@@ -7,6 +7,8 @@ References:
 - https://github.com/ollama/ollama-python
 """
 
+# NOTE: This module constructs PaperExtraction objects and is non-functional after the SemanticAnalysis migration. Retained for future multi-provider support.
+
 import json
 import os
 import time

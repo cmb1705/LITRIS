@@ -35,24 +35,22 @@ def _seed_index(index_dir: Path) -> None:
         "p1": {
             "paper_id": "p1",
             "extraction": {
-                "discipline_tags": ["Topic A"],
-                "keywords": ["alpha"],
-                "methodology": {"approach": "Qualitative"},
-                "future_directions": ["Explore beta networks"],
+                "q17_field": "Topic A",
+                "q07_methods": "Qualitative approach",
+                "q20_future_work": "Explore beta networks",
             },
         },
         "p2": {
             "paper_id": "p2",
             "extraction": {
-                "discipline_tags": ["Topic B"],
-                "keywords": ["beta"],
-                "methodology": {"approach": "Quantitative"},
-                "future_directions": ["Investigate gamma datasets"],
+                "q17_field": "Topic B",
+                "q07_methods": "Quantitative approach",
+                "q20_future_work": "Investigate gamma datasets",
             },
         },
     }
     safe_write_json(index_dir / "papers.json", {"papers": papers})
-    safe_write_json(index_dir / "extractions.json", {"extractions": extractions})
+    safe_write_json(index_dir / "semantic_analyses.json", {"extractions": extractions})
 
 
 def main() -> int:

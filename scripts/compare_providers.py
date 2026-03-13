@@ -46,10 +46,10 @@ def run_extraction(
             ),
             "error": result.error,
             "thesis": (
-                result.extraction.thesis_statement[:200] + "..."
+                result.extraction.q02_thesis[:200] + "..."
                 if result.success
                 and result.extraction
-                and result.extraction.thesis_statement
+                and result.extraction.q02_thesis
                 else None
             ),
             "num_findings": (
@@ -114,8 +114,8 @@ def format_index_extraction(entry: dict) -> dict:
         return len(value) if isinstance(value, list) else 0
 
     thesis = None
-    if extraction and extraction.get("thesis_statement"):
-        thesis = extraction["thesis_statement"][:200] + "..."
+    if extraction and extraction.get("q02_thesis"):
+        thesis = extraction["q02_thesis"][:200] + "..."
 
     return {
         "success": extraction is not None,
