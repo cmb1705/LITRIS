@@ -183,28 +183,22 @@ def read_papers(
             if "extraction" in extraction:
                 extraction = extraction["extraction"]
 
-        methodology = extraction.get("methodology", {})
-        approach = methodology.get("approach", "") if isinstance(methodology, dict) else str(methodology)
-
-        findings = extraction.get("key_findings", [])
-        findings_text = []
-        for f in findings:
-            if isinstance(f, dict):
-                findings_text.append(f.get("finding", str(f)))
-            else:
-                findings_text.append(str(f))
-
         readings.append(PaperReading(
             paper_id=result.paper_id,
             title=result.title,
             authors=result.authors,
             year=result.year,
-            thesis=extraction.get("thesis_statement", ""),
-            methodology=approach,
-            key_findings=findings_text,
-            conclusions=extraction.get("conclusions", ""),
-            limitations=extraction.get("limitations", []),
-            disciplines=extraction.get("discipline_tags", []),
+            thesis=extraction.get("q02_thesis", ""),
+            methodology=extraction.get("q07_methods", ""),
+            key_findings=[
+                claim for claim in [
+                    extraction.get("q03_key_claims", ""),
+                    extraction.get("q04_evidence", ""),
+                ] if claim
+            ],
+            conclusions=extraction.get("q19_implications", ""),
+            limitations=[lim for lim in [extraction.get("q05_limitations", "")] if lim],
+            disciplines=[f for f in [extraction.get("q17_field", "")] if f],
         ))
 
     logger.info(f"Read {len(readings)} papers for synthesis")
