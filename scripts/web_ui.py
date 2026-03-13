@@ -1460,7 +1460,7 @@ def render_citation_network_tab(index_dir: Path) -> None:
                 value=0.85,
                 step=0.05,
                 key="cite_threshold",
-                help="Jaccard similarity threshold for title-based matching.",
+                help="Containment similarity threshold for title-based matching.",
             )
         with cfg_cols[1]:
             max_label = st.number_input(
