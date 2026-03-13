@@ -47,46 +47,24 @@ def sample_paper_data() -> dict[str, Any]:
 
 @pytest.fixture
 def sample_extraction_data() -> dict[str, Any]:
-    """Sample extraction data for testing."""
+    """Sample SemanticAnalysis extraction data for testing."""
     return {
-        "thesis_statement": "Graph neural networks can effectively predict citation patterns.",
-        "research_questions": [
-            "How can GNNs model citation networks?",
-            "What features are most predictive of citations?",
-        ],
-        "methodology": {
-            "approach": "Machine learning",
-            "design": "Experimental",
-            "data_sources": ["Web of Science", "Semantic Scholar"],
-            "analysis_methods": ["Graph neural networks", "Cross-validation"],
-            "sample_size": "100,000 papers",
-        },
-        "key_findings": [
-            {
-                "finding": "GNNs outperform baseline methods by 15%",
-                "evidence_type": "Quantitative",
-                "significance": "Major improvement over state-of-the-art",
-            }
-        ],
-        "conclusions": "GNNs provide a powerful framework for citation prediction.",
-        "limitations": [
-            "Limited to English-language papers",
-            "Requires substantial computational resources",
-        ],
-        "future_directions": [
-            "Extend to multilingual corpora",
-            "Incorporate temporal dynamics",
-        ],
-        "key_claims": [
-            {
-                "claim": "GNNs capture structural dependencies in citation networks",
-                "support_type": "Experimental",
-                "page_reference": "p. 5",
-            }
-        ],
-        "contribution_summary": "First application of message-passing GNNs to citation forecasting.",
-        "discipline_tags": ["Computer Science", "Bibliometrics", "Machine Learning"],
-        "extraction_confidence": 0.92,
+        "paper_id": "test_paper_001",
+        "prompt_version": "2.0.0",
+        "extraction_model": "test-model",
+        "extracted_at": "2026-01-01T00:00:00Z",
+        "q01_research_question": "How can GNNs model citation networks? What features are most predictive of citations?",
+        "q02_thesis": "Graph neural networks can effectively predict citation patterns.",
+        "q03_key_claims": "GNNs capture structural dependencies in citation networks.",
+        "q04_evidence": "GNNs outperform baseline methods by 15% on citation prediction benchmarks.",
+        "q05_limitations": "Limited to English-language papers. Requires substantial computational resources.",
+        "q07_methods": "Machine learning experimental design using graph neural networks and cross-validation.",
+        "q08_data": "Web of Science and Semantic Scholar datasets, 100,000 papers.",
+        "q17_field": "Computer Science, Bibliometrics, Machine Learning",
+        "q20_future_work": "Extend to multilingual corpora. Incorporate temporal dynamics.",
+        "q22_contribution": "First application of message-passing GNNs to citation forecasting.",
+        "dimension_coverage": 0.3,
+        "coverage_flags": [],
     }
 
 
@@ -138,8 +116,8 @@ def mock_search_engine(
     mock_result.year = sample_paper_data["publication_year"]
     mock_result.collections = sample_paper_data["collections"]
     mock_result.item_type = sample_paper_data["item_type"]
-    mock_result.chunk_type = "thesis"
-    mock_result.matched_text = sample_extraction_data["thesis_statement"]
+    mock_result.chunk_type = "dim_q02"
+    mock_result.matched_text = sample_extraction_data["q02_thesis"]
     mock_result.score = 0.85
     mock_result.paper_data = sample_paper_data
     mock_result.extraction_data = sample_extraction_data
@@ -185,7 +163,7 @@ def mock_adapter(mock_search_engine: MagicMock) -> Generator[MagicMock, None, No
                     "year": 2023,
                     "collections": ["ML Papers"],
                     "item_type": "journalArticle",
-                    "chunk_type": "thesis",
+                    "chunk_type": "dim_q02",
                     "matched_text": "GNNs can predict citations.",
                 }
             ],
@@ -198,7 +176,7 @@ def mock_adapter(mock_search_engine: MagicMock) -> Generator[MagicMock, None, No
                 "title": "Graph Neural Networks for Citation Prediction",
                 "authors": [{"first_name": "John", "last_name": "Smith"}],
             },
-            "extraction": {"thesis_statement": "GNNs predict citations."},
+            "extraction": {"q02_thesis": "GNNs predict citations."},
         }
 
         mock_adapter.find_similar.return_value = {
