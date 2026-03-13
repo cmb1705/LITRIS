@@ -198,32 +198,85 @@ class LitrisAdapter:
         return [r for _, r in boosted]
 
     def _format_extraction(self, extraction: dict) -> dict[str, Any]:
-        """Format extraction data for MCP response.
+        """Format SemanticAnalysis data for MCP response.
 
         Handles both flat extraction dicts and wrapper records that nest
         the actual fields under an ``"extraction"`` key (the format used
-        in ``extractions.json``).
+        in ``semantic_analyses.json``).
+
+        Dimensions are grouped by analysis pass for readability.
 
         Args:
-            extraction: Raw extraction dictionary (flat or wrapped).
+            extraction: Raw extraction/analysis dictionary (flat or wrapped).
 
         Returns:
-            Formatted extraction data.
+            Formatted SemanticAnalysis data grouped by pass.
         """
         # Unwrap if the record contains a nested "extraction" dict
         if "extraction" in extraction and isinstance(extraction["extraction"], dict):
             extraction = extraction["extraction"]
 
+        # Group q-field dimensions by pass
+        pass_1_research_core = {
+            "q01_research_question": extraction.get("q01_research_question"),
+            "q02_thesis": extraction.get("q02_thesis"),
+            "q03_key_claims": extraction.get("q03_key_claims"),
+            "q04_evidence": extraction.get("q04_evidence"),
+            "q05_limitations": extraction.get("q05_limitations"),
+        }
+        pass_2_methodology = {
+            "q06_paradigm": extraction.get("q06_paradigm"),
+            "q07_methods": extraction.get("q07_methods"),
+            "q08_data_sources": extraction.get("q08_data_sources"),
+            "q09_sample": extraction.get("q09_sample"),
+            "q10_validity": extraction.get("q10_validity"),
+        }
+        pass_3_contribution = {
+            "q11_prior_work": extraction.get("q11_prior_work"),
+            "q12_novelty": extraction.get("q12_novelty"),
+            "q13_impact": extraction.get("q13_impact"),
+            "q14_applications": extraction.get("q14_applications"),
+            "q15_future_impact": extraction.get("q15_future_impact"),
+        }
+        pass_4_context = {
+            "q16_theory": extraction.get("q16_theory"),
+            "q17_field": extraction.get("q17_field"),
+            "q18_debate": extraction.get("q18_debate"),
+            "q19_assumptions": extraction.get("q19_assumptions"),
+            "q20_future_work": extraction.get("q20_future_work"),
+        }
+        pass_5_synthesis = {
+            "q21_summary": extraction.get("q21_summary"),
+            "q22_contribution": extraction.get("q22_contribution"),
+            "q23_significance": extraction.get("q23_significance"),
+            "q24_audience": extraction.get("q24_audience"),
+            "q25_prerequisites": extraction.get("q25_prerequisites"),
+        }
+        pass_6_deep = {
+            "q26_mechanisms": extraction.get("q26_mechanisms"),
+            "q27_boundary": extraction.get("q27_boundary"),
+            "q28_counterarguments": extraction.get("q28_counterarguments"),
+            "q29_methodology_detail": extraction.get("q29_methodology_detail"),
+            "q30_replication": extraction.get("q30_replication"),
+            "q31_ethical": extraction.get("q31_ethical"),
+            "q32_interdisciplinary": extraction.get("q32_interdisciplinary"),
+            "q33_temporal": extraction.get("q33_temporal"),
+            "q34_scale": extraction.get("q34_scale"),
+            "q35_comparison": extraction.get("q35_comparison"),
+            "q36_definitions": extraction.get("q36_definitions"),
+            "q37_data_quality": extraction.get("q37_data_quality"),
+            "q38_visualization": extraction.get("q38_visualization"),
+            "q39_reproducibility": extraction.get("q39_reproducibility"),
+            "q40_meta": extraction.get("q40_meta"),
+        }
+
         return {
-            "thesis_statement": extraction.get("thesis_statement", ""),
-            "research_questions": extraction.get("research_questions", []),
-            "methodology": extraction.get("methodology", {}),
-            "key_findings": extraction.get("key_findings", []),
-            "conclusions": extraction.get("conclusions", ""),
-            "limitations": extraction.get("limitations", []),
-            "future_directions": extraction.get("future_directions", []),
-            "contribution_summary": extraction.get("contribution_summary", ""),
-            "discipline_tags": extraction.get("discipline_tags", []),
+            "pass_1_research_core": pass_1_research_core,
+            "pass_2_methodology": pass_2_methodology,
+            "pass_3_contribution": pass_3_contribution,
+            "pass_4_context": pass_4_context,
+            "pass_5_synthesis": pass_5_synthesis,
+            "pass_6_deep": pass_6_deep,
             "quality_rating": extraction.get("quality_rating"),
             "quality_explanation": extraction.get("quality_explanation"),
             "extraction_confidence": extraction.get("extraction_confidence", 0.0),
