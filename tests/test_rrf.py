@@ -178,9 +178,9 @@ class TestSearchEngineRRF:
              "publication_year": 2022, "collections": [], "item_type": "journalArticle"},
         ])
         store.save_extractions({
-            "p1": {"paper_id": "p1", "extraction": {"thesis_statement": "Thesis 1"}},
-            "p2": {"paper_id": "p2", "extraction": {"thesis_statement": "Thesis 2"}},
-            "p3": {"paper_id": "p3", "extraction": {"thesis_statement": "Thesis 3"}},
+            "p1": {"paper_id": "p1", "extraction": {"q02_thesis": "Thesis 1"}},
+            "p2": {"paper_id": "p2", "extraction": {"q02_thesis": "Thesis 2"}},
+            "p3": {"paper_id": "p3", "extraction": {"q02_thesis": "Thesis 3"}},
         })
 
         engine = SearchEngine.__new__(SearchEngine)
