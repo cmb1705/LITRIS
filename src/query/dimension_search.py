@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from src.analysis.schemas import SemanticAnalysis
-from src.indexing.embeddings import DIMENSION_GROUPS
 
 if TYPE_CHECKING:
     from src.query.search import EnrichedResult, SearchEngine

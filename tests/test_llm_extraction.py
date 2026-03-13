@@ -15,7 +15,6 @@ from src.analysis.schemas import (
     SemanticAnalysis,
 )
 
-
 # --- Helper ---
 
 def _make_analysis(**overrides) -> SemanticAnalysis:

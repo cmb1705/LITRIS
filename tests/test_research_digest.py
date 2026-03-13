@@ -18,7 +18,7 @@ def _write_index(tmp_path, papers, extractions=None):
     index_dir.mkdir()
     (index_dir / "papers.json").write_text(json.dumps({"papers": papers}))
     if extractions is not None:
-        (index_dir / "extractions.json").write_text(json.dumps(extractions))
+        (index_dir / "semantic_analyses.json").write_text(json.dumps(extractions))
     return index_dir
 
 

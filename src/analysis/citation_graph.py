@@ -1,8 +1,8 @@
 """Citation graph generation from LITRIS index data.
 
 Builds a citation network by matching paper titles and DOIs across
-the indexed corpus. Uses extraction text (thesis, findings, claims)
-to find references to other papers in the library.
+the indexed corpus. Uses SemanticAnalysis dimension text (q01-q40
+fields) to find references to other papers in the library.
 
 See docs/proposals/citation_network_schema.md for the schema spec.
 """
