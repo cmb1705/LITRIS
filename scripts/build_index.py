@@ -956,14 +956,6 @@ def main():
     if args.model:
         config.extraction.model = args.model
 
-    model_by_type = {}
-    if args.summary_model:
-        model_by_type["summary"] = args.summary_model
-    if args.methodology_model:
-        model_by_type["methodology"] = args.methodology_model
-    if not model_by_type:
-        model_by_type = None
-
     logger.info(f"Using LLM provider: {provider}")
 
     # Handle --use-subscription flag (Anthropic only)
@@ -1023,7 +1015,6 @@ def main():
             model=config.extraction.model,
             max_tokens=config.extraction.max_tokens,
             timeout=config.extraction.timeout,
-            model_by_type=model_by_type,
             min_text_length=config.processing.min_text_length,
             ocr_on_fail=config.processing.ocr_on_fail,
             skip_non_publications=config.processing.skip_non_publications,
@@ -1091,7 +1082,6 @@ def main():
             model=config.extraction.model,
             max_tokens=config.extraction.max_tokens,
             timeout=config.extraction.timeout,
-            model_by_type=model_by_type,
             min_text_length=config.processing.min_text_length,
             ocr_on_fail=config.processing.ocr_on_fail,
             skip_non_publications=config.processing.skip_non_publications,
