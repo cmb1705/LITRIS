@@ -17,6 +17,7 @@ from src.analysis.schemas import (
     KeyFinding,
     Methodology,
     PaperExtraction,
+    SemanticAnalysis,
     SignificanceLevel,
     SupportType,
 )
@@ -109,7 +110,12 @@ class TestSchemas:
 
     def test_extraction_result_success(self):
         """Test ExtractionResult for successful extraction."""
-        extraction = PaperExtraction(thesis_statement="Test")
+        extraction = SemanticAnalysis(
+            paper_id="test123",
+            prompt_version="2.0.0",
+            extraction_model="claude-opus-4-5-20251101",
+            extracted_at="2026-01-01T00:00:00Z",
+        )
         result = ExtractionResult(
             paper_id="test123",
             success=True,
