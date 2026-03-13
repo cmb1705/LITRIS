@@ -127,37 +127,24 @@ def build_paper_highlight(
     if extraction:
         ext_data = extraction.get("extraction", extraction)
 
-    # Build summary from thesis statement or abstract
+    # Build summary from q02_thesis or abstract
     summary = (
-        ext_data.get("thesis_statement")
-        or ext_data.get("contribution_summary")
+        ext_data.get("q02_thesis")
+        or ext_data.get("q22_contribution")
         or paper.get("abstract", "")
         or "No summary available."
     )
 
     methodology = None
     if config.include_methodology:
-        meth = ext_data.get("methodology", {})
-        if isinstance(meth, dict):
-            approach = meth.get("approach", "")
-            methods = meth.get("analysis_methods", [])
-            parts = []
-            if approach:
-                parts.append(approach)
-            if methods:
-                parts.append(", ".join(methods[:3]))
-            methodology = "; ".join(parts) if parts else None
+        methodology = ext_data.get("q07_methods") or None
 
     key_findings = []
     if config.include_key_findings:
-        findings = ext_data.get("key_findings") or ext_data.get("key_claims") or []
-        for f in findings[:3]:
-            if isinstance(f, dict):
-                text = f.get("finding") or f.get("claim") or ""
-            else:
-                text = str(f)
-            if text:
-                key_findings.append(text)
+        # q04_evidence is prose; include as a single finding entry if present
+        evidence = ext_data.get("q04_evidence")
+        if evidence:
+            key_findings.append(evidence)
 
     return PaperHighlight(
         paper_id=paper.get("paper_id", ""),
@@ -201,7 +188,7 @@ def generate_digest(
     selected = new_papers[: config.max_papers]
 
     # Load extractions
-    ext_data = safe_read_json(index_dir / "extractions.json", default={})
+    ext_data = safe_read_json(index_dir / "semantic_analyses.json", default={})
     if isinstance(ext_data, dict) and "extractions" in ext_data:
         extractions = ext_data["extractions"]
     elif isinstance(ext_data, dict):
