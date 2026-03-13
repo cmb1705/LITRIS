@@ -492,7 +492,7 @@ async def litris_clusters(
 ) -> dict[str, Any]:
     """Run topic clustering on paper embeddings using UMAP + HDBSCAN.
 
-    Identifies topic groups in the corpus by clustering full_summary embeddings.
+    Identifies topic groups in the corpus by clustering raptor_overview embeddings.
     Returns cluster assignments with representative paper titles.
 
     Args:
