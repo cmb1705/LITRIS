@@ -29,8 +29,8 @@ class TestExtractEmbeddings:
             "ids": ["c1", "c2"],
             "embeddings": [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
             "metadatas": [
-                {"paper_id": "p1", "chunk_type": "full_summary"},
-                {"paper_id": "p2", "chunk_type": "full_summary"},
+                {"paper_id": "p1", "chunk_type": "raptor_overview"},
+                {"paper_id": "p2", "chunk_type": "raptor_overview"},
             ],
         }
 
@@ -61,10 +61,10 @@ class TestExtractEmbeddings:
             "metadatas": [{"paper_id": "p1"}],
         }
 
-        extract_embeddings(mock_store, chunk_type="thesis")
+        extract_embeddings(mock_store, chunk_type="dim_q02")
 
         call_kwargs = mock_store.collection.get.call_args
-        assert call_kwargs[1]["where"] == {"chunk_type": "thesis"}
+        assert call_kwargs[1]["where"] == {"chunk_type": "dim_q02"}
 
 
 class TestReduceDimensions:
