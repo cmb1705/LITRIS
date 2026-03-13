@@ -5,12 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.analysis.schemas import (
-    KeyClaim,
-    KeyFinding,
-    Methodology,
-    PaperExtraction,
-)
+from src.analysis.schemas import SemanticAnalysis
 from src.indexing.embeddings import (
     CHUNK_TYPES,
     EmbeddingChunk,
@@ -40,14 +35,14 @@ class TestEmbeddingChunk:
         """Test conversion to dictionary."""
         chunk = EmbeddingChunk(
             paper_id="paper_001",
-            chunk_id="paper_001_thesis",
-            chunk_type="thesis",
-            text="Main thesis statement.",
+            chunk_id="paper_001_dim_q02",
+            chunk_type="dim_q02",
+            text="Central thesis of the paper.",
             metadata={"year": 2024},
         )
         d = chunk.to_dict()
         assert d["paper_id"] == "paper_001"
-        assert d["chunk_type"] == "thesis"
+        assert d["chunk_type"] == "dim_q02"
         assert "text" in d
         assert "embedding" not in d  # Embedding not included in to_dict
 
@@ -85,27 +80,21 @@ class TestEmbeddingGenerator:
 
     @pytest.fixture
     def sample_extraction(self):
-        """Create sample paper extraction."""
-        return PaperExtraction(
-            thesis_statement="This paper presents a novel approach.",
-            research_questions=["RQ1: What is the impact?"],
-            methodology=Methodology(
-                approach="Quantitative",
-                design="Experimental",
-                data_sources=["Survey data"],
-                analysis_methods=["Regression"],
-            ),
-            key_findings=[
-                KeyFinding(finding="Finding 1", evidence_type="quantitative"),
-            ],
-            key_claims=[
-                KeyClaim(claim="Claim 1", evidence_strength="Strong"),
-            ],
-            limitations=["Limited sample size"],
-            future_directions=["Expand to more domains"],
-            conclusions="The results support our hypothesis.",
-            contribution_summary="Novel contribution to the field.",
-            discipline_tags=["Machine Learning"],
+        """Create sample SemanticAnalysis."""
+        return SemanticAnalysis(
+            paper_id="test-paper",
+            prompt_version="2.0.0",
+            extraction_model="test",
+            extracted_at="2026-01-01T00:00:00Z",
+            q01_research_question="What is the impact of attention mechanisms?",
+            q02_thesis="This paper presents a novel approach.",
+            q03_key_claims="Claim 1: Attention improves performance.",
+            q04_evidence="Quantitative evidence from experiments.",
+            q05_limitations="Limited sample size.",
+            q07_methods="Quantitative experimental design with regression analysis.",
+            q20_future_work="Expand to more domains.",
+            q21_quality="Strong methodology with rigorous evaluation. Rating: 4/5.",
+            q22_contribution="Novel contribution to the field.",
         )
 
     def test_generator_initialization(self, mock_model):
@@ -134,24 +123,30 @@ class TestEmbeddingGenerator:
         assert len(chunks) > 0
         chunk_types = [c.chunk_type for c in chunks]
         assert "abstract" in chunk_types
-        assert "thesis" in chunk_types
-        assert "contribution" in chunk_types
+        # Dimension chunks should be present for non-None q fields
+        assert "dim_q01" in chunk_types
+        assert "dim_q02" in chunk_types
+        assert "dim_q22" in chunk_types
 
-    def test_create_chunks_all_types(self, mock_model, sample_paper, sample_extraction):
-        """Test that all expected chunk types are created."""
+    def test_create_chunks_all_dim_types(self, mock_model, sample_paper, sample_extraction):
+        """Test that dimension chunks are created for all non-None q fields."""
         gen = EmbeddingGenerator()
         chunks = gen.create_chunks(sample_paper, sample_extraction)
 
         chunk_types = {c.chunk_type for c in chunks}
-        # Should have most chunk types
+        # Should have abstract + dimension chunks for each non-None q field
         assert "abstract" in chunk_types
-        assert "thesis" in chunk_types
-        assert "methodology" in chunk_types
-        assert "findings" in chunk_types
-        assert "claims" in chunk_types
-        assert "limitations" in chunk_types
-        assert "future_work" in chunk_types
-        assert "full_summary" in chunk_types
+        assert "dim_q01" in chunk_types  # q01_research_question
+        assert "dim_q02" in chunk_types  # q02_thesis
+        assert "dim_q03" in chunk_types  # q03_key_claims
+        assert "dim_q04" in chunk_types  # q04_evidence
+        assert "dim_q05" in chunk_types  # q05_limitations
+        assert "dim_q07" in chunk_types  # q07_methods
+        assert "dim_q20" in chunk_types  # q20_future_work
+        assert "dim_q21" in chunk_types  # q21_quality
+        assert "dim_q22" in chunk_types  # q22_contribution
+        # q06 is None, so no dim_q06
+        assert "dim_q06" not in chunk_types
 
     def test_create_chunks_metadata(self, mock_model, sample_paper, sample_extraction):
         """Test that chunks have correct metadata."""
@@ -193,7 +188,7 @@ class TestEmbeddingGenerator:
                 paper_id="p1", chunk_id="c1", chunk_type="abstract", text="Text 1"
             ),
             EmbeddingChunk(
-                paper_id="p1", chunk_id="c2", chunk_type="thesis", text="Text 2"
+                paper_id="p1", chunk_id="c2", chunk_type="dim_q02", text="Text 2"
             ),
         ]
 
@@ -368,7 +363,7 @@ class TestEmbeddingGeneratorOllama:
                 paper_id="p1", chunk_id="c1", chunk_type="abstract", text="Text 1"
             ),
             EmbeddingChunk(
-                paper_id="p1", chunk_id="c2", chunk_type="thesis", text="Text 2"
+                paper_id="p1", chunk_id="c2", chunk_type="dim_q02", text="Text 2"
             ),
         ]
 
@@ -413,8 +408,8 @@ class TestVectorStore:
             ),
             EmbeddingChunk(
                 paper_id="paper_001",
-                chunk_id="paper_001_thesis",
-                chunk_type="thesis",
+                chunk_id="paper_001_dim_q02",
+                chunk_type="dim_q02",
                 text="Novel attention mechanisms improve performance.",
                 embedding=[0.2] * 384,
                 metadata={"title": "ML Paper", "year": "2024", "item_type": "journalArticle"},
@@ -573,7 +568,7 @@ class TestSearchResult:
         result = SearchResult(
             paper_id="p1",
             chunk_id="c1",
-            chunk_type="thesis",
+            chunk_type="dim_q02",
             text="Thesis text",
             score=0.85,
             metadata={"year": 2024},
@@ -591,16 +586,8 @@ class TestChunkTypes:
         """Test that all chunk types are defined."""
         expected_types = [
             "abstract",
-            "thesis",
-            "contribution",
-            "methodology",
-            "findings",
-            "claims",
-            "limitations",
-            "future_work",
-            "full_summary",
-            "section_summary",
-            "paper_overview",
-            "core_contribution",
+            *[f"dim_q{i:02d}" for i in range(1, 41)],
+            "raptor_overview",
+            "raptor_core",
         ]
         assert set(CHUNK_TYPES) == set(expected_types)
