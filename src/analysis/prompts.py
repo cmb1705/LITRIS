@@ -1,3 +1,4 @@
+# DEPRECATED: These templates are replaced by semantic_prompts.py. Retained for reference only.
 """Prompts for LLM-based paper extraction."""
 
 # Prompt version for tracking extraction compatibility
