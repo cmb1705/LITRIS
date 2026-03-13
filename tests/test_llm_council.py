@@ -8,126 +8,101 @@ from src.analysis.llm_council import (
     LLMCouncil,
     ProviderConfig,
     ProviderResponse,
-    _normalize_discipline_tags,
-    aggregate_extractions,
+    aggregate_analyses,
     calculate_consensus_confidence,
 )
-from src.analysis.schemas import (
-    KeyFinding,
-    Methodology,
-    PaperExtraction,
-)
+from src.analysis.schemas import SemanticAnalysis
 
 
-class TestAggregateExtractions:
-    """Tests for extraction aggregation."""
+def _make_analysis(**overrides) -> SemanticAnalysis:
+    """Helper to create a SemanticAnalysis with required fields."""
+    defaults = {
+        "paper_id": "test_id",
+        "prompt_version": "2.0.0",
+        "extraction_model": "test-model",
+        "extracted_at": "2026-01-01T00:00:00Z",
+    }
+    defaults.update(overrides)
+    return SemanticAnalysis(**defaults)
 
-    def test_empty_list_returns_default(self):
-        """Empty list returns default extraction."""
-        result = aggregate_extractions([])
-        assert result.thesis_statement is None
-        assert result.keywords == []
 
-    def test_single_extraction_returned_unchanged(self):
-        """Single extraction is returned as-is."""
-        extraction = PaperExtraction(
-            thesis_statement="Test thesis",
-            keywords=["keyword1", "keyword2"],
+class TestAggregateAnalyses:
+    """Tests for analysis aggregation."""
+
+    def test_empty_list_raises(self):
+        """Empty list raises ValueError."""
+        with pytest.raises(ValueError, match="Cannot aggregate empty list"):
+            aggregate_analyses([])
+
+    def test_single_analysis_returned_unchanged(self):
+        """Single analysis is returned as-is."""
+        analysis = _make_analysis(
+            q02_thesis="Test thesis",
+            q01_research_question="What is the impact?",
         )
-        result = aggregate_extractions([extraction])
-        assert result.thesis_statement == "Test thesis"
-        assert result.keywords == ["keyword1", "keyword2"]
+        result = aggregate_analyses([analysis])
+        assert result.q02_thesis == "Test thesis"
+        assert result.q01_research_question == "What is the impact?"
 
     def test_longest_string_wins(self):
-        """Longest string is selected for string fields."""
-        extractions = [
-            PaperExtraction(thesis_statement="Short"),
-            PaperExtraction(thesis_statement="This is a much longer thesis statement"),
+        """Longest string is selected for q-fields (LONGEST strategy)."""
+        analyses = [
+            _make_analysis(q02_thesis="Short"),
+            _make_analysis(q02_thesis="This is a much longer thesis statement"),
         ]
-        result = aggregate_extractions(extractions)
-        assert result.thesis_statement == "This is a much longer thesis statement"
+        result = aggregate_analyses(analyses)
+        assert result.q02_thesis == "This is a much longer thesis statement"
 
-    def test_list_union(self):
-        """Lists are unioned with deduplication."""
-        extractions = [
-            PaperExtraction(keywords=["a", "b", "c"]),
-            PaperExtraction(keywords=["b", "c", "d", "e"]),
-        ]
-        result = aggregate_extractions(extractions)
-        assert set(result.keywords) == {"a", "b", "c", "d", "e"}
-
-    def test_methodology_merge(self):
-        """Methodology objects are merged."""
-        extractions = [
-            PaperExtraction(
-                methodology=Methodology(
-                    approach="quantitative",
-                    data_sources=["surveys"],
-                )
+    def test_longest_across_multiple_fields(self):
+        """LONGEST strategy applies to all q-fields independently."""
+        analyses = [
+            _make_analysis(
+                q01_research_question="Short question",
+                q02_thesis="A longer thesis statement here",
             ),
-            PaperExtraction(
-                methodology=Methodology(
-                    approach="quantitative",
-                    data_sources=["interviews"],
-                    analysis_methods=["regression"],
-                )
+            _make_analysis(
+                q01_research_question="A much more detailed research question about networks",
+                q02_thesis="Brief",
             ),
         ]
-        result = aggregate_extractions(extractions)
-        assert result.methodology.approach == "quantitative"
-        assert set(result.methodology.data_sources) == {"surveys", "interviews"}
-        assert result.methodology.analysis_methods == ["regression"]
+        result = aggregate_analyses(analyses)
+        assert "detailed research question" in result.q01_research_question
+        assert "longer thesis statement" in result.q02_thesis
 
-    def test_key_findings_deduplicated(self):
-        """Key findings are deduplicated by text."""
-        extractions = [
-            PaperExtraction(
-                key_findings=[
-                    KeyFinding(finding="Finding A"),
-                    KeyFinding(finding="Finding B"),
-                ]
-            ),
-            PaperExtraction(
-                key_findings=[
-                    KeyFinding(finding="Finding B"),  # Duplicate
-                    KeyFinding(finding="Finding C"),
-                ]
-            ),
+    def test_none_fields_skipped(self):
+        """None values are skipped when selecting longest."""
+        analyses = [
+            _make_analysis(q05_limitations=None),
+            _make_analysis(q05_limitations="Some limitations noted."),
         ]
-        result = aggregate_extractions(extractions)
-        finding_texts = [f.finding for f in result.key_findings]
-        assert len(finding_texts) == 3
-        assert "Finding A" in finding_texts
-        assert "Finding B" in finding_texts
-        assert "Finding C" in finding_texts
+        result = aggregate_analyses(analyses)
+        assert result.q05_limitations == "Some limitations noted."
 
-    def test_confidence_averaged(self):
-        """Extraction confidence is averaged."""
-        extractions = [
-            PaperExtraction(extraction_confidence=0.8),
-            PaperExtraction(extraction_confidence=0.6),
+    def test_all_none_stays_none(self):
+        """If all providers return None for a field, result is None."""
+        analyses = [
+            _make_analysis(q40_policy_recommendations=None),
+            _make_analysis(q40_policy_recommendations=None),
         ]
-        result = aggregate_extractions(extractions)
-        assert result.extraction_confidence == pytest.approx(0.7, rel=0.01)
+        result = aggregate_analyses(analyses)
+        assert result.q40_policy_recommendations is None
 
-    def test_weighted_confidence(self):
-        """Weights affect confidence averaging."""
-        extractions = [
-            PaperExtraction(extraction_confidence=0.8),
-            PaperExtraction(extraction_confidence=0.4),
+    def test_metadata_from_first_analysis(self):
+        """Required metadata fields come from the first analysis."""
+        analyses = [
+            _make_analysis(paper_id="first", extraction_model="model-a"),
+            _make_analysis(paper_id="second", extraction_model="model-b"),
         ]
-        # Higher weight on first extraction
-        result = aggregate_extractions(extractions, weights=[2.0, 1.0])
-        # Weighted average: (0.8*2 + 0.4*1) / 3 = 2.0/3 = 0.667
-        expected = (0.8 * 2.0 + 0.4 * 1.0) / 3.0
-        assert result.extraction_confidence == pytest.approx(expected, rel=0.01)
+        result = aggregate_analyses(analyses)
+        assert result.paper_id == "first"
+        assert result.extraction_model == "model-a"
 
 
 class TestCalculateConsensusConfidence:
     """Tests for consensus confidence calculation."""
 
-    def test_empty_extractions_zero_confidence(self):
-        """Empty extractions give zero confidence."""
+    def test_empty_analyses_zero_confidence(self):
+        """Empty analyses give zero confidence."""
         config = CouncilConfig(
             providers=[ProviderConfig(name="test1"), ProviderConfig(name="test2")]
         )
@@ -139,11 +114,11 @@ class TestCalculateConsensusConfidence:
         config = CouncilConfig(
             providers=[ProviderConfig(name="test1"), ProviderConfig(name="test2")]
         )
-        extractions = [
-            PaperExtraction(thesis_statement="Same thesis", keywords=["a", "b"]),
-            PaperExtraction(thesis_statement="Same thesis", keywords=["a", "b"]),
+        analyses = [
+            _make_analysis(q02_thesis="Same thesis", q01_research_question="Same RQ"),
+            _make_analysis(q02_thesis="Same thesis", q01_research_question="Same RQ"),
         ]
-        confidence = calculate_consensus_confidence(extractions, config)
+        confidence = calculate_consensus_confidence(analyses, config)
         assert confidence > 0.5
 
     def test_partial_response_lower_confidence(self):
@@ -155,10 +130,10 @@ class TestCalculateConsensusConfidence:
                 ProviderConfig(name="test3"),
             ]
         )
-        extractions = [
-            PaperExtraction(keywords=["a", "b"]),
+        analyses = [
+            _make_analysis(q01_research_question="RQ about networks"),
         ]
-        confidence = calculate_consensus_confidence(extractions, config)
+        confidence = calculate_consensus_confidence(analyses, config)
         # Only 1 of 3 providers responded
         assert confidence < 0.5
 
@@ -223,11 +198,11 @@ class TestCouncilResult:
         """Successful result has consensus."""
         result = CouncilResult(
             paper_id="test123",
-            consensus=PaperExtraction(thesis_statement="Test"),
+            consensus=_make_analysis(q02_thesis="Test"),
             provider_responses=[
                 ProviderResponse(
                     provider="anthropic",
-                    extraction=PaperExtraction(),
+                    extraction=_make_analysis(),
                     success=True,
                 )
             ],
@@ -270,7 +245,7 @@ class TestProviderCostAndTimeout:
         mock_client = MagicMock()
         mock_result = MagicMock()
         mock_result.success = True
-        mock_result.extraction = PaperExtraction(thesis_statement="Test")
+        mock_result.extraction = _make_analysis(q02_thesis="Test")
         mock_result.cost = 0.10  # Exceeds max_cost of 0.05
         mock_client.extract.return_value = mock_result
 
@@ -301,7 +276,7 @@ class TestProviderCostAndTimeout:
         mock_client = MagicMock()
         mock_result = MagicMock()
         mock_result.success = True
-        mock_result.extraction = PaperExtraction(thesis_statement="Test")
+        mock_result.extraction = _make_analysis(q02_thesis="Test")
         mock_result.cost = 0.05  # Within max_cost
         mock_client.extract.return_value = mock_result
 
@@ -332,7 +307,7 @@ class TestProviderCostAndTimeout:
         mock_client = MagicMock()
         mock_result = MagicMock()
         mock_result.success = True
-        mock_result.extraction = PaperExtraction(thesis_statement="Test")
+        mock_result.extraction = _make_analysis(q02_thesis="Test")
         mock_result.cost = 99.99
         mock_client.extract.return_value = mock_result
 
@@ -416,7 +391,7 @@ class TestLLMCouncilIntegration:
         return mock_client
 
     def test_two_provider_consensus(self):
-        """Two providers produce a consensus extraction."""
+        """Two providers produce a consensus extraction via LONGEST strategy."""
         from unittest.mock import patch
 
         config = CouncilConfig(
@@ -429,22 +404,20 @@ class TestLLMCouncilIntegration:
         )
         council = LLMCouncil(config)
 
-        extraction_a = PaperExtraction(
-            thesis_statement="Short thesis",
-            keywords=["ml", "graphs"],
-            extraction_confidence=0.9,
-            methodology=Methodology(approach="quantitative"),
+        analysis_a = _make_analysis(
+            q02_thesis="Short thesis",
+            q01_research_question="What is the impact of graphs?",
+            q07_methods="quantitative regression",
         )
-        extraction_b = PaperExtraction(
-            thesis_statement="A more detailed and longer thesis statement for testing",
-            keywords=["ml", "networks", "citation"],
-            extraction_confidence=0.7,
-            methodology=Methodology(approach="quantitative", data_sources=["papers"]),
+        analysis_b = _make_analysis(
+            q02_thesis="A more detailed and longer thesis statement for testing",
+            q01_research_question="Impact?",
+            q07_methods="quantitative regression with cross-validation and bootstrapping",
         )
 
         clients = {
-            "anthropic": self._make_mock_client(extraction_a),
-            "openai": self._make_mock_client(extraction_b),
+            "anthropic": self._make_mock_client(analysis_a),
+            "openai": self._make_mock_client(analysis_b),
         }
 
         with patch.object(council, "_get_client", side_effect=lambda name: clients[name]):
@@ -460,15 +433,11 @@ class TestLLMCouncilIntegration:
         assert result.success
         assert result.consensus is not None
         # LONGEST strategy: longer thesis wins
-        assert "more detailed" in result.consensus.thesis_statement
-        # UNION strategy: keywords merged
-        assert set(result.consensus.keywords) == {"ml", "graphs", "networks", "citation"}
-        # MAJORITY_VOTE: both say quantitative
-        assert result.consensus.methodology.approach == "quantitative"
-        # UNION: data_sources merged
-        assert "papers" in result.consensus.methodology.data_sources
-        # AVERAGE: confidence averaged with weights
-        assert 0.5 < result.consensus.extraction_confidence < 1.0
+        assert "more detailed" in result.consensus.q02_thesis
+        # LONGEST strategy: longer research question wins
+        assert "impact of graphs" in result.consensus.q01_research_question
+        # LONGEST strategy: longer methods wins
+        assert "cross-validation" in result.consensus.q07_methods
         # Both providers responded
         assert len(result.provider_responses) == 2
         assert all(r.success for r in result.provider_responses)
@@ -492,18 +461,18 @@ class TestLLMCouncilIntegration:
         )
         council = LLMCouncil(config)
 
-        extraction_a = PaperExtraction(
-            thesis_statement="Thesis from anthropic",
-            keywords=["a", "b"],
+        analysis_a = _make_analysis(
+            q02_thesis="Thesis from anthropic",
+            q01_research_question="RQ A",
         )
-        extraction_b = PaperExtraction(
-            thesis_statement="Thesis from openai provider is longer",
-            keywords=["b", "c"],
+        analysis_b = _make_analysis(
+            q02_thesis="Thesis from openai provider is longer",
+            q01_research_question="A much longer RQ B with details",
         )
 
         clients = {
-            "anthropic": self._make_mock_client(extraction_a),
-            "openai": self._make_mock_client(extraction_b),
+            "anthropic": self._make_mock_client(analysis_a),
+            "openai": self._make_mock_client(analysis_b),
             "google": self._make_failing_client("API quota exceeded"),
         }
 
@@ -524,8 +493,8 @@ class TestLLMCouncilIntegration:
         assert len(successful) == 2
         # Error recorded for google
         assert any("google" in e for e in result.errors)
-        # Keywords unioned from both successful providers
-        assert set(result.consensus.keywords) == {"a", "b", "c"}
+        # LONGEST: longer thesis wins
+        assert "openai provider" in result.consensus.q02_thesis
 
     def test_fallback_to_single_when_below_min(self):
         """Falls back to single response when below min_responses."""
@@ -542,10 +511,10 @@ class TestLLMCouncilIntegration:
         )
         council = LLMCouncil(config)
 
-        extraction = PaperExtraction(thesis_statement="Only thesis")
+        analysis = _make_analysis(q02_thesis="Only thesis")
 
         clients = {
-            "anthropic": self._make_mock_client(extraction),
+            "anthropic": self._make_mock_client(analysis),
             "openai": self._make_failing_client(),
         }
 
@@ -561,7 +530,7 @@ class TestLLMCouncilIntegration:
 
         assert result.success
         assert result.consensus is not None
-        assert result.consensus.thesis_statement == "Only thesis"
+        assert result.consensus.q02_thesis == "Only thesis"
         # Lower confidence for single-response fallback
         assert result.consensus_confidence == 0.5
 
@@ -600,35 +569,6 @@ class TestLLMCouncilIntegration:
         assert len(result.errors) >= 2
 
 
-class TestNormalizeDisciplineTags:
-    """Tests for _normalize_discipline_tags edge cases."""
-
-    def test_none_returns_empty(self):
-        """None input returns empty list."""
-        assert _normalize_discipline_tags(None) == []
-
-    def test_empty_list_returns_empty(self):
-        """Empty list returns empty list."""
-        assert _normalize_discipline_tags([]) == []
-
-    def test_mixed_case_deduplication(self):
-        """Tags differing only in case are treated as duplicates."""
-        result = _normalize_discipline_tags(
-            ["Machine Learning", "machine learning", "MACHINE LEARNING"]
-        )
-        assert result == ["machine learning"]
-
-    def test_non_string_items_skipped(self):
-        """Non-string items (int, None, dict) are silently skipped."""
-        result = _normalize_discipline_tags(["valid", 42, None, {"bad": True}, "also valid"])
-        assert result == ["valid", "also valid"]
-
-    def test_whitespace_stripped(self):
-        """Leading/trailing whitespace is stripped before dedup."""
-        result = _normalize_discipline_tags(["  NLP ", "NLP", " nlp"])
-        assert result == ["nlp"]
-
-
 class TestParallelExecution:
     """Tests for council parallel execution path."""
 
@@ -646,11 +586,11 @@ class TestParallelExecution:
         )
         council = LLMCouncil(config)
 
-        def make_client(thesis: str):
+        def make_client(q02_thesis: str):
             client = MagicMock()
             result = MagicMock()
             result.success = True
-            result.extraction = PaperExtraction(thesis_statement=thesis)
+            result.extraction = _make_analysis(q02_thesis=q02_thesis)
             result.cost = 0.01
             client.extract.return_value = result
             return client
@@ -673,7 +613,7 @@ class TestParallelExecution:
         assert result.success
         assert len(result.provider_responses) == 2
         # Longest thesis wins consensus
-        assert "provider B" in result.consensus.thesis_statement
+        assert "provider B" in result.consensus.q02_thesis
 
     def test_provider_timeout_recorded_as_failure(self):
         """Provider that raises exception is recorded as failed response."""
@@ -693,7 +633,7 @@ class TestParallelExecution:
         fast_client = MagicMock()
         fast_result = MagicMock()
         fast_result.success = True
-        fast_result.extraction = PaperExtraction(thesis_statement="Fast result")
+        fast_result.extraction = _make_analysis(q02_thesis="Fast result")
         fast_result.cost = 0.01
         fast_client.extract.return_value = fast_result
 
