@@ -18,41 +18,37 @@ try:
 except Exception:  # noqa: BLE001 - handle missing or broken optional dependency
     _OllamaClient = None
 
-from src.analysis.schemas import PaperExtraction
+from src.analysis.schemas import SemanticAnalysis
 from src.utils.logging_config import get_logger
 from src.zotero.models import PaperMetadata
 
 logger = get_logger(__name__)
 
-ChunkType = Literal[
+# Dimension chunk types: one per non-None SemanticAnalysis question field
+_DIM_CHUNK_TYPES = [f"dim_q{i:02d}" for i in range(1, 41)]
+
+ChunkType = str  # "dim_q01" through "dim_q40", "raptor_overview", "raptor_core", "abstract"
+
+CHUNK_TYPES: list[str] = [
     "abstract",
-    "thesis",
-    "contribution",
-    "methodology",
-    "findings",
-    "claims",
-    "limitations",
-    "future_work",
-    "full_summary",
-    "section_summary",
-    "paper_overview",
-    "core_contribution",
+    *_DIM_CHUNK_TYPES,
+    "raptor_overview",
+    "raptor_core",
 ]
 
-CHUNK_TYPES: list[ChunkType] = [
-    "abstract",
-    "thesis",
-    "contribution",
-    "methodology",
-    "findings",
-    "claims",
-    "limitations",
-    "future_work",
-    "full_summary",
-    "section_summary",
-    "paper_overview",
-    "core_contribution",
+# Mapping from dimension chunk type to thematic group
+DIMENSION_GROUPS: dict[str, str] = {}
+_GROUP_RANGES = [
+    ("research_core", range(1, 6)),
+    ("methodology", range(6, 11)),
+    ("context", range(11, 17)),
+    ("meta", range(17, 25)),
+    ("scholarly", range(25, 32)),
+    ("impact", range(32, 41)),
 ]
+for _group, _rng in _GROUP_RANGES:
+    for _i in _rng:
+        DIMENSION_GROUPS[f"dim_q{_i:02d}"] = _group
 
 SentenceTransformer = _SentenceTransformer
 
@@ -181,32 +177,40 @@ class EmbeddingGenerator:
     def create_chunks(
         self,
         paper: PaperMetadata,
-        extraction: PaperExtraction,
+        extraction: SemanticAnalysis,
         raptor_summaries: RaptorSummaries | None = None,
     ) -> list[EmbeddingChunk]:
-        """Create text chunks from paper metadata and extraction.
+        """Create text chunks from paper metadata and semantic analysis.
+
+        Generates up to 43 chunks per paper:
+        - 1 abstract (from Zotero metadata)
+        - Up to 40 dimension chunks (one per non-None q field)
+        - 2 RAPTOR chunks (paper_overview, core_contribution)
 
         Args:
             paper: Paper metadata.
-            extraction: LLM extraction result.
+            extraction: SemanticAnalysis with q01-q40 dimension answers.
             raptor_summaries: Optional RAPTOR hierarchical summaries for this paper.
 
         Returns:
             List of EmbeddingChunk objects without embeddings.
         """
         chunks = []
+
+        # Derive quality_rating from q21_quality prose (integer 1-5)
+        quality_rating = self._derive_quality_rating(extraction.q21_quality)
+
         base_metadata = {
             "title": paper.title,
             "authors": paper.author_string,
             "year": paper.publication_year,
             "collections": ",".join(paper.collections) if paper.collections else "",
             "item_type": paper.item_type,
-            "quality_rating": extraction.quality_rating
-            if extraction.quality_rating is not None
-            else 0,
+            "quality_rating": quality_rating,
+            "dimension_coverage": extraction.dimension_coverage,
         }
 
-        # Abstract chunk
+        # Abstract chunk (from Zotero metadata, not extraction)
         if paper.abstract:
             chunks.append(
                 EmbeddingChunk(
@@ -214,166 +218,77 @@ class EmbeddingGenerator:
                     chunk_id=f"{paper.paper_id}_abstract",
                     chunk_type="abstract",
                     text=self._truncate_text(paper.abstract),
-                    metadata=base_metadata,
+                    metadata={**base_metadata, "dimension_group": "metadata"},
                 )
             )
 
-        # Thesis statement chunk
-        if extraction.thesis_statement:
+        # Dimension chunks: one per non-None q field
+        for field_name in extraction.DIMENSION_FIELDS:
+            value = getattr(extraction, field_name, None)
+            if value is None:
+                continue
+            # e.g., "q01_research_question" -> "dim_q01"
+            dim_key = f"dim_{field_name[:3]}"
+            group = DIMENSION_GROUPS.get(dim_key, "unknown")
             chunks.append(
                 EmbeddingChunk(
                     paper_id=paper.paper_id,
-                    chunk_id=f"{paper.paper_id}_thesis",
-                    chunk_type="thesis",
-                    text=self._truncate_text(extraction.thesis_statement),
-                    metadata=base_metadata,
+                    chunk_id=f"{paper.paper_id}_{dim_key}",
+                    chunk_type=dim_key,
+                    text=self._truncate_text(value),
+                    metadata={**base_metadata, "dimension_group": group},
                 )
             )
 
-        # Contribution summary chunk
-        if extraction.contribution_summary:
-            chunks.append(
-                EmbeddingChunk(
-                    paper_id=paper.paper_id,
-                    chunk_id=f"{paper.paper_id}_contribution",
-                    chunk_type="contribution",
-                    text=self._truncate_text(extraction.contribution_summary),
-                    metadata=base_metadata,
-                )
-            )
-
-        # Methodology chunk
-        if extraction.methodology:
-            method = extraction.methodology
-            method_text_parts = []
-            if method.approach:
-                method_text_parts.append(f"Approach: {method.approach}")
-            if method.design:
-                method_text_parts.append(f"Design: {method.design}")
-            if method.data_sources:
-                method_text_parts.append(f"Data sources: {', '.join(method.data_sources)}")
-            if method.analysis_methods:
-                method_text_parts.append(f"Analysis: {', '.join(method.analysis_methods)}")
-            if method.sample_size:
-                method_text_parts.append(f"Sample: {method.sample_size}")
-
-            if method_text_parts:
-                chunks.append(
-                    EmbeddingChunk(
-                        paper_id=paper.paper_id,
-                        chunk_id=f"{paper.paper_id}_methodology",
-                        chunk_type="methodology",
-                        text=self._truncate_text(". ".join(method_text_parts)),
-                        metadata=base_metadata,
-                    )
-                )
-
-        # Key findings chunks
-        if extraction.key_findings:
-            findings_text = ". ".join(f.finding for f in extraction.key_findings)
-            chunks.append(
-                EmbeddingChunk(
-                    paper_id=paper.paper_id,
-                    chunk_id=f"{paper.paper_id}_findings",
-                    chunk_type="findings",
-                    text=self._truncate_text(findings_text),
-                    metadata=base_metadata,
-                )
-            )
-
-        # Key claims chunks (individual)
-        if extraction.key_claims:
-            for i, claim in enumerate(extraction.key_claims):
-                chunks.append(
-                    EmbeddingChunk(
-                        paper_id=paper.paper_id,
-                        chunk_id=f"{paper.paper_id}_claim_{i}",
-                        chunk_type="claims",
-                        text=self._truncate_text(claim.claim),
-                        metadata={**base_metadata, "claim_index": i},
-                    )
-                )
-
-        # Limitations chunk
-        if extraction.limitations:
-            limitations_text = ". ".join(extraction.limitations)
-            chunks.append(
-                EmbeddingChunk(
-                    paper_id=paper.paper_id,
-                    chunk_id=f"{paper.paper_id}_limitations",
-                    chunk_type="limitations",
-                    text=self._truncate_text(limitations_text),
-                    metadata=base_metadata,
-                )
-            )
-
-        # Future directions chunk
-        if extraction.future_directions:
-            future_text = ". ".join(extraction.future_directions)
-            chunks.append(
-                EmbeddingChunk(
-                    paper_id=paper.paper_id,
-                    chunk_id=f"{paper.paper_id}_future_work",
-                    chunk_type="future_work",
-                    text=self._truncate_text(future_text),
-                    metadata=base_metadata,
-                )
-            )
-
-        # Full summary chunk (combines multiple fields)
-        summary_parts = []
-        if extraction.thesis_statement:
-            summary_parts.append(extraction.thesis_statement)
-        if extraction.contribution_summary:
-            summary_parts.append(extraction.contribution_summary)
-        if extraction.conclusions:
-            summary_parts.append(extraction.conclusions)
-
-        if summary_parts:
-            chunks.append(
-                EmbeddingChunk(
-                    paper_id=paper.paper_id,
-                    chunk_id=f"{paper.paper_id}_full_summary",
-                    chunk_type="full_summary",
-                    text=self._truncate_text(" ".join(summary_parts)),
-                    metadata=base_metadata,
-                )
-            )
-
-        # RAPTOR hierarchical summary chunks (if generated)
+        # RAPTOR hierarchical summary chunks
         if raptor_summaries is not None:
-            if raptor_summaries.section_summary:
-                chunks.append(
-                    EmbeddingChunk(
-                        paper_id=paper.paper_id,
-                        chunk_id=f"{paper.paper_id}_section_summary",
-                        chunk_type="section_summary",
-                        text=self._truncate_text(raptor_summaries.section_summary),
-                        metadata=base_metadata,
-                    )
-                )
             if raptor_summaries.paper_overview:
                 chunks.append(
                     EmbeddingChunk(
                         paper_id=paper.paper_id,
-                        chunk_id=f"{paper.paper_id}_paper_overview",
-                        chunk_type="paper_overview",
+                        chunk_id=f"{paper.paper_id}_raptor_overview",
+                        chunk_type="raptor_overview",
                         text=self._truncate_text(raptor_summaries.paper_overview),
-                        metadata=base_metadata,
+                        metadata={**base_metadata, "dimension_group": "raptor"},
                     )
                 )
             if raptor_summaries.core_contribution:
                 chunks.append(
                     EmbeddingChunk(
                         paper_id=paper.paper_id,
-                        chunk_id=f"{paper.paper_id}_core_contribution",
-                        chunk_type="core_contribution",
+                        chunk_id=f"{paper.paper_id}_raptor_core",
+                        chunk_type="raptor_core",
                         text=self._truncate_text(raptor_summaries.core_contribution),
-                        metadata=base_metadata,
+                        metadata={**base_metadata, "dimension_group": "raptor"},
                     )
                 )
 
         return chunks
+
+    @staticmethod
+    def _derive_quality_rating(q21_prose: str | None) -> int:
+        """Derive integer quality rating (1-5) from q21_quality prose.
+
+        Looks for explicit rating patterns in the prose. Defaults to 3.
+        """
+        if not q21_prose:
+            return 0
+        import re
+        # Match patterns like "4/5", "rated 4", "score: 4", "rating of 4"
+        m = re.search(r'(\d)\s*/\s*5|(?:rat(?:ed?|ing)|score)[:\s]+(\d)', q21_prose.lower())
+        if m:
+            return int(m.group(1) or m.group(2))
+        # Keyword heuristic
+        low = q21_prose.lower()
+        if any(w in low for w in ("excellent", "outstanding", "exceptional")):
+            return 5
+        if any(w in low for w in ("strong", "high quality", "rigorous", "well-designed")):
+            return 4
+        if any(w in low for w in ("weak", "poor", "limited", "significant flaws")):
+            return 2
+        if any(w in low for w in ("very weak", "fundamentally flawed")):
+            return 1
+        return 3
 
     def _truncate_text(self, text: str) -> str:
         """Truncate text to approximate max token limit.
@@ -504,14 +419,14 @@ class EmbeddingGenerator:
     def process_papers(
         self,
         papers: list[PaperMetadata],
-        extractions: dict[str, PaperExtraction],
+        extractions: dict[str, SemanticAnalysis],
         batch_size: int = 32,
     ) -> list[EmbeddingChunk]:
         """Process multiple papers and generate embeddings.
 
         Args:
             papers: List of paper metadata.
-            extractions: Dictionary mapping paper_id to extraction.
+            extractions: Dictionary mapping paper_id to SemanticAnalysis.
             batch_size: Batch size for embedding generation.
 
         Returns:
