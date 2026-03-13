@@ -42,13 +42,13 @@ class TypeProfile:
 TYPE_PROFILES: dict[DocumentType, TypeProfile] = {
     DocumentType.RESEARCH_PAPER: TypeProfile(
         required_extraction_fields=(
-            "thesis_statement",
-            "methodology",
-            "key_findings",
+            "q02_thesis",
+            "q07_methods",
+            "q04_evidence",
         ),
         recommended_extraction_fields=(
-            "research_questions",
-            "conclusions",
+            "q01_research_question",
+            "q22_contribution",
         ),
         min_confidence_threshold=0.5,
         extraction_prompt_key="full",
@@ -56,12 +56,12 @@ TYPE_PROFILES: dict[DocumentType, TypeProfile] = {
     ),
     DocumentType.REVIEW_PAPER: TypeProfile(
         required_extraction_fields=(
-            "thesis_statement",
-            "key_findings",
+            "q02_thesis",
+            "q03_key_claims",
         ),
         recommended_extraction_fields=(
-            "methodology",
-            "conclusions",
+            "q07_methods",
+            "q22_contribution",
         ),
         min_confidence_threshold=0.5,
         extraction_prompt_key="review",
@@ -69,12 +69,12 @@ TYPE_PROFILES: dict[DocumentType, TypeProfile] = {
     ),
     DocumentType.BOOK_MONOGRAPH: TypeProfile(
         required_extraction_fields=(
-            "thesis_statement",
-            "key_claims",
+            "q02_thesis",
+            "q03_key_claims",
         ),
         recommended_extraction_fields=(
-            "conclusions",
-            "contribution_summary",
+            "q22_contribution",
+            "q21_summary",
         ),
         min_confidence_threshold=0.4,
         extraction_prompt_key="book",
@@ -82,14 +82,14 @@ TYPE_PROFILES: dict[DocumentType, TypeProfile] = {
     ),
     DocumentType.THESIS: TypeProfile(
         required_extraction_fields=(
-            "thesis_statement",
-            "methodology",
-            "key_findings",
-            "research_questions",
+            "q02_thesis",
+            "q07_methods",
+            "q04_evidence",
+            "q01_research_question",
         ),
         recommended_extraction_fields=(
-            "conclusions",
-            "limitations",
+            "q22_contribution",
+            "q05_limitations",
         ),
         min_confidence_threshold=0.5,
         extraction_prompt_key="full",
@@ -97,11 +97,11 @@ TYPE_PROFILES: dict[DocumentType, TypeProfile] = {
     ),
     DocumentType.REPORT: TypeProfile(
         required_extraction_fields=(
-            "key_findings",
-            "conclusions",
+            "q04_evidence",
+            "q22_contribution",
         ),
         recommended_extraction_fields=(
-            "key_claims",
+            "q03_key_claims",
         ),
         min_confidence_threshold=0.4,
         extraction_prompt_key="report",
@@ -109,11 +109,11 @@ TYPE_PROFILES: dict[DocumentType, TypeProfile] = {
     ),
     DocumentType.REFERENCE_MATERIAL: TypeProfile(
         required_extraction_fields=(
-            "keywords",
-            "contribution_summary",
+            "q17_field",
+            "q22_contribution",
         ),
         recommended_extraction_fields=(
-            "thesis_statement",
+            "q02_thesis",
         ),
         min_confidence_threshold=0.3,
         extraction_prompt_key="generic",
