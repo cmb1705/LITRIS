@@ -23,8 +23,8 @@ class TestFormatResultsForAnalysis:
                 "year": 2023,
                 "authors": "Smith, J.",
                 "extraction": {
-                    "thesis_statement": "Networks reveal hidden structure.",
-                    "discipline_tags": ["network science", "graph theory"],
+                    "q02_thesis": "Networks reveal hidden structure.",
+                    "q17_field": "network science, graph theory",
                 },
             },
         ]
@@ -53,7 +53,7 @@ class TestFormatResultsForAnalysis:
                 "year": 2024,
                 "authors": "Doe",
                 "extraction": {
-                    "thesis_statement": "A" * 500,
+                    "q02_thesis": "A" * 500,
                 },
             },
         ]
@@ -175,10 +175,10 @@ class TestSearchEngineAgentic:
              "publication_year": 2021, "collections": [], "item_type": "journalArticle"},
         ])
         store.save_extractions({
-            "p1": {"paper_id": "p1", "extraction": {"thesis_statement": "Thesis 1"}},
-            "p2": {"paper_id": "p2", "extraction": {"thesis_statement": "Thesis 2"}},
-            "p3": {"paper_id": "p3", "extraction": {"thesis_statement": "Thesis 3"}},
-            "p4": {"paper_id": "p4", "extraction": {"thesis_statement": "Thesis 4"}},
+            "p1": {"paper_id": "p1", "extraction": {"q02_thesis": "Thesis 1"}},
+            "p2": {"paper_id": "p2", "extraction": {"q02_thesis": "Thesis 2"}},
+            "p3": {"paper_id": "p3", "extraction": {"q02_thesis": "Thesis 3"}},
+            "p4": {"paper_id": "p4", "extraction": {"q02_thesis": "Thesis 4"}},
         })
 
         engine = SearchEngine.__new__(SearchEngine)
@@ -194,7 +194,7 @@ class TestSearchEngineAgentic:
         return SearchResult(
             paper_id=paper_id,
             chunk_id=f"{paper_id}_c1",
-            chunk_type="thesis",
+            chunk_type="dim_q02",
             text=f"text for {paper_id}",
             score=score,
             metadata={"title": title},
@@ -407,7 +407,7 @@ class TestAgenticAdapterIntegration:
             EnrichedResult(
                 paper_id="p1", title="Paper One", authors="Smith",
                 year=2024, collections=[], item_type="journalArticle",
-                chunk_type="thesis", matched_text="some text",
+                chunk_type="dim_q02", matched_text="some text",
                 score=0.9, paper_data={}, extraction_data={},
             ),
         ]
