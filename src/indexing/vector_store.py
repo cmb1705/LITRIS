@@ -238,7 +238,7 @@ class VectorStore:
                     SearchResult(
                         paper_id=metadata.get("paper_id", ""),
                         chunk_id=chunk_id,
-                        chunk_type=metadata.get("chunk_type", "full_summary"),
+                        chunk_type=metadata.get("chunk_type", "raptor_overview"),
                         text=results["documents"][0][i] if results["documents"] else "",
                         score=score,
                         metadata=metadata,
