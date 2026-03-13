@@ -1,69 +1,65 @@
-"""Tests for quality_rating field in extraction schema and search filtering."""
+"""Tests for quality rating derivation from q21_quality prose and search filtering."""
 
 import pytest
-from pydantic import ValidationError as PydanticValidationError
 
-from src.analysis.schemas import PaperExtraction
+from src.indexing.embeddings import EmbeddingGenerator
 from src.mcp.validators import ValidationError, validate_quality_min
 
 
-class TestQualityRatingSchema:
-    """Tests for quality_rating and quality_explanation in PaperExtraction."""
+class TestDeriveQualityRating:
+    """Tests for _derive_quality_rating() which parses q21_quality prose."""
 
-    def test_valid_quality_rating(self):
-        extraction = PaperExtraction(quality_rating=4, quality_explanation="Strong methodology")
-        assert extraction.quality_rating == 4
-        assert extraction.quality_explanation == "Strong methodology"
+    def test_explicit_rating_pattern_slash(self):
+        """Test '4/5' pattern in prose."""
+        assert EmbeddingGenerator._derive_quality_rating("Solid work. 4/5.") == 4
 
-    def test_quality_rating_none_default(self):
-        extraction = PaperExtraction()
-        assert extraction.quality_rating is None
-        assert extraction.quality_explanation is None
+    def test_explicit_rating_pattern_rated(self):
+        """Test 'rated X' pattern."""
+        assert EmbeddingGenerator._derive_quality_rating("This paper is rated 3.") == 3
 
-    def test_quality_rating_min_boundary(self):
-        extraction = PaperExtraction(quality_rating=1)
-        assert extraction.quality_rating == 1
+    def test_explicit_rating_pattern_score(self):
+        """Test 'score: X' pattern."""
+        assert EmbeddingGenerator._derive_quality_rating("Quality score: 5") == 5
 
-    def test_quality_rating_max_boundary(self):
-        extraction = PaperExtraction(quality_rating=5)
-        assert extraction.quality_rating == 5
+    def test_none_returns_zero(self):
+        """Test None input returns 0 (no rating)."""
+        assert EmbeddingGenerator._derive_quality_rating(None) == 0
 
-    def test_quality_rating_zero_rejected(self):
-        with pytest.raises(PydanticValidationError):
-            PaperExtraction(quality_rating=0)
+    def test_empty_string_returns_zero(self):
+        """Test empty string returns 0."""
+        assert EmbeddingGenerator._derive_quality_rating("") == 0
 
-    def test_quality_rating_six_rejected(self):
-        with pytest.raises(PydanticValidationError):
-            PaperExtraction(quality_rating=6)
+    def test_keyword_excellent(self):
+        """Test 'excellent' keyword maps to 5."""
+        assert EmbeddingGenerator._derive_quality_rating(
+            "Excellent methodology with comprehensive analysis."
+        ) == 5
 
-    def test_quality_rating_negative_rejected(self):
-        with pytest.raises(PydanticValidationError):
-            PaperExtraction(quality_rating=-1)
+    def test_keyword_strong(self):
+        """Test 'strong' keyword maps to 4."""
+        assert EmbeddingGenerator._derive_quality_rating(
+            "Strong methodology with rigorous evaluation."
+        ) == 4
 
-    def test_to_index_dict_includes_quality_fields(self):
-        extraction = PaperExtraction(
-            quality_rating=3,
-            quality_explanation="Adequate but limited sample",
-        )
-        d = extraction.to_index_dict()
-        assert d["quality_rating"] == 3
-        assert d["quality_explanation"] == "Adequate but limited sample"
+    def test_keyword_weak(self):
+        """Test 'weak' keyword maps to 2."""
+        assert EmbeddingGenerator._derive_quality_rating(
+            "Weak methodology with limited sample."
+        ) == 2
 
-    def test_to_index_dict_quality_none(self):
-        extraction = PaperExtraction()
-        d = extraction.to_index_dict()
-        assert d["quality_rating"] is None
-        assert d["quality_explanation"] is None
+    def test_default_returns_three(self):
+        """Test neutral prose defaults to 3."""
+        assert EmbeddingGenerator._derive_quality_rating(
+            "The methodology is adequate for the research questions posed."
+        ) == 3
 
-    def test_backward_compat_existing_extraction(self):
-        """Existing extractions without quality fields should load fine."""
-        data = {
-            "thesis_statement": "Test thesis",
-            "extraction_confidence": 0.8,
-        }
-        extraction = PaperExtraction(**data)
-        assert extraction.quality_rating is None
-        assert extraction.thesis_statement == "Test thesis"
+    def test_boundary_1_slash_5(self):
+        """Test minimum rating 1/5."""
+        assert EmbeddingGenerator._derive_quality_rating("Very poor. 1/5.") == 1
+
+    def test_boundary_5_slash_5(self):
+        """Test maximum rating 5/5."""
+        assert EmbeddingGenerator._derive_quality_rating("Outstanding. 5/5.") == 5
 
 
 class TestValidateQualityMin:
@@ -87,33 +83,33 @@ class TestValidateQualityMin:
 
 
 class TestFormatExtraction:
-    """Tests for quality fields in _format_extraction."""
+    """Tests for quality-related fields in _format_extraction."""
 
-    def test_format_includes_quality_fields(self):
+    def test_format_groups_dimensions_by_pass(self):
         from src.mcp.adapters import LitrisAdapter
 
         adapter = LitrisAdapter.__new__(LitrisAdapter)
         extraction = {
-            "thesis_statement": "Test",
-            "quality_rating": 4,
-            "quality_explanation": "Strong evidence",
-            "extraction_confidence": 0.9,
+            "q01_research_question": "What is X?",
+            "q02_thesis": "X is Y.",
+            "q21_summary": "Summary of quality.",
+            "q22_contribution": "Novel contribution.",
         }
         formatted = adapter._format_extraction(extraction)
-        assert formatted["quality_rating"] == 4
-        assert formatted["quality_explanation"] == "Strong evidence"
+        assert "pass_1_research_core" in formatted
+        assert formatted["pass_1_research_core"]["q01_research_question"] == "What is X?"
+        assert formatted["pass_1_research_core"]["q02_thesis"] == "X is Y."
 
-    def test_format_quality_none_when_missing(self):
+    def test_format_handles_missing_fields(self):
         from src.mcp.adapters import LitrisAdapter
 
         adapter = LitrisAdapter.__new__(LitrisAdapter)
         extraction = {
-            "thesis_statement": "Test",
-            "extraction_confidence": 0.9,
+            "q02_thesis": "Test thesis.",
         }
         formatted = adapter._format_extraction(extraction)
-        assert formatted["quality_rating"] is None
-        assert formatted["quality_explanation"] is None
+        assert formatted["pass_1_research_core"]["q01_research_question"] is None
+        assert formatted["pass_1_research_core"]["q02_thesis"] == "Test thesis."
 
 
 class TestPromptVersion:
