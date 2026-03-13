@@ -96,33 +96,17 @@ def _jaccard_similarity(set_a: set[str], set_b: set[str]) -> float:
 
 
 def _extract_text_fields(extraction: dict) -> str:
-    """Extract all searchable text from an extraction."""
+    """Extract all searchable text from a semantic analysis.
+
+    Concatenates all non-None q-fields into a single search string.
+    """
     ext_data = extraction.get("extraction", extraction)
     parts = []
 
-    for field_name in ("thesis_statement", "conclusions", "contribution_summary",
-                       "theoretical_framework"):
-        value = ext_data.get(field_name)
-        if value:
+    # Collect all q-fields (q01 through q40)
+    for key, value in ext_data.items():
+        if key.startswith("q") and len(key) >= 4 and key[1:3].isdigit() and value:
             parts.append(str(value))
-
-    for list_field in ("research_questions", "limitations", "future_directions"):
-        items = ext_data.get(list_field) or []
-        parts.extend(str(item) for item in items)
-
-    findings = ext_data.get("key_findings") or []
-    for finding in findings:
-        if isinstance(finding, dict):
-            parts.append(finding.get("finding", ""))
-        else:
-            parts.append(str(finding))
-
-    claims = ext_data.get("key_claims") or []
-    for claim in claims:
-        if isinstance(claim, dict):
-            parts.append(claim.get("claim", ""))
-        else:
-            parts.append(str(claim))
 
     return " ".join(parts)
 
@@ -180,7 +164,7 @@ def _find_part_of_relationships(
     for _normalized_title, group in title_groups.items():
         if len(group) < 3:
             continue
-        # Check for distinct content via thesis_statements
+        # Check for distinct content via q02_thesis
         statements: set[str] = set()
         for p in group:
             pid = p.get("paper_id")
@@ -188,7 +172,7 @@ def _find_part_of_relationships(
                 continue
             ext = extractions.get(pid, {})
             ext_data = ext.get("extraction", ext)
-            thesis = ext_data.get("thesis_statement") or ""
+            thesis = ext_data.get("q02_thesis") or ""
             if thesis.strip():
                 statements.add(thesis.strip())
         if len(statements) < 2:
@@ -795,7 +779,7 @@ def load_and_build_graph(
     else:
         papers = []
 
-    extractions_data = safe_read_json(index_dir / "extractions.json", default={})
+    extractions_data = safe_read_json(index_dir / "semantic_analyses.json", default={})
     if isinstance(extractions_data, dict) and "extractions" in extractions_data:
         extractions = extractions_data["extractions"]
     elif isinstance(extractions_data, dict):
