@@ -46,8 +46,12 @@ mcp = FastMCP(
     "search with gap analysis, litris_deep_review for generating integrated "
     "literature reviews, litris_get_paper for full details, "
     "litris_similar for related papers, litris_summary for index stats, "
-    "litris_collections for available collections, and litris_save_query to save "
-    "query results to the query_results folder.",
+    "litris_collections for available collections, litris_save_query to save "
+    "query results to the query_results folder, "
+    "litris_search_dimension to search within a specific SemanticAnalysis "
+    "dimension (q01-q40, e.g. q07_methods for methodology), and "
+    "litris_search_group to search across a group of dimensions by analysis "
+    "pass (research_core, methodology, contribution, context, synthesis, deep).",
 )
 
 @lru_cache(maxsize=1)
@@ -80,7 +84,7 @@ async def litris_search(
     Args:
         query: Natural language search query
         top_k: Number of results to return (default: 10, max: 50)
-        chunk_types: Filter by extraction section (thesis, methodology, etc.)
+        chunk_types: Filter by chunk type (dim_q01-q40, raptor_overview, raptor_core, abstract)
         year_min: Minimum publication year
         year_max: Maximum publication year
         collections: Filter by Zotero collection names
@@ -168,7 +172,7 @@ async def litris_search_rrf(
         query: Natural language search query
         top_k: Number of results to return (default: 10, max: 50)
         n_variants: Number of query reformulations (default: 4, max: 10)
-        chunk_types: Filter by extraction section (thesis, methodology, etc.)
+        chunk_types: Filter by chunk type (dim_q01-q40, raptor_overview, raptor_core, abstract)
         year_min: Minimum publication year
         year_max: Maximum publication year
         collections: Filter by Zotero collection names
@@ -258,7 +262,7 @@ async def litris_search_agentic(
         query: Natural language search query
         top_k: Number of results to return (default: 10, max: 50)
         max_rounds: Maximum gap-analysis rounds (default: 2, max: 5)
-        chunk_types: Filter by extraction section (thesis, methodology, etc.)
+        chunk_types: Filter by chunk type (dim_q01-q40, raptor_overview, raptor_core, abstract)
         year_min: Minimum publication year
         year_max: Maximum publication year
         collections: Filter by Zotero collection names
