@@ -107,6 +107,9 @@ def validate_year(year: int, param_name: str = "year") -> int:
 def validate_chunk_types(chunk_types: list[str]) -> list[str]:
     """Validate chunk_types parameter.
 
+    Valid chunk types are: dim_q01 through dim_q40 (one per SemanticAnalysis
+    dimension), raptor_overview, raptor_core, and abstract.
+
     Args:
         chunk_types: List of chunk type strings.
 
