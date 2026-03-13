@@ -123,8 +123,8 @@ class TestValidateChunkTypes:
 
     def test_valid_chunk_types(self):
         """Valid chunk types pass validation."""
-        result = validate_chunk_types(["thesis", "methodology"])
-        assert result == ["thesis", "methodology"]
+        result = validate_chunk_types(["dim_q02", "dim_q07"])
+        assert result == ["dim_q02", "dim_q07"]
 
     def test_empty_list(self):
         """Empty list returns empty list."""
@@ -137,20 +137,16 @@ class TestValidateChunkTypes:
     def test_invalid_chunk_type_raises(self):
         """Invalid chunk type raises ValidationError."""
         with pytest.raises(ValidationError, match="Invalid chunk types"):
-            validate_chunk_types(["thesis", "invalid_type"])
+            validate_chunk_types(["dim_q02", "invalid_type"])
 
     def test_all_valid_types(self):
         """All valid chunk types pass."""
         valid_types = [
             "abstract",
-            "thesis",
-            "contribution",
-            "methodology",
-            "findings",
-            "claims",
-            "limitations",
-            "future_work",
-            "full_summary",
+            "dim_q01", "dim_q02", "dim_q03", "dim_q04", "dim_q05",
+            "dim_q06", "dim_q07", "dim_q08", "dim_q09", "dim_q10",
+            "raptor_overview",
+            "raptor_core",
         ]
         result = validate_chunk_types(valid_types)
         assert result == valid_types
