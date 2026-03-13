@@ -17,18 +17,11 @@ Reference: https://github.com/karpathy/llm-council
 import logging
 from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any
 
 from src.analysis.schemas import SemanticAnalysis
 
 logger = logging.getLogger(__name__)
-
-
-class ConsensusStrategy(str, Enum):
-    """Strategy for reaching consensus on a field."""
-
-    LONGEST = "longest"  # Take the longest/most detailed response
 
 
 @dataclass
@@ -87,27 +80,6 @@ def _longest_string(values: list[str | None]) -> str | None:
     return max(valid, key=len)
 
 
-# All q-fields use LONGEST strategy since they are all str|None
-_Q_FIELD_NAMES = [
-    f"q{i:02d}_{name}" for i, name in [
-        (1, "research_question"), (2, "thesis"), (3, "key_claims"), (4, "evidence"),
-        (5, "limitations"), (6, "paradigm"), (7, "methods"), (8, "data"),
-        (9, "reproducibility"), (10, "framework"), (11, "traditions"),
-        (12, "key_citations"), (13, "assumptions"), (14, "counterarguments"),
-        (15, "novelty"), (16, "stance"), (17, "field"), (18, "audience"),
-        (19, "implications"), (20, "future_work"), (21, "quality"),
-        (22, "contribution"), (23, "source_type"), (24, "other"),
-        (25, "institutional_context"), (26, "historical_timing"),
-        (27, "paradigm_influence"), (28, "disciplines_bridged"),
-        (29, "cross_domain_insights"), (30, "cultural_scope"),
-        (31, "philosophical_assumptions"), (32, "deployment_gap"),
-        (33, "infrastructure_contribution"), (34, "power_dynamics"),
-        (35, "gaps_and_omissions"), (36, "dual_use_concerns"),
-        (37, "emergence_claims"), (38, "remaining_other"),
-        (39, "network_properties"), (40, "policy_recommendations"),
-    ]
-]
-
 
 def aggregate_analyses(
     analyses: list[SemanticAnalysis],
@@ -135,7 +107,7 @@ def aggregate_analyses(
 
     # Build consensus: LONGEST for every q-field
     q_values: dict[str, str | None] = {}
-    for field_name in _Q_FIELD_NAMES:
+    for field_name in SemanticAnalysis.DIMENSION_FIELDS:
         values = [getattr(a, field_name, None) for a in analyses]
         q_values[field_name] = _longest_string(values)
 
