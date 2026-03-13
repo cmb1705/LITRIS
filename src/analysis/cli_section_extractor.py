@@ -17,10 +17,7 @@ from src.analysis.progress_tracker import ProgressTracker
 from src.analysis.prompts import build_extraction_prompt
 from src.analysis.rate_limit_handler import RateLimitHandler
 from src.analysis.schemas import (
-    KeyClaim,
-    KeyFinding,
-    Methodology,
-    PaperExtraction,
+    SemanticAnalysis,
 )
 from src.utils.logging_config import get_logger
 from src.zotero.models import PaperMetadata
@@ -105,7 +102,7 @@ class CliSectionExtractor:
         paper_id: str,
         paper_text: str,
         metadata: PaperMetadata,
-    ) -> PaperExtraction:
+    ) -> SemanticAnalysis:
         """Extract structured data from a single paper via CLI.
 
         Args:
@@ -114,7 +111,7 @@ class CliSectionExtractor:
             metadata: Paper metadata from Zotero.
 
         Returns:
-            PaperExtraction with extracted data.
+            SemanticAnalysis with extracted data.
 
         Raises:
             RateLimitError: If rate limit is hit.
@@ -153,7 +150,7 @@ class CliSectionExtractor:
         papers: list[tuple[str, str, PaperMetadata]],
         resume: bool = True,
         progress_callback: Callable[[int, int, str], None] | None = None,
-    ) -> list[PaperExtraction]:
+    ) -> list[SemanticAnalysis]:
         """Extract structured data from multiple papers.
 
         Args:
@@ -162,7 +159,7 @@ class CliSectionExtractor:
             progress_callback: Optional callback(current, total, paper_title).
 
         Returns:
-            List of PaperExtraction objects.
+            List of SemanticAnalysis objects.
         """
         # Verify setup
         self.verify_setup()
@@ -257,8 +254,8 @@ class CliSectionExtractor:
         response: dict,
         paper_id: str,
         metadata: PaperMetadata,
-    ) -> PaperExtraction:
-        """Parse CLI response into PaperExtraction.
+    ) -> SemanticAnalysis:
+        """Parse CLI response into SemanticAnalysis.
 
         Args:
             response: Parsed JSON response.
@@ -266,67 +263,65 @@ class CliSectionExtractor:
             metadata: Paper metadata.
 
         Returns:
-            PaperExtraction object.
+            SemanticAnalysis object.
         """
-        _now = datetime.now()
+        now = datetime.now()
 
-        # Parse methodology
-        methodology_data = response.get("methodology", {})
-        methodology = None
-        if methodology_data:
-            methodology = Methodology(
-                approach=methodology_data.get("approach"),
-                design=methodology_data.get("design"),
-                data_sources=methodology_data.get("data_sources", []),
-                analysis_methods=methodology_data.get("analysis_methods", []),
-                sample_size=methodology_data.get("sample_size"),
-                time_period=methodology_data.get("time_period"),
-            )
-
-        # Parse findings
-        findings = []
-        for f in response.get("key_findings", []):
-            if isinstance(f, dict):
-                findings.append(KeyFinding(
-                    finding=f.get("finding", ""),
-                    evidence_type=f.get("evidence_type", "empirical"),
-                    significance=f.get("significance", "medium"),
-                    page_reference=f.get("page_reference"),
-                ))
-            elif isinstance(f, str):
-                findings.append(KeyFinding(finding=f))
-
-        # Parse claims
-        claims = []
-        for c in response.get("key_claims", []):
-            if isinstance(c, dict):
-                claims.append(KeyClaim(
-                    claim=c.get("claim", ""),
-                    support_type=c.get("support_type", "data"),
-                    page_reference=c.get("page_reference"),
-                ))
-            elif isinstance(c, str):
-                claims.append(KeyClaim(claim=c))
-
-        # Build extraction (PaperExtraction doesn't include paper_id - that's in ExtractionResult)
-        extraction = PaperExtraction(
-            thesis_statement=response.get("thesis_statement"),
-            research_questions=response.get("research_questions", []),
-            theoretical_framework=response.get("theoretical_framework"),
-            methodology=methodology if methodology else Methodology(),
-            key_findings=findings,
-            key_claims=claims,
-            conclusions=response.get("conclusions"),
-            limitations=response.get("limitations", []),
-            future_directions=response.get("future_directions", []),
-            contribution_summary=response.get("contribution_summary"),
-            keywords=response.get("keywords", []),
-            discipline_tags=_normalize_discipline_tags(response.get("discipline_tags", [])),
-            extraction_confidence=response.get("extraction_confidence", 0.7),
-            extraction_notes=response.get("extraction_notes"),
+        # Build SemanticAnalysis from q-field response
+        analysis = SemanticAnalysis(
+            paper_id=paper_id,
+            prompt_version=response.get("prompt_version", "2.0.0"),
+            extraction_model=response.get("extraction_model", "unknown"),
+            extracted_at=now.isoformat(),
+            # Pass 1: Research Core
+            q01_research_question=response.get("q01_research_question"),
+            q02_thesis=response.get("q02_thesis"),
+            q03_key_claims=response.get("q03_key_claims"),
+            q04_evidence=response.get("q04_evidence"),
+            q05_limitations=response.get("q05_limitations"),
+            # Pass 2: Methodology
+            q06_paradigm=response.get("q06_paradigm"),
+            q07_methods=response.get("q07_methods"),
+            q08_data_sources=response.get("q08_data_sources"),
+            q09_sample=response.get("q09_sample"),
+            q10_validity=response.get("q10_validity"),
+            # Pass 3: Contribution
+            q11_prior_work=response.get("q11_prior_work"),
+            q12_novelty=response.get("q12_novelty"),
+            q13_impact=response.get("q13_impact"),
+            q14_applications=response.get("q14_applications"),
+            q15_future_impact=response.get("q15_future_impact"),
+            # Pass 4: Context
+            q16_theory=response.get("q16_theory"),
+            q17_field=response.get("q17_field"),
+            q18_debate=response.get("q18_debate"),
+            q19_assumptions=response.get("q19_assumptions"),
+            q20_future_work=response.get("q20_future_work"),
+            # Pass 5: Synthesis
+            q21_summary=response.get("q21_summary"),
+            q22_contribution=response.get("q22_contribution"),
+            q23_significance=response.get("q23_significance"),
+            q24_audience=response.get("q24_audience"),
+            q25_prerequisites=response.get("q25_prerequisites"),
+            # Pass 6: Deep Analysis
+            q26_mechanisms=response.get("q26_mechanisms"),
+            q27_boundary=response.get("q27_boundary"),
+            q28_counterarguments=response.get("q28_counterarguments"),
+            q29_methodology_detail=response.get("q29_methodology_detail"),
+            q30_replication=response.get("q30_replication"),
+            q31_ethical=response.get("q31_ethical"),
+            q32_interdisciplinary=response.get("q32_interdisciplinary"),
+            q33_temporal=response.get("q33_temporal"),
+            q34_scale=response.get("q34_scale"),
+            q35_comparison=response.get("q35_comparison"),
+            q36_definitions=response.get("q36_definitions"),
+            q37_data_quality=response.get("q37_data_quality"),
+            q38_visualization=response.get("q38_visualization"),
+            q39_reproducibility=response.get("q39_reproducibility"),
+            q40_meta=response.get("q40_meta"),
         )
 
-        return extraction
+        return analysis
 
     def get_progress_summary(self) -> dict:
         """Get current progress summary.
