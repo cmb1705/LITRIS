@@ -231,7 +231,7 @@ class SearchEngine:
         summary_chunk = None
 
         for chunk in chunks:
-            if chunk.get("metadata", {}).get("chunk_type") == "full_summary":
+            if chunk.get("metadata", {}).get("chunk_type") == "raptor_overview":
                 summary_chunk = chunk
                 break
 
@@ -247,7 +247,7 @@ class SearchEngine:
         results = self.search(
             query=summary_chunk.get("text", ""),
             top_k=top_k + (1 if exclude_self else 0),
-            chunk_types=["full_summary", "thesis", "contribution"],
+            chunk_types=["raptor_overview", "dim_q02", "dim_q22"],
             deduplicate_papers=True,
         )
 
@@ -291,7 +291,7 @@ class SearchEngine:
                     year=year,
                     collections=paper_data.get("collections", []),
                     item_type=paper_data.get("item_type", ""),
-                    chunk_type="full_summary",
+                    chunk_type="raptor_overview",
                     matched_text="",
                     score=score,
                     paper_data=paper_data,
