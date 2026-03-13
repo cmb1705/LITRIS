@@ -83,9 +83,9 @@ class TestSearchEngineSimilarity:
             {"paper_id": "p3", "title": "Paper Three", "author_string": "Lee", "publication_year": 2022, "collections": [], "item_type": "journalArticle"},
         ])
         store.save_extractions({
-            "p1": {"paper_id": "p1", "extraction": {"thesis_statement": "Thesis 1"}},
-            "p2": {"paper_id": "p2", "extraction": {"thesis_statement": "Thesis 2"}},
-            "p3": {"paper_id": "p3", "extraction": {"thesis_statement": "Thesis 3"}},
+            "p1": {"paper_id": "p1", "extraction": {"q02_thesis": "Thesis 1"}},
+            "p2": {"paper_id": "p2", "extraction": {"q02_thesis": "Thesis 2"}},
+            "p3": {"paper_id": "p3", "extraction": {"q02_thesis": "Thesis 3"}},
         })
 
         if pairs is not None:
@@ -125,7 +125,7 @@ class TestSearchEngineSimilarity:
 
         # Search for p3 which is NOT in pre-computed pairs
         engine.vector_store.get_paper_chunks.return_value = [
-            {"text": "Some text", "metadata": {"chunk_type": "full_summary", "paper_id": "p3"}}
+            {"text": "Some text", "metadata": {"chunk_type": "raptor_overview", "paper_id": "p3"}}
         ]
         engine.embedding_generator.embed_text.return_value = [0.1] * 384
         engine.vector_store.search.return_value = []
@@ -159,7 +159,7 @@ class TestSearchEngineSimilarity:
         assert results[0].paper_id == "p2"
         assert results[0].title == "Paper Two"
         assert results[0].score == 0.85
-        assert results[0].chunk_type == "full_summary"
+        assert results[0].chunk_type == "raptor_overview"
 
     def test_enrich_skips_missing_papers(self, tmp_path):
         engine = self._make_engine(tmp_path)
