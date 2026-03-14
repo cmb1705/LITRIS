@@ -1,7 +1,5 @@
 """Anthropic (Claude) LLM client for paper extraction."""
 
-# NOTE: This module constructs PaperExtraction objects and is non-functional after the SemanticAnalysis migration. Retained for future multi-provider support.
-
 import json
 import time
 
@@ -22,7 +20,7 @@ from src.analysis.prompts import (
     build_extraction_prompt,
 )
 from src.analysis.retry import with_retry
-from src.analysis.schemas import ExtractionResult, PaperExtraction
+from src.analysis.schemas import ExtractionResult, PaperExtraction, SemanticAnalysis
 from src.utils.logging_config import get_logger
 from src.utils.secrets import get_anthropic_api_key
 
@@ -140,17 +138,18 @@ class AnthropicLLMClient(BaseLLMClient):
                 )
                 response_text, input_tokens, output_tokens = self._call_api(prompt)
             else:
-                # CLI mode: use separate prompt and text for proper handling
-                # The cli_executor.extract() method writes text to temp file and
-                # passes prompt via -p flag, which handles large documents better
-                # Include system prompt in user prompt since CLI doesn't have separate system prompt
-                user_prompt = build_cli_extraction_prompt(
-                    title=title,
-                    authors=authors,
-                    year=year,
-                    item_type=item_type,
-                )
-                prompt = f"{EXTRACTION_SYSTEM_PROMPT}\n\n---\n\n{user_prompt}"
+                # CLI mode: use prompt_override if provided (from 6-pass pipeline),
+                # otherwise fall back to legacy single-pass prompt
+                if prompt_override:
+                    prompt = prompt_override
+                else:
+                    user_prompt = build_cli_extraction_prompt(
+                        title=title,
+                        authors=authors,
+                        year=year,
+                        item_type=item_type,
+                    )
+                    prompt = f"{EXTRACTION_SYSTEM_PROMPT}\n\n---\n\n{user_prompt}"
                 response_dict = self.cli_executor.extract(prompt, text)
                 response_text = json.dumps(response_dict)
                 input_tokens, output_tokens = 0, 0
@@ -159,9 +158,10 @@ class AnthropicLLMClient(BaseLLMClient):
             extraction = self._parse_response(response_text)
 
             duration = time.time() - start_time
+            confidence = getattr(extraction, "extraction_confidence", None)
+            conf_str = f", confidence: {confidence:.2f}" if confidence else ""
             logger.info(
-                f"Extracted paper {paper_id} in {duration:.1f}s "
-                f"(confidence: {extraction.extraction_confidence:.2f})"
+                f"Extracted paper {paper_id} in {duration:.1f}s{conf_str}"
             )
 
             return ExtractionResult(
@@ -261,14 +261,19 @@ class AnthropicLLMClient(BaseLLMClient):
         response_text = self.cli_executor.call_with_prompt(prompt)
         return response_text, 0, 0
 
-    def _parse_response(self, response_text: str) -> PaperExtraction:
-        """Parse JSON response into PaperExtraction.
+    def _parse_response(
+        self, response_text: str
+    ) -> SemanticAnalysis | PaperExtraction:
+        """Parse JSON response into SemanticAnalysis or PaperExtraction.
+
+        Detects q-field keys (from 6-pass pipeline) and returns SemanticAnalysis.
+        Falls back to PaperExtraction for legacy single-pass responses.
 
         Args:
             response_text: Raw response text.
 
         Returns:
-            Parsed PaperExtraction.
+            Parsed SemanticAnalysis (6-pass) or PaperExtraction (legacy).
         """
         # Clean response - remove any markdown formatting
         text = response_text.strip()
@@ -287,12 +292,29 @@ class AnthropicLLMClient(BaseLLMClient):
         # Parse JSON
         data = json.loads(text)
 
-        # Handle nested methodology
+        # Detect 6-pass pipeline response by checking for q-field keys
+        has_q_fields = any(k.startswith("q") and k[1:3].isdigit() for k in data)
+
+        if has_q_fields:
+            # 6-pass pipeline: build SemanticAnalysis with placeholder metadata.
+            # The caller (section_extractor._extract_6_pass) builds the final
+            # SemanticAnalysis from merged answers; these placeholders are
+            # only used by _extract_pass_answers via getattr.
+            return SemanticAnalysis(
+                paper_id=data.get("paper_id", "pending"),
+                prompt_version=data.get("prompt_version", "2.0.0"),
+                extraction_model=data.get("extraction_model", self.model),
+                extracted_at=data.get("extracted_at", ""),
+                **{k: v for k, v in data.items()
+                   if k not in ("paper_id", "prompt_version",
+                                "extraction_model", "extracted_at")},
+            )
+
+        # Legacy single-pass: handle nested models
         if "methodology" in data and isinstance(data["methodology"], dict):
             from src.analysis.schemas import Methodology
             data["methodology"] = Methodology(**data["methodology"])
 
-        # Handle nested key_findings
         if "key_findings" in data and isinstance(data["key_findings"], list):
             from src.analysis.schemas import KeyFinding
             data["key_findings"] = [
@@ -300,7 +322,6 @@ class AnthropicLLMClient(BaseLLMClient):
                 for f in data["key_findings"]
             ]
 
-        # Handle nested key_claims
         if "key_claims" in data and isinstance(data["key_claims"], list):
             from src.analysis.schemas import KeyClaim
             data["key_claims"] = [
