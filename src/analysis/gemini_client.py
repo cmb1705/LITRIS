@@ -8,8 +8,6 @@ References:
 - https://googleapis.github.io/python-genai/
 """
 
-# NOTE: This module constructs PaperExtraction objects and is non-functional after the SemanticAnalysis migration. Retained for future multi-provider support.
-
 import json
 import os
 import time
@@ -20,7 +18,7 @@ from src.analysis.base_llm import BaseLLMClient, ExtractionMode, LLMProvider
 from src.analysis.constants import DEFAULT_MODELS, GEMINI_MODELS, GEMINI_PRICING
 from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
 from src.analysis.retry import with_retry
-from src.analysis.schemas import ExtractionResult, PaperExtraction
+from src.analysis.schemas import ExtractionResult, PaperExtraction, SemanticAnalysis
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -141,9 +139,10 @@ class GeminiLLMClient(BaseLLMClient):
             extraction = self._parse_response(response_text)
 
             duration = time.time() - start_time
+            confidence = getattr(extraction, "extraction_confidence", None)
+            conf_str = f", confidence: {confidence:.2f}" if confidence else ""
             logger.info(
-                f"Extracted paper {paper_id} in {duration:.1f}s "
-                f"(confidence: {extraction.extraction_confidence:.2f})"
+                f"Extracted paper {paper_id} in {duration:.1f}s{conf_str}"
             )
 
             return ExtractionResult(
@@ -223,14 +222,19 @@ class GeminiLLMClient(BaseLLMClient):
 
         return response_text, input_tokens, output_tokens
 
-    def _parse_response(self, response_text: str) -> PaperExtraction:
-        """Parse JSON response into PaperExtraction.
+    def _parse_response(
+        self, response_text: str
+    ) -> SemanticAnalysis | PaperExtraction:
+        """Parse JSON response into SemanticAnalysis or PaperExtraction.
+
+        Detects q-field keys (from 6-pass pipeline) and returns SemanticAnalysis.
+        Falls back to PaperExtraction for legacy single-pass responses.
 
         Args:
             response_text: Raw response text.
 
         Returns:
-            Parsed PaperExtraction.
+            Parsed SemanticAnalysis (6-pass) or PaperExtraction (legacy).
         """
         # Clean response - remove any markdown formatting
         text = response_text.strip()
@@ -249,12 +253,25 @@ class GeminiLLMClient(BaseLLMClient):
         # Parse JSON
         data = json.loads(text)
 
-        # Handle nested methodology
+        # Detect 6-pass pipeline response by checking for q-field keys
+        has_q_fields = any(k.startswith("q") and k[1:3].isdigit() for k in data)
+
+        if has_q_fields:
+            return SemanticAnalysis(
+                paper_id=data.get("paper_id", "pending"),
+                prompt_version=data.get("prompt_version", "2.0.0"),
+                extraction_model=data.get("extraction_model", self.model),
+                extracted_at=data.get("extracted_at", ""),
+                **{k: v for k, v in data.items()
+                   if k not in ("paper_id", "prompt_version",
+                                "extraction_model", "extracted_at")},
+            )
+
+        # Legacy single-pass: handle nested models
         if "methodology" in data and isinstance(data["methodology"], dict):
             from src.analysis.schemas import Methodology
             data["methodology"] = Methodology(**data["methodology"])
 
-        # Handle nested key_findings
         if "key_findings" in data and isinstance(data["key_findings"], list):
             from src.analysis.schemas import KeyFinding
             data["key_findings"] = [
@@ -262,7 +279,6 @@ class GeminiLLMClient(BaseLLMClient):
                 for f in data["key_findings"]
             ]
 
-        # Handle nested key_claims
         if "key_claims" in data and isinstance(data["key_claims"], list):
             from src.analysis.schemas import KeyClaim
             data["key_claims"] = [
