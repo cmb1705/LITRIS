@@ -88,7 +88,7 @@ Small, focused class (~100 lines). Responsibilities:
 - `get_extractable_ids() -> set[str]` -- all paper IDs where `extractable == true`
 - `get_stats() -> dict` -- summary statistics
 
-Uses existing `classify_metadata()` and `classify_text()` from `document_classifier.py`. No new classification logic needed.
+Uses existing `classify()` from `document_classifier.py`, which already implements the two-tier logic (Tier 1 metadata, then Tier 2 text if confidence < threshold). No new classification logic needed.
 
 ### CLI: `build_index.py --classify-only`
 
@@ -199,9 +199,9 @@ In `SectionExtractor.__init__()`:
 - If `cascade_enabled == false`: use `PDFExtractor` directly (current behavior, backward compat)
 
 In `SectionExtractor.extract_paper()`:
-- Replace `self.pdf_extractor.extract_text_with_method(pdf_path)` with `self.cascade.extract_text(pdf_path, metadata)`
+- Replace `self.pdf_extractor.extract_text_with_method(pdf_path)` with `self.cascade.extract_text(pdf_path, doi=paper.doi, url=paper.url)`
 - Returns `CascadeResult` dataclass (fields: `text`, `method`, `word_count`, `tiers_attempted`, `is_markdown`)
-- Pass `config.processing.min_extraction_words` to `ExtractionCascade(min_words=...)` constructor (replaces the hardcoded `MIN_EXTRACTION_WORDS = 100` constant)
+- Construct cascade: `ExtractionCascade(pdf_extractor, min_words=config.processing.min_text_length, companion_dir=config.processing.companion_dir, ...)`
 
 ### Markdown Preservation
 
@@ -238,7 +238,13 @@ processing:
   marker_enabled: true            # Enable Marker tier (requires marker-pdf)
 ```
 
-The existing `min_extraction_words` field in `ProcessingConfig` is used as the cascade quality gate (passed to `ExtractionCascade(min_words=config.processing.min_extraction_words)`). No new config field needed for this.
+**Pydantic field additions to `ProcessingConfig`**:
+- `cascade_enabled: bool = True`
+- `companion_dir: Path | None = None`
+- `arxiv_enabled: bool = True`
+- `marker_enabled: bool = True`
+
+The existing `min_text_length: int = 100` field in `ProcessingConfig` serves as the cascade quality gate (passed to `ExtractionCascade(min_words=...)`). No new config field needed for this -- the cascade's hardcoded `MIN_EXTRACTION_WORDS = 100` constant is replaced by the config value.
 
 ### Dependencies
 
@@ -272,7 +278,7 @@ Each tier catches its own exceptions:
 - PyMuPDF: corrupt PDF -- fall through to OCR
 - OCR: Tesseract not found, conversion failure -- return error
 
-If all tiers fail, the paper gets an `ExtractionResult` with `success=False` and `error="All extraction tiers failed"`. Same error path as today.
+If all tiers fail, the cascade raises `PDFExtractionError`. `SectionExtractor` catches this and wraps it in an `ExtractionResult` with `success=False` and the error message. Same error path as today.
 
 ### Backward Compatibility
 
