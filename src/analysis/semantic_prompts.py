@@ -295,37 +295,6 @@ Return ONLY a JSON object with these keys:
 }}"""
 
 
-def build_pass_cli_prompt(
-    pass_number: int,
-    title: str,
-    authors: str,
-    year: int | str | None,
-    document_type: str,
-) -> str:
-    """Build the user prompt for CLI mode (text provided via stdin).
-
-    Same as build_pass_user_prompt but with a stdin placeholder for text.
-
-    Args:
-        pass_number: 1-6, selecting which question group to use.
-        title: Paper title.
-        authors: Author string.
-        year: Publication year.
-        document_type: Document type key for framing note.
-
-    Returns:
-        Formatted user prompt string.
-    """
-    return build_pass_user_prompt(
-        pass_number=pass_number,
-        title=title,
-        authors=authors,
-        year=year,
-        document_type=document_type,
-        text="[PAPER TEXT PROVIDED VIA STDIN - SEE BELOW]",
-    )
-
-
 def get_pass_fields(pass_number: int) -> list[str]:
     """Return the field names produced by a given pass.
 

@@ -2,7 +2,6 @@
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -11,15 +10,6 @@ from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-
-class ItemStatus(str, Enum):
-    """Status of a processed item."""
-
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    SUCCESS = "success"
-    FAILED = "failed"
-    SKIPPED = "skipped"
 
 
 @dataclass

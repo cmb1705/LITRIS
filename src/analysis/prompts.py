@@ -417,48 +417,6 @@ def build_cli_extraction_prompt(
     )
 
 
-def build_extraction_prompt_for_type(
-    extraction_type: str,
-    title: str,
-    authors: str,
-    year: int | str | None,
-    item_type: str,
-    text: str,
-) -> str:
-    """Build an extraction prompt for a specific extraction type.
-
-    Args:
-        extraction_type: Extraction type ("summary", "methodology", or "full").
-        title: Paper title.
-        authors: Author string.
-        year: Publication year.
-        item_type: Type of paper.
-        text: Full text content.
-
-    Returns:
-        Formatted prompt string.
-    """
-    if extraction_type == "summary":
-        template = SUMMARY_EXTRACTION_USER_PROMPT
-    elif extraction_type == "methodology":
-        template = METHODOLOGY_EXTRACTION_USER_PROMPT
-    elif extraction_type == "full":
-        template = EXTRACTION_USER_PROMPT
-    else:
-        raise ValueError(
-            f"Unknown extraction_type '{extraction_type}'. "
-            f"Valid types: {', '.join(EXTRACTION_TYPE_FIELDS.keys())}."
-        )
-
-    return template.format(
-        title=title,
-        authors=authors,
-        year=year or "Unknown",
-        item_type=item_type,
-        text=text,
-    )
-
-
 VALIDATION_PROMPT = """Review the following extraction for accuracy and completeness.
 
 ORIGINAL TEXT EXCERPT:
@@ -479,46 +437,6 @@ Respond with JSON:
   "issues": ["list of issues found"],
   "suggested_corrections": {{}}
 }}"""
-
-
-def build_prompt_for_document_type(
-    prompt_key: str,
-    title: str,
-    authors: str,
-    year: int | str | None,
-    item_type: str,
-    text: str,
-) -> str:
-    """Build an extraction prompt for a specific document type.
-
-    Args:
-        prompt_key: Key into DOCUMENT_TYPE_PROMPTS (full, book, report, review, generic).
-        title: Paper/document title.
-        authors: Author string.
-        year: Publication year.
-        item_type: Zotero item type.
-        text: Full text content.
-
-    Returns:
-        Formatted prompt string.
-
-    Raises:
-        ValueError: If prompt_key is not recognized.
-    """
-    template = DOCUMENT_TYPE_PROMPTS.get(prompt_key)
-    if template is None:
-        raise ValueError(
-            f"Unknown prompt_key '{prompt_key}'. "
-            f"Valid keys: {', '.join(DOCUMENT_TYPE_PROMPTS.keys())}."
-        )
-
-    return template.format(
-        title=title,
-        authors=authors,
-        year=year or "Unknown",
-        item_type=item_type,
-        text=text,
-    )
 
 
 def build_validation_prompt(text_excerpt: str, extraction_json: str) -> str:
