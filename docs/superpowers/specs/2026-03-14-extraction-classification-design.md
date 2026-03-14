@@ -47,7 +47,8 @@ File: `data/index/classification_index.json`
       "REFERENCE_MATERIAL": 26,
       "NON_ACADEMIC": 52
     },
-    "by_extractable": {"true": 1340, "false": 221}
+    "extractable_count": 1340,
+    "non_extractable_count": 221
   },
   "papers": {
     "<paper_id>": {
@@ -94,12 +95,14 @@ Uses existing `classify_metadata()` and `classify_text()` from `document_classif
 - Loads all papers from the configured reference source
 - For each paper not already in the index:
   - Tier 1: `classify_metadata(paper)` (instant, no PDF)
-  - If confidence < 0.8: extract PDF text with PyMuPDF, run `classify_text()`
+  - If confidence < `high_confidence_threshold` (default 0.8, from existing `classify()` parameter): extract PDF text with PyMuPDF, run `classify_text()`
 - Writes/updates `classification_index.json`
 - Prints summary table to terminal
-- `--reclassify` flag forces re-evaluation of all papers
+- `--reclassify` flag forces re-evaluation of all papers (replaces all records)
 
-Expected performance: ~30-60 minutes for full 1,561-paper corpus (dominated by PyMuPDF text extraction for Tier 2 candidates). Zero LLM tokens, zero network calls.
+**Incremental limitations (v1)**: Incremental mode does not detect metadata changes since last classification or prune papers removed from the reference source. Both are addressable in a future version by comparing `date_modified` timestamps and performing set-difference pruning. For now, `--reclassify` is the escape hatch.
+
+Expected performance: ~5-15 minutes for full 1,561-paper corpus (most papers get high-confidence Tier 1 classification from item_type alone; Tier 2 PyMuPDF fallback triggers for a minority). Zero LLM tokens, zero network calls.
 
 ---
 
@@ -153,7 +156,9 @@ Extracting: 1340 papers
 
 ### Source Agnostic
 
-The gating logic operates on `PaperMetadata` objects from `BaseReferenceDB`. The current hardcoded `ZoteroDatabase` call in `build_index.py` (line 702) should be replaced with the adapter abstraction. The six adapters (Zotero, BibTeX, Paperpile, EndNote, Mendeley, PDF folder) already produce `PaperMetadata`. This is a mechanical wiring change, not a design change.
+The gating logic operates on `PaperMetadata` objects from `BaseReferenceDB`. The current hardcoded `ZoteroDatabase` call in `build_index.py` should be replaced with the adapter abstraction via `create_reference_db()` from `src/references/factory.py`. The six adapters (Zotero, BibTeX, Paperpile, EndNote, Mendeley, PDF folder) already produce `PaperMetadata`.
+
+**Note on `--collection` filtering**: The existing `--collection` substring filter relies on `PaperMetadata.collections`, which is populated by Zotero. Non-Zotero adapters may return empty collections. The `--collection` flag should be silently ignored (with a warning log) when using adapters that do not support collections. This preserves backward compatibility while enabling source-agnostic operation.
 
 ---
 
@@ -182,6 +187,11 @@ Checks for a markdown file with the same stem as the PDF:
 - If found: read file, validate word count >= threshold, return as markdown
 - Simple file existence check, no external dependencies
 
+**Code changes required**:
+- Add `"companion"` to the `CascadeMethod` Literal type in `cascade.py` (currently only has `arxiv_html`, `ar5iv`, `marker`, `pymupdf`, `ocr`, `hybrid`)
+- Add `is_markdown: bool` field to existing `CascadeResult` dataclass (default `False`; set `True` for `companion` and `marker` methods)
+- Add companion tier logic to `ExtractionCascade.extract_text()` as Priority 1 (before arXiv)
+
 ### Wiring Change
 
 In `SectionExtractor.__init__()`:
@@ -189,51 +199,57 @@ In `SectionExtractor.__init__()`:
 - If `cascade_enabled == false`: use `PDFExtractor` directly (current behavior, backward compat)
 
 In `SectionExtractor.extract_paper()`:
-- Replace `self.pdf_extractor.extract_text_with_method(pdf_path)` with `self.cascade.extract(pdf_path, metadata)`
-- Cascade returns `(text, method_used, is_markdown)` tuple
+- Replace `self.pdf_extractor.extract_text_with_method(pdf_path)` with `self.cascade.extract_text(pdf_path, metadata)`
+- Returns `CascadeResult` dataclass (fields: `text`, `method`, `word_count`, `tiers_attempted`, `is_markdown`)
+- Pass `config.processing.min_extraction_words` to `ExtractionCascade(min_words=...)` constructor (replaces the hardcoded `MIN_EXTRACTION_WORDS = 100` constant)
 
 ### Markdown Preservation
 
-When the cascade produces markdown (Companion or Marker tiers):
-- `TextCleaner` receives `preserve_markdown=True`
-- Skip line-length filtering and header stripping that destroys markdown structure
-- Preserve table formatting, heading hierarchy, LaTeX equations, code blocks
-- `SectionExtractor` passes `preserve_markdown=True` when `is_markdown` is reported by cascade
+`TextCleaner.clean()` gains a new `preserve_markdown: bool = False` parameter. This is a **new parameter** (does not currently exist).
 
-When the cascade produces plain text (arXiv, PyMuPDF, OCR tiers):
-- `TextCleaner` operates as today (default `preserve_markdown=False`)
+When `preserve_markdown=True` (Companion or Marker tiers):
+- Skip short-line filtering (`clean()` lines 79-84) that destroys markdown list items and table rows
+- Skip `HEADER_FOOTER` regex removal (line 72) that could remove legitimate markdown headers
+- Keep `HYPHEN_LINEBREAK` and `PAGE_NUMBERS` removal (safe for markdown)
+- Preserve table formatting, heading hierarchy, LaTeX equations, code blocks
+
+When `preserve_markdown=False` (default, arXiv/PyMuPDF/OCR tiers):
+- `TextCleaner` operates as today
 - No behavior change
+
+`SectionExtractor` passes `preserve_markdown=result.is_markdown` to `TextCleaner.clean()`.
 
 ### Extraction Method Tracking
 
-The cascade reports which tier succeeded. This is stored in:
-- `classification_index.json`: `extraction_method` field per paper
-- `ExtractionResult` metadata: `extraction_method` field
+The cascade reports which tier succeeded via `CascadeResult.method`. This is stored in:
+- `classification_index.json`: `extraction_method` field per paper (written after extraction completes)
+- `ExtractionResult`: Add new **optional** field `extraction_method: str | None = None` to the Pydantic model in `schemas.py`. This is a schema addition, not a modification of existing fields.
 - Enables queries like "how many papers used Marker vs PyMuPDF?"
 
 ### Configuration
 
-New fields in `config.yaml` under `extraction`:
+New fields in `config.yaml` under `processing` (alongside existing `min_publication_words`, `min_publication_pages`, `ocr_enabled`):
 
 ```yaml
-extraction:
+processing:
   cascade_enabled: true          # Use cascade (false = PyMuPDF only)
   companion_dir: null             # Optional directory for pre-extracted .md files
   arxiv_enabled: true             # Enable arXiv HTML tiers (requires network)
   marker_enabled: true            # Enable Marker tier (requires marker-pdf)
-  min_extraction_words: 100       # Quality gate between tiers
 ```
+
+The existing `min_extraction_words` field in `ProcessingConfig` is used as the cascade quality gate (passed to `ExtractionCascade(min_words=config.processing.min_extraction_words)`). No new config field needed for this.
 
 ### Dependencies
 
 - `marker-pdf`: optional, silently skipped if not installed. Add to `requirements.txt` with `# optional` comment.
-- `beautifulsoup4`: for better arXiv HTML parsing (current implementation uses regex). Add to `requirements.txt`.
 - `pytesseract`, `pdf2image`, `Pillow`: already in requirements.
 - `PyMuPDF`: already in requirements.
+- `beautifulsoup4`: **deferred**. The existing arXiv extractor uses regex and works. Add bs4 in a future iteration if regex parsing proves insufficient.
 
 Install missing dependencies:
 ```bash
-pip install marker-pdf beautifulsoup4
+pip install marker-pdf
 ```
 
 ---
@@ -272,24 +288,30 @@ If all tiers fail, the paper gets an `ExtractionResult` with `success=False` and
 | Area | Tests | Count |
 |------|-------|-------|
 | ClassificationStore load/save/update/filter | Unit | ~8 |
+| ClassificationStore error paths (corrupt index, missing file) | Unit | ~3 |
 | Cascade tier fallthrough and quality gate | Unit (mocked tiers) | ~6 |
-| Build index gating (academic-only vs all) | Integration | ~4 |
 | Companion tier file discovery | Unit | ~2 |
 | TextCleaner markdown preservation | Unit | ~3 |
-| **Total** | | **~23** |
+| Build index gating (academic-only vs all) | Integration | ~4 |
+| Build index inline classification fallback (no index file) | Integration | ~2 |
+| `--reclassify` flag behavior | Integration | ~2 |
+| ExtractionResult `extraction_method` field | Unit | ~1 |
+| **Total** | | **~31** |
 
 ---
 
 ## Implementation Order
 
-1. **Install dependencies** -- `marker-pdf`, `beautifulsoup4`
+1. **Install dependencies** -- `marker-pdf`
 2. **Wire extraction cascade** -- replace `PDFExtractor` with `ExtractionCascade` in `SectionExtractor`, add Companion tier, add config fields, add `preserve_markdown` to `TextCleaner`
 3. **Build classification store** -- new `classification_store.py` module, `--classify-only` flag
 4. **Build index gating** -- `--index-academic-only` / `--index-all` flags, inline classification fallback, skip summary report
-5. **Wire BaseReferenceDB** -- replace hardcoded `ZoteroDatabase` in `build_index.py` with adapter abstraction
-6. **Tests** -- unit and integration tests for all three features
+5. **Wire BaseReferenceDB** -- replace hardcoded `ZoteroDatabase` in `build_index.py` with `create_reference_db()` from adapter factory; handle `--collection` filter for non-Zotero adapters (warn + skip)
+6. **Tests** -- unit and integration tests for all three features, including error paths and edge cases
 
-Steps 2-4 are the core features. Step 5 is a mechanical wiring change. Step 1 is a prerequisite.
+Steps 2-4 are the core features. Step 5 is a moderate refactor (adapter wiring + collection filter compatibility). Step 1 is a prerequisite.
+
+**Concurrency note**: `classification_index.json` is a single-writer file. Concurrent `build_index.py` runs writing to the same index are not supported. This is consistent with the existing single-writer assumption for `papers.json`.
 
 ---
 
@@ -298,13 +320,14 @@ Steps 2-4 are the core features. Step 5 is a mechanical wiring change. Step 1 is
 | File | Change |
 |------|--------|
 | `src/analysis/classification_store.py` | **NEW** -- classification index read/write/query |
-| `src/extraction/cascade.py` | Add Companion tier, ensure proper return tuple |
+| `src/extraction/cascade.py` | Add Companion tier, add `is_markdown` to `CascadeResult`, add `"companion"` to `CascadeMethod` |
+| `src/analysis/schemas.py` | Add `extraction_method: str | None = None` field to `ExtractionResult` |
 | `src/extraction/text_cleaner.py` | Add `preserve_markdown` parameter |
 | `src/analysis/section_extractor.py` | Wire cascade, pass markdown flag to cleaner |
 | `scripts/build_index.py` | Add `--classify-only`, `--index-all`, `--reclassify` flags; load classification index; wire `BaseReferenceDB` |
-| `src/config.py` | Add cascade config fields |
-| `config.yaml` | Add cascade section with defaults |
-| `requirements.txt` | Add `marker-pdf`, `beautifulsoup4` |
+| `src/config.py` | Add cascade config fields to `ProcessingConfig` |
+| `config.yaml` | Add cascade fields under `processing` section |
+| `requirements.txt` | Add `marker-pdf` (optional) |
 | `tests/test_classification_store.py` | **NEW** |
 | `tests/test_cascade_wiring.py` | **NEW** |
 | `tests/test_build_gating.py` | **NEW** |
