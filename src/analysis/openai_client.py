@@ -8,8 +8,6 @@ References:
 - https://developers.openai.com/codex/cli/
 """
 
-# NOTE: This module constructs PaperExtraction objects and is non-functional after the SemanticAnalysis migration. Retained for future multi-provider support.
-
 import json
 import os
 import re
@@ -25,7 +23,7 @@ from src.analysis.base_llm import BaseLLMClient, ExtractionMode, LLMProvider
 from src.analysis.constants import DEFAULT_MODELS, OPENAI_MODELS, OPENAI_PRICING
 from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
 from src.analysis.retry import with_retry
-from src.analysis.schemas import ExtractionResult, PaperExtraction
+from src.analysis.schemas import ExtractionResult, PaperExtraction, SemanticAnalysis
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -254,9 +252,10 @@ class OpenAILLMClient(BaseLLMClient):
             extraction = self._parse_response(response_text)
 
             duration = time.time() - start_time
+            confidence = getattr(extraction, "extraction_confidence", None)
+            conf_str = f", confidence: {confidence:.2f}" if confidence else ""
             logger.info(
-                f"Extracted paper {paper_id} in {duration:.1f}s "
-                f"(confidence: {extraction.extraction_confidence:.2f})"
+                f"Extracted paper {paper_id} in {duration:.1f}s{conf_str}"
             )
 
             return ExtractionResult(
@@ -398,14 +397,19 @@ class OpenAILLMClient(BaseLLMClient):
             # Clean up temp file
             Path(output_path).unlink(missing_ok=True)
 
-    def _parse_response(self, response_text: str) -> PaperExtraction:
-        """Parse JSON response into PaperExtraction.
+    def _parse_response(
+        self, response_text: str
+    ) -> SemanticAnalysis | PaperExtraction:
+        """Parse JSON response into SemanticAnalysis or PaperExtraction.
+
+        Detects q-field keys (from 6-pass pipeline) and returns SemanticAnalysis.
+        Falls back to PaperExtraction for legacy single-pass responses.
 
         Args:
             response_text: Raw response text.
 
         Returns:
-            Parsed PaperExtraction.
+            Parsed SemanticAnalysis (6-pass) or PaperExtraction (legacy).
         """
         # Clean response - remove any markdown formatting
         text = response_text.strip()
@@ -423,6 +427,26 @@ class OpenAILLMClient(BaseLLMClient):
 
         # Parse JSON
         data = json.loads(text)
+
+        # Detect 6-pass pipeline response by checking for q-field keys
+        has_q_fields = any(k.startswith("q") and k[1:3].isdigit() for k in data)
+
+        if has_q_fields:
+            # 6-pass pipeline: build SemanticAnalysis with placeholder metadata.
+            # The caller (section_extractor._extract_6_pass) builds the final
+            # SemanticAnalysis from merged answers; these placeholders are
+            # only used by _extract_pass_answers via getattr.
+            return SemanticAnalysis(
+                paper_id=data.get("paper_id", "pending"),
+                prompt_version=data.get("prompt_version", "2.0.0"),
+                extraction_model=data.get("extraction_model", self.model),
+                extracted_at=data.get("extracted_at", ""),
+                **{k: v for k, v in data.items()
+                   if k not in ("paper_id", "prompt_version",
+                                "extraction_model", "extracted_at")},
+            )
+
+        # Legacy single-pass: normalize GPT responses for PaperExtraction
 
         def _coerce_str_list(value: object) -> list[str]:
             """Coerce a value into a list of strings."""
