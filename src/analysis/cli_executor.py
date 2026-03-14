@@ -408,6 +408,13 @@ class ClaudeCliExecutor:
             "--print",
             "--output-format",
             self.output_format,
+            # Disable plugins, MCP servers, tools, and session persistence
+            # to avoid massive overhead and resource contention when running
+            # many extraction subprocesses in sequence
+            "--strict-mcp-config",
+            "--tools", "",
+            "--disable-slash-commands",
+            "--no-session-persistence",
         ]
         if self.model:
             cmd.extend(["--model", self.model])
@@ -560,6 +567,11 @@ class ClaudeCliExecutor:
                 "--print",
                 "--output-format",
                 self.output_format,
+                # Disable plugins, MCP servers, tools, and session persistence
+                "--strict-mcp-config",
+                "--tools", "",
+                "--disable-slash-commands",
+                "--no-session-persistence",
             ]
             if self.model:
                 cmd.extend(["--model", self.model])
