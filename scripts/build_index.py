@@ -822,14 +822,13 @@ def main():
             section_markers = None
 
             if paper.pdf_path and Path(paper.pdf_path).exists():
+                pdf_path = Path(paper.pdf_path)
                 try:
-                    raw_text, _ = pdf_extractor.extract_text_with_method(
-                        Path(paper.pdf_path)
-                    )
+                    raw_text, _ = pdf_extractor.extract_text_with_method(pdf_path)
                     text = text_cleaner.clean(raw_text)
                     stats = text_cleaner.get_stats(text)
                     word_count = stats.word_count
-                    page_count = stats.page_count
+                    page_count = pdf_extractor.get_page_count(pdf_path)
                     section_markers = text_cleaner.count_section_markers(text)
                 except Exception as e:
                     logger.warning(f"Text extraction failed for {paper.title}: {e}")
@@ -867,14 +866,15 @@ def main():
             page_count = None
             section_markers = None
             if paper.pdf_path and Path(paper.pdf_path).exists():
+                pdf_path = Path(paper.pdf_path)
                 try:
                     raw_text, _ = pdf_extractor_for_class.extract_text_with_method(
-                        Path(paper.pdf_path)
+                        pdf_path
                     )
                     cleaned = text_cleaner_for_class.clean(raw_text)
                     stats = text_cleaner_for_class.get_stats(cleaned)
                     word_count = stats.word_count
-                    page_count = stats.page_count
+                    page_count = pdf_extractor_for_class.get_page_count(pdf_path)
                     section_markers = text_cleaner_for_class.count_section_markers(
                         cleaned
                     )
