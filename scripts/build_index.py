@@ -71,7 +71,7 @@ def parse_args():
         "--model",
         type=str,
         default=None,
-        help="Model to use (e.g., gpt-5.4, claude-opus-4-5-20251101)",
+        help="Model to use (e.g., gpt-5.4, claude-opus-4-6)",
     )
     parser.add_argument(
         "--summary-model",
