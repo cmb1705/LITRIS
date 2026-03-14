@@ -9,7 +9,7 @@ Example (new way):
 
 Example (legacy, still supported):
     from src.analysis.llm_client import LLMClient
-    client = LLMClient(mode="api", model="claude-opus-4-5-20251101")
+    client = LLMClient(mode="api", model="claude-opus-4-6")
 """
 
 # Re-export for backward compatibility

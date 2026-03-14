@@ -55,11 +55,11 @@ def extract_with_api(prompt: str, model: str) -> list[str] | None:
             log_warning("No API key found for compare mode")
             return None
 
-        # Map short names to full model IDs
+        # Map short names to full model IDs (use short aliases where available)
         model_map = {
-            "haiku": "claude-3-5-haiku-20241022",
-            "sonnet": "claude-sonnet-4-20250514",
-            "opus": "claude-opus-4-5-20251101",
+            "haiku": "claude-haiku-4-5",
+            "sonnet": "claude-sonnet-4-6",
+            "opus": "claude-opus-4-6",
         }
         model_id = model_map.get(model, model)
 

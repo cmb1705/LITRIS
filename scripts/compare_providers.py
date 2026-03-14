@@ -28,6 +28,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.analysis.constants import DEFAULT_MODELS
 from src.analysis.schemas import SemanticAnalysis
 from src.analysis.section_extractor import SectionExtractor
 from src.config import Config
@@ -469,8 +470,8 @@ def main():
         help="OpenAI model to use (default: gpt-5.4)",
     )
     parser.add_argument(
-        "--anthropic-model", default="claude-opus-4-5-20251101",
-        help="Anthropic model to use (default: claude-opus-4-5-20251101)",
+        "--anthropic-model", default=DEFAULT_MODELS["anthropic"],
+        help=f"Anthropic model to use (default: {DEFAULT_MODELS['anthropic']})",
     )
     parser.add_argument(
         "--save", action="store_true",
