@@ -13,13 +13,20 @@ sys.path.insert(0, str(project_root))
 
 from tqdm import tqdm
 
+from src.analysis.classification_store import (
+    ClassificationIndex,
+    ClassificationStore,
+)
 from src.analysis.cli_executor import ClaudeCliAuthenticator
 from src.analysis.schemas import SemanticAnalysis
 from src.analysis.section_extractor import SectionExtractor
 from src.config import Config
+from src.extraction.pdf_extractor import PDFExtractor
+from src.extraction.text_cleaner import TextCleaner
 from src.indexing.embeddings import EmbeddingGenerator
 from src.indexing.structured_store import StructuredStore
 from src.indexing.vector_store import VectorStore
+from src.references.factory import create_reference_db
 from src.utils.checkpoint import CheckpointManager
 from src.utils.deduplication import (
     analyze_doi_overlap,
@@ -28,7 +35,6 @@ from src.utils.deduplication import (
 )
 from src.utils.file_utils import safe_read_json, safe_write_json
 from src.utils.logging_config import LogContext, setup_logging
-from src.zotero.database import ZoteroDatabase
 from src.zotero.models import PaperMetadata
 
 
@@ -193,7 +199,57 @@ def parse_args():
         default=None,
         help="Filter to papers in collections matching this substring",
     )
+    parser.add_argument(
+        "--classify-only",
+        action="store_true",
+        help="Run classification pre-pass only (no extraction). "
+        "Builds/updates classification_index.json.",
+    )
+    parser.add_argument(
+        "--index-all",
+        action="store_true",
+        help="Extract all papers regardless of classification. "
+        "Default behavior filters to academic content only.",
+    )
+    parser.add_argument(
+        "--reclassify",
+        action="store_true",
+        help="Force re-classification of all papers (use with --classify-only).",
+    )
+    parser.add_argument(
+        "--source",
+        type=str,
+        default="zotero",
+        choices=["zotero", "bibtex", "pdffolder", "mendeley", "endnote", "paperpile"],
+        help="Reference source to load papers from (default: zotero).",
+    )
+    parser.add_argument(
+        "--source-path",
+        type=str,
+        default=None,
+        help="Path for non-Zotero sources (BibTeX file, PDF folder, etc.).",
+    )
     return parser.parse_args()
+
+
+def _print_classification_report(index: ClassificationIndex) -> None:
+    """Print classification summary to terminal."""
+    stats = index.stats
+    total = stats.get("total", 0)
+    if total == 0:
+        print("No papers classified.")
+        return
+
+    print("\nClassification summary:")
+    for doc_type, count in sorted(
+        stats.get("by_type", {}).items(), key=lambda x: -x[1]
+    ):
+        pct = count / total * 100
+        print(f"  {doc_type:<22} {count:>5} ({pct:.0f}%)")
+
+    ext = stats.get("extractable_count", 0)
+    non_ext = stats.get("non_extractable_count", 0)
+    print(f"\nExtractable: {ext}  |  Skippable: {non_ext}")
 
 
 def load_checkpoint(index_dir: Path) -> set[str]:
@@ -696,29 +752,160 @@ def main():
     index_dir.mkdir(parents=True, exist_ok=True)
     cache_dir = config.get_cache_path() / "pdf_text"
 
-    # Connect to Zotero
-    logger.info("Connecting to Zotero database...")
+    # Connect to reference source
+    source = args.source
+    logger.info(f"Loading papers from {source} source...")
     try:
-        zotero = ZoteroDatabase(
-            config.get_zotero_db_path(),
-            config.get_storage_path(),
-        )
+        if source == "zotero":
+            ref_db = create_reference_db(
+                "zotero",
+                db_path=config.get_zotero_db_path(),
+                storage_path=config.get_storage_path(),
+            )
+        elif args.source_path:
+            source_kwarg_map = {
+                "bibtex": "bibtex_path",
+                "pdffolder": "folder_path",
+                "endnote": "xml_path",
+                "mendeley": "db_path",
+                "paperpile": "bibtex_path",
+            }
+            kwarg_name = source_kwarg_map.get(source, "path")
+            ref_db = create_reference_db(source, **{kwarg_name: args.source_path})
+        else:
+            logger.error(f"--source-path required for source '{source}'")
+            return 1
     except Exception as e:
-        logger.error(f"Failed to connect to Zotero: {e}")
+        logger.error(f"Failed to connect to {source}: {e}")
         return 1
 
     # Get all papers
-    with LogContext(logger, "Loading papers from Zotero"):
-        all_papers = list(zotero.get_all_papers())
+    with LogContext(logger, f"Loading papers from {source}"):
+        all_papers = list(ref_db.get_all_papers())
         if args.collection:
-            all_papers = [p for p in all_papers if any(args.collection in c for c in p.collections)]
-            logger.info(f"Collection filter '{args.collection}': {len(all_papers)} papers matched")
+            if source != "zotero":
+                logger.warning(
+                    f"--collection filter is Zotero-specific; "
+                    f"ignoring for source '{source}'"
+                )
+            else:
+                all_papers = [p for p in all_papers if any(args.collection in c for c in p.collections)]
+                logger.info(f"Collection filter '{args.collection}': {len(all_papers)} papers matched")
         # Filter to only papers with actual PDF files
         papers = [p for p in all_papers if p.pdf_path]
         papers_without_pdf = [p for p in all_papers if not p.pdf_path]
         if papers_without_pdf:
             logger.info(f"Found {len(all_papers)} papers, {len(papers_without_pdf)} without PDFs (skipped)")
         logger.info(f"Found {len(papers)} papers with PDFs")
+
+    # Classification pre-pass
+    class_store = ClassificationStore(
+        index_dir=index_dir,
+        min_publication_words=config.processing.min_publication_words,
+        min_publication_pages=config.processing.min_publication_pages,
+    )
+
+    if args.classify_only:
+        class_index = class_store.load() if not args.reclassify else ClassificationIndex()
+        pdf_extractor = PDFExtractor(
+            enable_ocr=config.processing.ocr_enabled or config.processing.ocr_on_fail,
+        )
+        text_cleaner = TextCleaner()
+
+        for paper in tqdm(papers, desc="Classifying"):
+            if not args.reclassify and paper.paper_id in class_index.papers:
+                continue
+
+            text = None
+            word_count = None
+            page_count = None
+            section_markers = None
+
+            if paper.pdf_path and Path(paper.pdf_path).exists():
+                try:
+                    raw_text, _ = pdf_extractor.extract_text_with_method(
+                        Path(paper.pdf_path)
+                    )
+                    text = text_cleaner.clean(raw_text)
+                    stats = text_cleaner.get_stats(text)
+                    word_count = stats.word_count
+                    page_count = stats.page_count
+                    section_markers = text_cleaner.count_section_markers(text)
+                except Exception as e:
+                    logger.warning(f"Text extraction failed for {paper.title}: {e}")
+
+            record = class_store.classify_paper(
+                paper, text=text, word_count=word_count,
+                page_count=page_count, section_markers=section_markers,
+            )
+            class_index.papers[paper.paper_id] = record
+
+        class_store.save(class_index)
+        _print_classification_report(class_index)
+        return 0
+
+    # Load or build classification index for gating
+    class_index = class_store.load()
+    papers_needing_classification = [
+        p for p in papers if p.paper_id not in class_index.papers
+    ]
+
+    if papers_needing_classification:
+        if not class_index.papers:
+            logger.info(
+                "No classification index found. Running inline classification. "
+                "Use --classify-only for a preview."
+            )
+        pdf_extractor_for_class = PDFExtractor(
+            enable_ocr=config.processing.ocr_enabled or config.processing.ocr_on_fail,
+        )
+        text_cleaner_for_class = TextCleaner()
+
+        for paper in papers_needing_classification:
+            text = None
+            word_count = None
+            page_count = None
+            section_markers = None
+            if paper.pdf_path and Path(paper.pdf_path).exists():
+                try:
+                    raw_text, _ = pdf_extractor_for_class.extract_text_with_method(
+                        Path(paper.pdf_path)
+                    )
+                    cleaned = text_cleaner_for_class.clean(raw_text)
+                    stats = text_cleaner_for_class.get_stats(cleaned)
+                    word_count = stats.word_count
+                    page_count = stats.page_count
+                    section_markers = text_cleaner_for_class.count_section_markers(
+                        cleaned
+                    )
+                except Exception:
+                    pass
+            record = class_store.classify_paper(
+                paper, text=text, word_count=word_count,
+                page_count=page_count, section_markers=section_markers,
+            )
+            class_index.papers[paper.paper_id] = record
+
+        class_store.save(class_index)
+
+    # Apply gating filter (default: academic-only)
+    if not args.index_all:
+        extractable_ids = class_store.get_extractable_ids(class_index)
+        skipped = [p for p in papers if p.paper_id not in extractable_ids]
+        papers = [p for p in papers if p.paper_id in extractable_ids]
+
+        if skipped:
+            non_academic = sum(
+                1 for p in skipped
+                if class_index.papers.get(p.paper_id)
+                and class_index.papers[p.paper_id].document_type == "non_academic"
+            )
+            other = len(skipped) - non_academic
+            logger.info(
+                f"Skipping {len(skipped)} papers "
+                f"({non_academic} non-academic, {other} insufficient text). "
+                f"Use --index-all to include."
+            )
 
     # Handle show-doi-overlap (analyze DOI overlap without processing)
     if args.show_doi_overlap:
@@ -1126,6 +1313,15 @@ def main():
                 **checkpoint_mgr.get_progress(),
             },
         )
+
+        # Track extraction method in classification index
+        for result in results:
+            if result.success and result.extraction_method:
+                if result.paper_id in class_index.papers:
+                    class_index.papers[result.paper_id].extraction_method = (
+                        result.extraction_method
+                    )
+        class_store.save(class_index)
 
         successful = sum(1 for r in results if r.success)
         failed = sum(1 for r in results if not r.success)

@@ -1,6 +1,5 @@
 """Tests for extraction cascade wiring and companion tier."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from src.extraction.cascade import CascadeResult, ExtractionCascade
