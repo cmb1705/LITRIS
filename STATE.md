@@ -51,12 +51,15 @@ All five implementation phases complete. System is production-ready for research
 
 | Metric | Value |
 |--------|-------|
-| Total Papers | 332 |
-| Total Chunks | 3,746 |
+| Total Papers | ~1,746 |
+| Total Chunks | ~19,166 (~17,074 in ChromaDB after dedup) |
 | Collections | 20+ Zotero collections |
 | Item Types | Journal articles, books, preprints, conference papers |
 | Year Range | 1945-2025 |
 | Top Disciplines | Scientometrics, Network Science, Machine Learning |
+| Citation Edges | ~1,479 (title-match based) |
+| Similarity Pairs | ~30,960 across 1,548 papers |
+| Embedding Model | Qwen3-Embedding-8B Q8_0 via Ollama |
 
 ---
 
@@ -72,6 +75,10 @@ All six MCP tools are implemented and working:
 | `litris_summary` | Index statistics | Complete |
 | `litris_collections` | List Zotero collections | Complete |
 | `litris_save_query` | Save search results to file | Complete |
+| `litris_search_rrf` | Multi-query RRF search | Complete |
+| `litris_search_agentic` | Multi-round search with gap analysis | Complete |
+| `litris_deep_review` | Integrated literature review synthesis | Complete |
+| `litris_clusters` | Topic clustering via UMAP + HDBSCAN | Complete |
 
 ---
 
@@ -110,7 +117,9 @@ All six MCP tools are implemented and working:
 LITRIS/
 +-- src/
 |   +-- zotero/           # Zotero database reader
-|   +-- analysis/         # PDF/LLM extraction, citation graph, clustering, gap detection, research digest
+|   +-- references/       # Multi-source adapter factory (Zotero, BibTeX, Mendeley, etc.)
+|   +-- extraction/       # PDF extraction cascade, text cleaning, OCR
+|   +-- analysis/         # LLM extraction, citation graph, clustering, gap detection, research digest
 |   +-- indexing/         # Embeddings and storage
 |   +-- query/            # Search interface (semantic, RRF, agentic)
 |   +-- mcp/              # MCP server and tools
@@ -223,6 +232,10 @@ LITRIS/
 - **Research digest**: Generation with paper starvation fix and silent failure hardening
 - **Cross-platform hooks**: Python scripts replacing PowerShell for Linux compatibility
 - **Package updates**: Requirements lock updated to latest versions
+- **Extraction cascade**: Multi-tier PDF extraction (Companion, arXiv, Marker, PyMuPDF, OCR)
+- **Document classification**: Persistent classification index with extractability gating
+- **Adapter factory**: Unified reference source interface via `--source` flag
+- **Academic-only gating**: Automatic filtering of non-academic content before LLM extraction
 
 ---
 
@@ -238,4 +251,4 @@ LITRIS/
 
 ---
 
-Last Updated: 2026-03-11
+Last Updated: 2026-03-14

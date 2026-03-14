@@ -36,6 +36,9 @@ python scripts/build_index.py
 | `--skip-extraction` | Skip LLM analysis |
 | `--skip-embeddings` | Skip vector store |
 | `--retry-failed` | Retry failed papers |
+| `--classify-only` | Run classification pre-pass only (no extraction) |
+| `--index-all` | Extract all papers regardless of classification |
+| `--source SOURCE` | Reference source: zotero, bibtex, pdffolder, mendeley, endnote, paperpile |
 
 ### CLI Mode (Recommended)
 
@@ -379,23 +382,23 @@ processing:
 
 ## Alternative Reference Sources
 
-LITRIS supports multiple reference sources beyond Zotero:
+LITRIS supports multiple reference sources beyond Zotero via the `--source` flag:
 
 ```bash
 # BibTeX file
-python scripts/build_index.py --provider bibtex --bibtex-path refs.bib --pdf-dir ./papers/
+python scripts/build_index.py --source bibtex --source-path refs.bib
 
 # PDF folder (no reference manager)
-python scripts/build_index.py --provider pdffolder --folder-path ./papers/
+python scripts/build_index.py --source pdffolder --source-path ./papers/
 
 # Mendeley Desktop
-python scripts/build_index.py --provider mendeley --db-path mendeley.sqlite
+python scripts/build_index.py --source mendeley --source-path mendeley.sqlite
 
 # EndNote XML export
-python scripts/build_index.py --provider endnote --xml-path library.xml
+python scripts/build_index.py --source endnote --source-path library.xml
 
 # Paperpile BibTeX export
-python scripts/build_index.py --provider paperpile --bibtex-path paperpile.bib
+python scripts/build_index.py --source paperpile --source-path paperpile.bib
 ```
 
 See [guides/alternative-sources.md](guides/alternative-sources.md) for detailed setup.
@@ -794,6 +797,71 @@ The following `build_index.py` options were added in recent releases:
 | `--skip-paper PAPER_ID` | Skip specific paper ID (repeatable) |
 | `--show-failed` | Show list of failed papers from previous run |
 | `--show-skipped` | Show list of papers without PDFs |
+| `--classify-only` | Run classification pre-pass only (no LLM extraction) |
+| `--index-all` | Extract all papers regardless of classification |
+| `--reclassify` | Force re-classification of all papers |
+| `--source SOURCE` | Reference source (default: zotero) |
+| `--source-path PATH` | Path for non-Zotero sources |
+
+## Document Classification
+
+LITRIS can classify papers by document type before extraction, filtering out
+non-academic content (slides, syllabi, etc.) to save LLM costs.
+
+### Classification Pre-Pass
+
+Run classification without extraction to preview what would be extracted:
+
+```bash
+# Classify all papers and generate a report
+python scripts/build_index.py --classify-only
+
+# Force re-classification of all papers
+python scripts/build_index.py --classify-only --reclassify
+
+# Classify only papers in a specific collection
+python scripts/build_index.py --classify-only --collection "ML Papers"
+```
+
+Classification results are saved to `data/index/classification_index.json`.
+
+### Academic-Only Gating
+
+By default, `build_index.py` filters to extractable papers (academic content
+with sufficient text). Use `--index-all` to bypass this filter:
+
+```bash
+# Default: extract only academic papers
+python scripts/build_index.py --limit 10
+
+# Extract everything regardless of classification
+python scripts/build_index.py --limit 10 --index-all
+```
+
+If no classification index exists, papers are classified inline during the
+build. Running `--classify-only` first is recommended for large libraries.
+
+### Extraction Cascade
+
+Text extraction uses a multi-tier cascade, trying higher-fidelity methods
+first and falling back to simpler ones:
+
+1. **Companion** (.md file alongside PDF) -- pre-extracted markdown
+2. **arXiv HTML** -- structured HTML from arXiv papers
+3. **ar5iv** -- accessible HTML rendering of arXiv papers
+4. **Marker** -- ML-based PDF to markdown conversion
+5. **PyMuPDF** -- direct PDF text extraction
+6. **OCR** -- Tesseract fallback for scanned documents
+
+Cascade behavior is configured in `config.yaml` under `processing:`:
+
+```yaml
+processing:
+  cascade_enabled: true
+  companion_dir: null      # Optional directory for companion .md files
+  arxiv_enabled: true
+  marker_enabled: true
+```
 
 ## Hook Scripts
 
