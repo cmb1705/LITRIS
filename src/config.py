@@ -241,6 +241,10 @@ class ProcessingConfig(BaseModel):
     min_publication_pages: int = 2
     min_section_hits: int = 0
     ocr_config: dict[str, Any] | None = None
+    cascade_enabled: bool = True
+    companion_dir: Path | None = None
+    arxiv_enabled: bool = True
+    marker_enabled: bool = True
     classification: ClassificationConfig = Field(default_factory=ClassificationConfig)
 
 

@@ -50,11 +50,15 @@ class TextCleaner:
         self.remove_headers_footers = remove_headers_footers
         self.fix_hyphenation = fix_hyphenation
 
-    def clean(self, text: str) -> str:
+    def clean(self, text: str, preserve_markdown: bool = False) -> str:
         """Clean extracted text.
 
         Args:
             text: Raw extracted text.
+            preserve_markdown: If True, skip short-line filtering and
+                header/footer removal that would destroy markdown structure
+                (tables, list items, headings). Used when cascade produces
+                markdown from Companion or Marker tiers.
 
         Returns:
             Cleaned text.
@@ -62,26 +66,29 @@ class TextCleaner:
         if not text:
             return ""
 
-        # Fix hyphenated line breaks
+        # Fix hyphenated line breaks (safe for all content types)
         if self.fix_hyphenation:
             text = self.HYPHEN_LINEBREAK.sub(r"\1\2", text)
 
         # Remove page numbers and headers/footers
         if self.remove_headers_footers:
             text = self.PAGE_NUMBERS.sub("", text)
-            text = self.HEADER_FOOTER.sub("", text)
+            if not preserve_markdown:
+                # HEADER_FOOTER regex can destroy markdown headers -- skip in md mode
+                text = self.HEADER_FOOTER.sub("", text)
 
         # Normalize whitespace
         text = self.MULTIPLE_SPACES.sub(" ", text)
         text = self.MULTIPLE_NEWLINES.sub("\n\n", text)
 
-        # Filter short lines (often artifacts)
-        lines = text.split("\n")
-        lines = [
-            line for line in lines
-            if len(line.strip()) >= self.min_line_length or not line.strip()
-        ]
-        text = "\n".join(lines)
+        if not preserve_markdown:
+            # Filter short lines (destroys markdown list items, table rows)
+            lines = text.split("\n")
+            lines = [
+                line for line in lines
+                if len(line.strip()) >= self.min_line_length or not line.strip()
+            ]
+            text = "\n".join(lines)
 
         return text.strip()
 

@@ -543,3 +543,7 @@ class ExtractionResult(BaseModel):
         default=0,
         description="Number of output tokens generated",
     )
+    extraction_method: str | None = Field(
+        default=None,
+        description="Cascade tier that produced the text (e.g. companion, marker, pymupdf).",
+    )

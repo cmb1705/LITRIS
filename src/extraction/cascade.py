@@ -30,6 +30,7 @@ from src.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 CascadeMethod = Literal[
+    "companion",
     "arxiv_html",
     "ar5iv",
     "marker",
@@ -50,6 +51,7 @@ class CascadeResult:
     method: CascadeMethod
     word_count: int
     tiers_attempted: list[str]
+    is_markdown: bool = False
 
 
 class ExtractionCascade:
@@ -67,6 +69,7 @@ class ExtractionCascade:
         enable_marker: bool = True,
         arxiv_timeout: int = 30,
         min_words: int = MIN_EXTRACTION_WORDS,
+        companion_dir: Path | None = None,
     ):
         """Initialize cascade.
 
@@ -76,12 +79,14 @@ class ExtractionCascade:
             enable_marker: Enable Marker PDF-to-markdown tier.
             arxiv_timeout: Timeout for arXiv/ar5iv HTTP requests.
             min_words: Minimum word count to accept an extraction.
+            companion_dir: Optional directory for pre-extracted .md files.
         """
         self.pdf_extractor = pdf_extractor
         self.enable_arxiv = enable_arxiv
         self.enable_marker = enable_marker and marker_extractor.is_available()
         self.arxiv_timeout = arxiv_timeout
         self.min_words = min_words
+        self.companion_dir = companion_dir
 
         if enable_marker and not marker_extractor.is_available():
             logger.info("Marker not installed; Marker tier disabled")
@@ -108,6 +113,28 @@ class ExtractionCascade:
             PDFExtractionError: If all tiers fail.
         """
         tiers_attempted: list[str] = []
+
+        # Tier 0 (Priority 1): Companion .md file
+        companion_path = self._find_companion(pdf_path)
+        if companion_path:
+            tiers_attempted.append("companion")
+            try:
+                text = companion_path.read_text(encoding="utf-8")
+                if self._is_sufficient(text):
+                    logger.info(f"Companion file found: {companion_path.name}")
+                    return CascadeResult(
+                        text=text,
+                        method="companion",
+                        word_count=len(text.split()),
+                        tiers_attempted=tiers_attempted,
+                        is_markdown=True,
+                    )
+                else:
+                    logger.debug(
+                        f"Companion file {companion_path.name} has insufficient text"
+                    )
+            except OSError as e:
+                logger.warning(f"Failed to read companion file: {e}")
 
         # Detect arXiv ID for arXiv-specific tiers
         arxiv_id = None
@@ -152,6 +179,7 @@ class ExtractionCascade:
                     method="marker",
                     word_count=len(text.split()),
                     tiers_attempted=tiers_attempted,
+                    is_markdown=True,
                 )
 
         # Tier 4-5: PyMuPDF + OCR (via existing PDFExtractor)
@@ -177,6 +205,32 @@ class ExtractionCascade:
             f"All extraction tiers failed for {pdf_path.name}. "
             f"Tiers attempted: {', '.join(tiers_attempted)}"
         )
+
+    def _find_companion(self, pdf_path: Path) -> Path | None:
+        """Find a companion .md file for the given PDF.
+
+        Checks:
+        1. Same directory as PDF with .md extension
+        2. companion_dir (if configured) with same stem
+
+        Args:
+            pdf_path: Path to the PDF file.
+
+        Returns:
+            Path to companion .md file, or None if not found.
+        """
+        # Check alongside PDF
+        md_path = pdf_path.with_suffix(".md")
+        if md_path.is_file():
+            return md_path
+
+        # Check companion directory
+        if self.companion_dir and self.companion_dir.is_dir():
+            md_path = self.companion_dir / f"{pdf_path.stem}.md"
+            if md_path.is_file():
+                return md_path
+
+        return None
 
     def _is_sufficient(self, text: str) -> bool:
         """Check if extracted text meets minimum quality threshold.

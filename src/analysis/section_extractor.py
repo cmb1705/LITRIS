@@ -19,6 +19,7 @@ from src.analysis.semantic_prompts import (
     SEMANTIC_PROMPT_VERSION,
     build_pass_user_prompt,
 )
+from src.extraction.cascade import ExtractionCascade
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
 from src.utils.logging_config import LogContext, get_logger
@@ -237,6 +238,10 @@ class SectionExtractor:
         parallel_workers: int = 1,
         reasoning_effort: str | None = None,
         effort: str | None = None,
+        cascade_enabled: bool = True,
+        companion_dir: Path | None = None,
+        arxiv_enabled: bool = True,
+        marker_enabled: bool = True,
     ):
         """Initialize section extractor.
 
@@ -266,6 +271,17 @@ class SectionExtractor:
             ocr_config=ocr_config,
         )
         self.text_cleaner = TextCleaner()
+
+        # Extraction cascade (wraps pdf_extractor with higher-quality tiers)
+        self.cascade: ExtractionCascade | None = None
+        if cascade_enabled:
+            self.cascade = ExtractionCascade(
+                pdf_extractor=self.pdf_extractor,
+                enable_arxiv=arxiv_enabled,
+                enable_marker=marker_enabled,
+                min_words=min_text_length,
+                companion_dir=companion_dir,
+            )
 
         # Create LLM client using factory
         self.llm_client: BaseLLMClient = create_llm_client(
@@ -333,11 +349,21 @@ class SectionExtractor:
                     logger.info(f"Using cached extraction for {paper.paper_id}")
                     return cached_result, True
 
-            # Extract text from PDF
+            # Extract text from PDF (via cascade or direct)
+            cascade_result = None
             try:
-                text, method = self.pdf_extractor.extract_text_with_method(
-                    paper.pdf_path
-                )
+                if self.cascade:
+                    cascade_result = self.cascade.extract_text(
+                        paper.pdf_path,
+                        doi=getattr(paper, "doi", None),
+                        url=getattr(paper, "url", None),
+                    )
+                    text = cascade_result.text
+                    method = cascade_result.method
+                else:
+                    text, method = self.pdf_extractor.extract_text_with_method(
+                        paper.pdf_path
+                    )
             except Exception as e:
                 logger.error(f"PDF extraction failed: {e}")
                 return ExtractionResult(
@@ -378,8 +404,9 @@ class SectionExtractor:
                             )
                 return valid, reasons
 
-            # Clean text
-            text = self.text_cleaner.clean(text)
+            # Clean text (preserve markdown for companion/marker tiers)
+            preserve_md = cascade_result.is_markdown if cascade_result else False
+            text = self.text_cleaner.clean(text, preserve_markdown=preserve_md)
             valid_text, non_pub_reasons = evaluate_text(text)
 
             # OCR fallback for low-quality text
@@ -461,9 +488,12 @@ class SectionExtractor:
                 document_type=doc_type.value,
             )
 
-            # Attach classification to result
+            # Attach classification and extraction method to result
             result.document_type = doc_type.value
             result.type_confidence = type_confidence
+            result.extraction_method = (
+                cascade_result.method if cascade_result else method
+            )
 
             # Set indexed timestamp on success
             if result.success:
