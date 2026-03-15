@@ -230,6 +230,77 @@ FIELD_TO_GROUP: dict[str, str] = {
     for field in fields
 }
 
+# Per-dimension reasoning effort for OpenAI GPT-5.x models.
+# "high" = answer is typically explicit in the text (structural extraction)
+# "xhigh" = requires synthesis, inference, or critical reading
+DIMENSION_REASONING_EFFORT: dict[str, str] = {
+    # Pass 1: Research Core
+    "q01_research_question": "high",    # Usually stated in abstract/intro
+    "q02_thesis": "high",              # Usually stated explicitly
+    "q03_key_claims": "xhigh",         # Distilling argument structure
+    "q04_evidence": "xhigh",           # Evaluating quality, not just listing
+    "q05_limitations": "xhigh",        # Often implicit or understated
+    # Pass 2: Methodology
+    "q06_paradigm": "xhigh",           # Epistemological classification
+    "q07_methods": "high",             # Dedicated section in most papers
+    "q08_data": "high",               # Explicitly described
+    "q09_reproducibility": "high",     # Factual: is code/data shared?
+    "q10_framework": "high",           # Usually named explicitly
+    # Pass 3: Context & Discourse
+    "q11_traditions": "xhigh",         # Requires broad field knowledge
+    "q12_key_citations": "high",       # Listed in references
+    "q13_assumptions": "xhigh",        # Rarely stated, must be inferred
+    "q14_counterarguments": "xhigh",   # Adversarial reading required
+    "q15_novelty": "xhigh",           # Must situate in field context
+    "q16_stance": "xhigh",            # Reading between the lines
+    # Pass 4: Meta & Audience
+    "q17_field": "high",              # Obvious from journal/content
+    "q18_audience": "high",           # Obvious from venue
+    "q19_implications": "xhigh",      # Synthesis beyond stated conclusions
+    "q20_future_work": "xhigh",       # Sometimes requires inference
+    "q21_quality": "xhigh",           # Holistic judgment call
+    "q22_contribution": "xhigh",      # What's actually new vs claimed
+    "q23_source_type": "high",        # Structural classification
+    "q24_other": "xhigh",            # Open-ended synthesis
+    # Pass 5: Scholarly Positioning
+    "q25_institutional_context": "high",  # Affiliations are stated
+    "q26_historical_timing": "xhigh",    # Why now? Contextual reasoning
+    "q27_paradigm_influence": "xhigh",   # Deep field knowledge
+    "q28_disciplines_bridged": "high",   # Stated or obvious from methods
+    "q29_cross_domain_insights": "xhigh",  # Transfer reasoning
+    "q30_cultural_scope": "high",        # Stated in data description
+    "q31_philosophical_assumptions": "xhigh",  # Deep epistemological reasoning
+    # Pass 6: Impact, Gaps & Domain
+    "q32_deployment_gap": "xhigh",       # Research-to-practice gap analysis
+    "q33_infrastructure_contribution": "high",  # Factual: tools/datasets released?
+    "q34_power_dynamics": "xhigh",       # Critical theory lens
+    "q35_gaps_and_omissions": "xhigh",   # Knowing what's missing
+    "q36_dual_use_concerns": "xhigh",    # Ethical reasoning
+    "q37_emergence_claims": "xhigh",     # Nuanced systems thinking
+    "q38_remaining_other": "xhigh",      # Open-ended catch-all
+    "q39_network_properties": "high",    # Factual: which metrics/algorithms?
+    "q40_policy_recommendations": "high",  # Usually in conclusion if present
+}
+
+
+def get_pass_reasoning_effort(pass_number: int) -> str:
+    """Return the highest reasoning effort needed for any dimension in a pass.
+
+    If any dimension in the pass requires "xhigh", the whole pass runs at
+    "xhigh". Otherwise "high".
+
+    Args:
+        pass_number: 1-6.
+
+    Returns:
+        "high" or "xhigh".
+    """
+    _, questions = PASS_DEFINITIONS[pass_number - 1]
+    for field_name, _ in questions:
+        if DIMENSION_REASONING_EFFORT.get(field_name) == "xhigh":
+            return "xhigh"
+    return "high"
+
 
 # -- Prompt builders -----------------------------------------------------------
 

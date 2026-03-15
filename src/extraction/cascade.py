@@ -1,22 +1,24 @@
 """Multi-tier PDF extraction cascade.
 
-Orchestrates extraction across multiple backends in quality-priority order:
+Orchestrates extraction across multiple backends in speed-priority order,
+reserving heavy ML tiers (Marker) for cases where fast extraction fails:
 
 For arXiv papers:
   1. arXiv HTML (highest quality, cleanest text)
   2. ar5iv HTML5 rendering
-  3. Marker PDF-to-markdown (if installed)
-  4. PyMuPDF (standard text extraction)
-  5. OCR (fallback for scanned PDFs)
+  3. PyMuPDF (fast text extraction)
+  4. Marker PDF-to-markdown (ML fallback for complex layouts)
+  5. OCR (last resort for scanned PDFs)
 
 For non-arXiv papers:
-  1. Marker PDF-to-markdown (if installed)
-  2. PyMuPDF (standard text extraction)
-  3. OCR (fallback for scanned PDFs)
+  1. PyMuPDF (fast text extraction)
+  2. Marker PDF-to-markdown (ML fallback for complex layouts)
+  3. OCR (last resort for scanned PDFs)
 
 Each tier is tried in order; the first to produce text with sufficient
-word count wins. This minimizes API calls and external dependencies
-while maximizing extraction quality.
+word count wins. Marker is intentionally placed after PyMuPDF because
+it runs ML models on every page (10-30s/page) and is only needed when
+PyMuPDF cannot extract text (scanned PDFs, image-heavy layouts).
 """
 
 from dataclasses import dataclass
@@ -169,20 +171,7 @@ class ExtractionCascade:
                     tiers_attempted=tiers_attempted,
                 )
 
-        # Tier 3: Marker
-        if self.enable_marker:
-            tiers_attempted.append("marker")
-            text = marker_extractor.extract_with_marker(pdf_path)
-            if text and self._is_sufficient(text):
-                return CascadeResult(
-                    text=text,
-                    method="marker",
-                    word_count=len(text.split()),
-                    tiers_attempted=tiers_attempted,
-                    is_markdown=True,
-                )
-
-        # Tier 4-5: PyMuPDF + OCR (via existing PDFExtractor)
+        # Tier 3: PyMuPDF (fast, handles most PDFs with embedded text)
         tiers_attempted.append("pymupdf")
         try:
             text, method = self.pdf_extractor.extract_text_with_method(pdf_path)
@@ -200,6 +189,19 @@ class ExtractionCascade:
                 )
         except PDFExtractionError:
             pass
+
+        # Tier 4: Marker (ML fallback for complex layouts, scanned docs)
+        if self.enable_marker:
+            tiers_attempted.append("marker")
+            text = marker_extractor.extract_with_marker(pdf_path)
+            if text and self._is_sufficient(text):
+                return CascadeResult(
+                    text=text,
+                    method="marker",
+                    word_count=len(text.split()),
+                    tiers_attempted=tiers_attempted,
+                    is_markdown=True,
+                )
 
         raise PDFExtractionError(
             f"All extraction tiers failed for {pdf_path.name}. "
