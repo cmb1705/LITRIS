@@ -63,6 +63,16 @@ class ModelOverrides(BaseModel):
     # summary: str | None = None
 
 
+class ProviderSettings(BaseModel):
+    """Per-provider extraction settings."""
+
+    model: str | None = None  # None means use provider's default
+    mode: str | None = None  # Override default mode for this provider
+    effort: str | None = None  # Claude CLI effort level
+    reasoning_effort: str | None = None  # OpenAI reasoning effort
+    timeout: int | None = None  # Override default timeout
+
+
 class ExtractionConfig(BaseModel):
     """LLM extraction configuration."""
 
@@ -76,6 +86,7 @@ class ExtractionConfig(BaseModel):
     reasoning_effort: str | None = None  # For OpenAI GPT-5.x: none/low/medium/high/xhigh
     effort: str | None = None  # Claude CLI effort level: low/medium/high (controls extended thinking)
     model_overrides: ModelOverrides | None = None  # Per-item-type model selection
+    providers: dict[str, ProviderSettings] = Field(default_factory=dict)
 
     @field_validator("provider")
     @classmethod
@@ -126,6 +137,49 @@ class ExtractionConfig(BaseModel):
         if v > 10:
             raise ValueError("parallel_workers should not exceed 10")
         return v
+
+    def get_provider_settings(self, provider: str | None = None) -> ProviderSettings:
+        """Get resolved settings for a provider.
+
+        Merges per-provider settings over top-level defaults. If a
+        per-provider section exists, its non-None values override the
+        top-level extraction config values.
+
+        Args:
+            provider: Provider name. If None, uses self.provider.
+
+        Returns:
+            ProviderSettings with resolved values.
+        """
+        provider = provider or self.provider
+        per_provider = self.providers.get(provider, ProviderSettings())
+
+        return ProviderSettings(
+            model=per_provider.model or self.model,
+            mode=per_provider.mode or self.mode,
+            effort=per_provider.effort or self.effort,
+            reasoning_effort=per_provider.reasoning_effort or self.reasoning_effort,
+            timeout=per_provider.timeout or self.timeout,
+        )
+
+    def apply_provider(self, provider: str | None = None) -> None:
+        """Apply per-provider settings to the top-level config fields.
+
+        Mutates self so that self.model, self.mode, self.effort,
+        self.reasoning_effort, and self.timeout reflect the active
+        provider's settings. Call this after resolving --provider CLI arg.
+
+        Args:
+            provider: Provider name. If None, uses self.provider.
+        """
+        provider = provider or self.provider
+        self.provider = provider
+        settings = self.get_provider_settings(provider)
+        self.model = settings.model
+        self.mode = settings.mode or self.mode
+        self.effort = settings.effort
+        self.reasoning_effort = settings.reasoning_effort
+        self.timeout = settings.timeout or self.timeout
 
     def get_model_or_default(self, item_type: str | None = None) -> str:
         """Get model name, using provider default if not specified.
