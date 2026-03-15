@@ -228,12 +228,14 @@ class TestExtractionCascade:
 
     @patch("src.extraction.cascade.marker_extractor.is_available")
     @patch("src.extraction.cascade.marker_extractor.extract_with_marker")
-    def test_cascade_uses_marker_when_available(
+    def test_cascade_uses_marker_as_fallback(
         self, mock_extract, mock_available, mock_pdf_extractor,
     ):
-        """Marker tier is used when installed and text is good."""
+        """Marker fires as fallback when PyMuPDF produces insufficient text."""
         mock_available.return_value = True
         mock_extract.return_value = self._LONG_TEXT
+        # PyMuPDF returns insufficient text, triggering Marker fallback
+        mock_pdf_extractor.extract_text_with_method.return_value = ("Short.", "pymupdf")
 
         cascade = ExtractionCascade(
             pdf_extractor=mock_pdf_extractor,
@@ -247,7 +249,7 @@ class TestExtractionCascade:
 
         assert result.method == "marker"
         assert "marker" in result.tiers_attempted
-        mock_pdf_extractor.extract_text_with_method.assert_not_called()
+        assert "pymupdf" in result.tiers_attempted
 
     def test_cascade_disables_arxiv(self, mock_pdf_extractor):
         """arXiv tiers are skipped when disabled."""
