@@ -852,6 +852,14 @@ class LLMCouncil:
         synth = self.config.synthesis
         prompt = self._build_synthesis_prompt(responses)
 
+        # Check for valid extractions before creating judge client
+        base = next(
+            (r.extraction for r in responses if r.extraction), None,
+        )
+        if base is None:
+            logger.warning("Synthesis skipped: no valid extractions to merge")
+            return None
+
         try:
             judge_provider = ProviderConfig(
                 name=synth.judge_provider,
@@ -859,14 +867,6 @@ class LLMCouncil:
                 model=synth.judge_model,
             )
             client = self._get_client(judge_provider)
-
-            # Use the first successful extraction for metadata
-            base = next(
-                (r.extraction for r in responses if r.extraction), None,
-            )
-            if base is None:
-                logger.warning("Synthesis skipped: no valid extractions to merge")
-                return None
 
             result = client.extract(
                 paper_id=base.paper_id,
