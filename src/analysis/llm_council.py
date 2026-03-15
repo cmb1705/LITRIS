@@ -242,6 +242,34 @@ def strategy_union_merge(pairs: list[tuple[str | None, float]]) -> str | None:
     return " ".join(unique) if unique else None
 
 
+def identify_gap_passes(analysis: SemanticAnalysis) -> dict[int, list[str]]:
+    """Map unfilled dimension fields to their extraction pass numbers.
+
+    Examines each dimension field in the given analysis. Fields whose value
+    is ``None`` are considered gaps. Each gap field is mapped back to the
+    1-indexed pass that produces it (using ``PASS_DEFINITIONS``).
+
+    Args:
+        analysis: A SemanticAnalysis with some potentially None fields.
+
+    Returns:
+        Dict mapping pass number (1-6) to the list of field names that
+        are None in that pass. Passes with no gaps are omitted.
+    """
+    from src.analysis.semantic_prompts import PASS_DEFINITIONS
+
+    gap_passes: dict[int, list[str]] = {}
+    for pass_idx, (_pass_label, questions) in enumerate(PASS_DEFINITIONS, start=1):
+        missing = [
+            field_name
+            for field_name, _question_text in questions
+            if getattr(analysis, field_name, None) is None
+        ]
+        if missing:
+            gap_passes[pass_idx] = missing
+    return gap_passes
+
+
 STRATEGY_REGISTRY: dict[str, AggregationFn] = {
     "longest": strategy_longest,
     "quality_weighted": strategy_quality_weighted,
@@ -864,6 +892,154 @@ class LLMCouncil:
         except Exception as e:
             logger.error("Synthesis round error: %s", e)
             return None
+
+    # ------------------------------------------------------------------
+    # Gap-filling extraction
+    # ------------------------------------------------------------------
+
+    def fill_gaps(
+        self,
+        analysis: SemanticAnalysis,
+        paper_id: str,
+        title: str,
+        authors: str,
+        year: int | str | None,
+        item_type: str,
+        text: str,
+        gap_provider: ProviderConfig | None = None,
+    ) -> tuple[SemanticAnalysis, int]:
+        """Fill unfilled dimensions using a secondary provider.
+
+        Identifies which of the 6 extraction passes contain missing
+        (``None``) fields, runs only those passes with a different
+        provider, and merges the results into the original analysis
+        using the council's configured aggregation strategy.
+
+        Args:
+            analysis: Existing SemanticAnalysis with some None fields.
+            paper_id: Paper identifier.
+            title: Paper title.
+            authors: Author string.
+            year: Publication year.
+            item_type: Document type.
+            text: Paper text content.
+            gap_provider: Provider to use for gap-filling. If ``None``,
+                the first enabled provider whose name differs from
+                ``analysis.extraction_model`` is selected automatically.
+
+        Returns:
+            Tuple of (merged analysis, number of gaps filled).
+        """
+        from datetime import datetime
+
+        from src.analysis.semantic_prompts import (
+            PASS_DEFINITIONS,
+            build_pass_user_prompt,
+        )
+
+        gap_passes = identify_gap_passes(analysis)
+        if not gap_passes:
+            return analysis, 0
+
+        # Select gap provider
+        if gap_provider is None:
+            original_model = analysis.extraction_model
+            enabled = [p for p in self.config.providers if p.enabled]
+            candidates = [p for p in enabled if p.name != original_model]
+            if not candidates:
+                # Fall back to any enabled provider
+                candidates = enabled
+            if not candidates:
+                logger.warning("No providers available for gap-filling")
+                return analysis, 0
+            gap_provider = candidates[0]
+
+        client = self._get_client(gap_provider)
+
+        # Run only the passes that have gaps
+        gap_answers: dict[str, str | None] = {}
+        for pass_num, missing_fields in gap_passes.items():
+            _pass_label, _pass_questions = PASS_DEFINITIONS[pass_num - 1]
+
+            prompt = build_pass_user_prompt(
+                pass_number=pass_num,
+                title=title,
+                authors=authors,
+                year=year,
+                document_type=item_type,
+                text=text,
+            )
+
+            try:
+                result = client.extract(
+                    paper_id=paper_id,
+                    title=title,
+                    authors=authors,
+                    year=year,
+                    item_type=item_type,
+                    text=text,
+                    prompt_override=prompt,
+                )
+
+                if result.success and result.extraction:
+                    for field_name in missing_fields:
+                        value = getattr(result.extraction, field_name, None)
+                        if value is not None:
+                            gap_answers[field_name] = value
+
+            except Exception as exc:
+                logger.error(
+                    "Gap-fill pass %d failed for provider %s: %s",
+                    pass_num, gap_provider.name, exc,
+                )
+
+        if not gap_answers:
+            return analysis, 0
+
+        # Build a gap-fill SemanticAnalysis for aggregation
+        model_name = getattr(client, "model", None)
+        if not isinstance(model_name, str):
+            model_name = gap_provider.name
+        gap_analysis = SemanticAnalysis(
+            paper_id=paper_id,
+            prompt_version=analysis.prompt_version,
+            extraction_model=model_name,
+            extracted_at=datetime.now().isoformat(),
+            **gap_answers,
+        )
+
+        # Merge: original + gap-fill via council aggregation
+        original_weight = next(
+            (
+                p.weight
+                for p in self.config.providers
+                if p.name == analysis.extraction_model
+            ),
+            1.0,
+        )
+        gap_weight = gap_provider.weight
+
+        merged = aggregate_analyses(
+            [analysis, gap_analysis],
+            weights=[original_weight, gap_weight],
+            default_strategy=self.config.aggregation_strategy,
+            field_strategies=self.config.field_strategies or None,
+        )
+
+        # Preserve original metadata
+        merged.paper_id = analysis.paper_id
+        merged.prompt_version = analysis.prompt_version
+        merged.extraction_model = analysis.extraction_model
+        merged.extracted_at = analysis.extracted_at
+
+        # Count how many previously-None fields are now filled
+        gaps_filled = sum(
+            1
+            for field_name in gap_answers
+            if getattr(merged, field_name, None) is not None
+        )
+
+        return merged, gaps_filled
 
     # ------------------------------------------------------------------
     # Generic query (non-extraction)

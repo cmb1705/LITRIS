@@ -1,105 +1,41 @@
-"""Anthropic Batch API client for paper extraction."""
-
-# NOTE: This module constructs PaperExtraction objects and is non-functional after the SemanticAnalysis migration. Retained for future multi-provider support.
+"""Anthropic Batch API client for 6-pass SemanticAnalysis extraction."""
 
 import json
 import time
+from collections import defaultdict
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 from anthropic import Anthropic
 
 from src.analysis.constants import ANTHROPIC_BATCH_PRICING, DEFAULT_MODELS
-from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
-from src.analysis.schemas import ExtractionResult, PaperExtraction
+from src.analysis.coverage import score_coverage
+from src.analysis.schemas import ExtractionResult, SemanticAnalysis
+from src.analysis.semantic_prompts import (
+    PASS_DEFINITIONS,
+    SEMANTIC_PROMPT_VERSION,
+    SEMANTIC_SYSTEM_PROMPT,
+    build_pass_user_prompt,
+)
 from src.utils.logging_config import get_logger
 from src.utils.secrets import get_anthropic_api_key
 from src.zotero.models import PaperMetadata
 
 logger = get_logger(__name__)
 
-# Valid enum values for extraction fields
-VALID_EVIDENCE_TYPES = {
-    "empirical", "theoretical", "methodological", "case_study",
-    "survey", "experimental", "qualitative", "quantitative", "mixed",
-}
-VALID_SIGNIFICANCE_LEVELS = {"high", "medium", "low"}
-VALID_SUPPORT_TYPES = {"data", "citation", "logic", "example", "authority"}
-
-# Synonyms for enum normalization
-EVIDENCE_TYPE_SYNONYMS = {
-    "ethnographic": "qualitative",
-    "ethnography": "qualitative",
-    "interviews": "qualitative",
-    "interview": "qualitative",
-    "observational": "qualitative",
-    "empiric": "empirical",
-    "data": "empirical",
-    "evidence": "empirical",
-    "theory": "theoretical",
-    "conceptual": "theoretical",
-    "methods": "methodological",
-    "methodology": "methodological",
-    "case": "case_study",
-    "case_studies": "case_study",
-    "case study": "case_study",
-    "experiment": "experimental",
-    "experiments": "experimental",
-    "qual": "qualitative",
-    "quant": "quantitative",
-    "mixed_methods": "mixed",
-    "mixed methods": "mixed",
-}
-
-
-def _normalize_enum(value: str | None, valid_values: set, synonyms: dict, default: str) -> str:
-    """Normalize an enum value to a valid entry.
-
-    Args:
-        value: Raw value from LLM.
-        valid_values: Set of valid enum values.
-        synonyms: Dict mapping synonyms to valid values.
-        default: Default value if normalization fails.
-
-    Returns:
-        Normalized valid enum value.
-    """
-    if value is None:
-        return default
-
-    # Clean the value
-    cleaned = str(value).lower().strip()
-
-    # Extract first word if there's extra text (e.g., "empirical (data-based)")
-    if "(" in cleaned:
-        cleaned = cleaned.split("(")[0].strip()
-
-    # Check if already valid
-    if cleaned in valid_values:
-        return cleaned
-
-    # Check synonyms
-    if cleaned in synonyms:
-        return synonyms[cleaned]
-
-    # Try partial matching
-    for valid in valid_values:
-        if valid in cleaned or cleaned in valid:
-            return valid
-
-    logger.debug(f"Unknown enum value '{value}', using default '{default}'")
-    return default
+NUM_PASSES = 6
 
 
 @dataclass
 class BatchRequest:
     """A single request in a batch."""
 
-    custom_id: str  # paper_id
+    custom_id: str  # {paper_id}:pass{N}
     paper: PaperMetadata
     prompt: str
+    pass_number: int = 1
 
 
 @dataclass
@@ -116,17 +52,31 @@ class BatchStatus:
     results_url: str | None = None
 
 
+@dataclass
+class _PaperPassResults:
+    """Accumulator for per-paper pass results during batch reassembly."""
+
+    answers: dict[str, str | None] = field(default_factory=dict)
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
 class BatchExtractionClient:
     """Client for batch extraction using Anthropic Batch API.
 
     The Batch API is cost-effective (50% discount) but asynchronous.
     Batches are processed within 24 hours.
 
+    Uses the 6-pass SemanticAnalysis pipeline: each paper generates 6
+    requests (one per pass), which are reassembled into a single
+    SemanticAnalysis after completion.
+
     Typical workflow:
-    1. Create batch from papers
+    1. Create batch from papers (6 requests per paper)
     2. Submit batch
     3. Poll for completion (or wait)
-    4. Retrieve results
+    4. Retrieve and reassemble results
     """
 
     def __init__(
@@ -139,7 +89,7 @@ class BatchExtractionClient:
 
         Args:
             model: Model to use for extraction.
-            max_tokens: Maximum tokens for response.
+            max_tokens: Maximum tokens per response.
             batch_dir: Directory to store batch state files.
         """
         api_key = get_anthropic_api_key()
@@ -169,34 +119,42 @@ class BatchExtractionClient:
     ) -> list[BatchRequest]:
         """Create batch requests from papers.
 
+        Generates 6 requests per paper (one per pass in the SemanticAnalysis
+        pipeline).
+
         Args:
             papers: List of papers to process.
             text_getter: Function(paper) -> str that returns cleaned text.
 
         Returns:
-            List of BatchRequest objects.
+            List of BatchRequest objects (6 per paper).
         """
         requests = []
 
         for paper in papers:
             try:
                 text = text_getter(paper)
-                prompt = build_extraction_prompt(
-                    title=paper.title,
-                    authors=paper.author_string,
-                    year=paper.publication_year,
-                    item_type=paper.item_type,
-                    text=text,
-                )
-                requests.append(
-                    BatchRequest(
-                        custom_id=paper.paper_id,
-                        paper=paper,
-                        prompt=prompt,
+
+                for pass_num in range(1, NUM_PASSES + 1):
+                    prompt = build_pass_user_prompt(
+                        pass_number=pass_num,
+                        title=paper.title,
+                        authors=paper.author_string,
+                        year=paper.publication_year,
+                        document_type=paper.item_type,
+                        text=text,
                     )
-                )
+                    custom_id = f"{paper.paper_id}:pass{pass_num}"
+                    requests.append(
+                        BatchRequest(
+                            custom_id=custom_id,
+                            paper=paper,
+                            prompt=prompt,
+                            pass_number=pass_num,
+                        )
+                    )
             except Exception as e:
-                logger.warning(f"Failed to create request for {paper.paper_id}: {e}")
+                logger.warning(f"Failed to create requests for {paper.paper_id}: {e}")
 
         return requests
 
@@ -220,7 +178,7 @@ class BatchExtractionClient:
                 "params": {
                     "model": self.model,
                     "max_tokens": self.max_tokens,
-                    "system": EXTRACTION_SYSTEM_PROMPT,
+                    "system": SEMANTIC_SYSTEM_PROMPT,
                     "messages": [{"role": "user", "content": req.prompt}],
                 },
             })
@@ -260,7 +218,6 @@ class BatchExtractionClient:
             + response.request_counts.expired,
             completed_requests=response.request_counts.succeeded,
             failed_requests=response.request_counts.errored,
-            results_url=response.results_url,
         )
 
     def wait_for_batch(
@@ -313,51 +270,132 @@ class BatchExtractionClient:
     def get_results(self, batch_id: str) -> Iterator[ExtractionResult]:
         """Retrieve results from a completed batch.
 
+        Reassembles 6 per-pass responses into one SemanticAnalysis per paper.
+
         Args:
             batch_id: Batch ID from submit_batch.
 
         Yields:
             ExtractionResult for each paper.
         """
-        # Stream results from the batch
+        # Collect all pass results grouped by paper_id
+        paper_results: dict[str, _PaperPassResults] = defaultdict(
+            _PaperPassResults
+        )
+
         for result in self.client.messages.batches.results(batch_id):
-            paper_id = result.custom_id
+            custom_id = result.custom_id
+
+            # Parse paper_id and pass number from custom_id
+            if ":pass" in custom_id:
+                paper_id, pass_suffix = custom_id.rsplit(":pass", 1)
+                try:
+                    pass_num = int(pass_suffix)
+                except ValueError:
+                    logger.warning(f"Invalid pass number in custom_id: {custom_id}")
+                    continue
+            else:
+                # Legacy single-pass format (no :pass suffix)
+                paper_id = custom_id
+                pass_num = 0
+                logger.warning(
+                    f"Legacy single-pass custom_id format: {custom_id}. "
+                    "Cannot reassemble into SemanticAnalysis."
+                )
+                continue
+
+            acc = paper_results[paper_id]
 
             if result.result.type == "succeeded":
                 try:
                     message = result.result.message
                     response_text = message.content[0].text
-                    extraction = self._parse_response(response_text)
+                    pass_data = self._parse_pass_response(response_text)
 
-                    yield ExtractionResult(
-                        paper_id=paper_id,
-                        success=True,
-                        extraction=extraction,
-                        model_used=self.model,
-                        input_tokens=message.usage.input_tokens,
-                        output_tokens=message.usage.output_tokens,
-                    )
+                    # Get expected fields for this pass
+                    if 1 <= pass_num <= NUM_PASSES:
+                        _, pass_questions = PASS_DEFINITIONS[pass_num - 1]
+                        expected_fields = [q[0] for q in pass_questions]
+
+                        for field_name in expected_fields:
+                            acc.answers[field_name] = pass_data.get(field_name)
+
+                    acc.total_input_tokens += message.usage.input_tokens
+                    acc.total_output_tokens += message.usage.output_tokens
+
                 except Exception as e:
-                    logger.error(f"Failed to parse result for {paper_id}: {e}")
-                    yield ExtractionResult(
-                        paper_id=paper_id,
-                        success=False,
-                        error=f"Parse error: {e}",
-                        model_used=self.model,
+                    logger.error(
+                        f"Failed to parse pass {pass_num} for {paper_id}: {e}"
+                    )
+                    acc.errors.append(
+                        f"pass {pass_num}: parse error: {e}"
                     )
             else:
                 error_msg = getattr(result.result, "error", {})
+                acc.errors.append(f"pass {pass_num}: {error_msg}")
+
+        # Reassemble each paper's passes into a SemanticAnalysis
+        for paper_id, acc in paper_results.items():
+            if len(acc.errors) == NUM_PASSES:
                 yield ExtractionResult(
                     paper_id=paper_id,
                     success=False,
-                    error=f"Batch error: {error_msg}",
+                    error=f"All {NUM_PASSES} passes failed: "
+                    + "; ".join(acc.errors),
                     model_used=self.model,
+                    input_tokens=acc.total_input_tokens,
+                    output_tokens=acc.total_output_tokens,
+                )
+                continue
+
+            try:
+                analysis = SemanticAnalysis(
+                    paper_id=paper_id,
+                    prompt_version=SEMANTIC_PROMPT_VERSION,
+                    extraction_model=self.model,
+                    extracted_at=datetime.now().isoformat(),
+                    **acc.answers,
                 )
 
-    def _parse_response(self, response_text: str) -> PaperExtraction:
-        """Parse JSON response into PaperExtraction."""
-        from src.analysis.schemas import KeyClaim, KeyFinding, Methodology
+                # Compute coverage scoring
+                coverage_result = score_coverage(analysis)
+                analysis.dimension_coverage = coverage_result.coverage
+                analysis.coverage_flags = coverage_result.flags
 
+                logger.info(
+                    f"Reassembled {paper_id}: "
+                    f"{NUM_PASSES - len(acc.errors)}/{NUM_PASSES} passes, "
+                    f"coverage: {analysis.dimension_coverage:.0%}"
+                )
+
+                yield ExtractionResult(
+                    paper_id=paper_id,
+                    success=True,
+                    extraction=analysis,
+                    model_used=self.model,
+                    input_tokens=acc.total_input_tokens,
+                    output_tokens=acc.total_output_tokens,
+                )
+            except Exception as e:
+                logger.error(f"Failed to build SemanticAnalysis for {paper_id}: {e}")
+                yield ExtractionResult(
+                    paper_id=paper_id,
+                    success=False,
+                    error=f"Reassembly error: {e}",
+                    model_used=self.model,
+                    input_tokens=acc.total_input_tokens,
+                    output_tokens=acc.total_output_tokens,
+                )
+
+    def _parse_pass_response(self, response_text: str) -> dict[str, str | None]:
+        """Parse a single pass JSON response into a dict of q-field answers.
+
+        Args:
+            response_text: Raw JSON response from LLM.
+
+        Returns:
+            Dict mapping field names to their string answers (or None).
+        """
         # Clean response - remove any markdown formatting
         text = response_text.strip()
         if text.startswith("```json"):
@@ -368,66 +406,40 @@ class BatchExtractionClient:
             text = text[:-3]
         text = text.strip()
 
-        # Parse JSON
+        if not text:
+            raise ValueError("Cannot parse empty response from LLM")
+
         data = json.loads(text)
 
-        # Handle nested objects
-        if "methodology" in data and isinstance(data["methodology"], dict):
-            data["methodology"] = Methodology(**data["methodology"])
+        # Validate that we got q-field keys
+        has_q_fields = any(k.startswith("q") and k[1:3].isdigit() for k in data)
+        if not has_q_fields:
+            logger.warning(
+                "Pass response does not contain q-field keys. "
+                "Got keys: %s",
+                list(data.keys()),
+            )
 
-        if "key_findings" in data and isinstance(data["key_findings"], list):
-            normalized_findings = []
-            for f in data["key_findings"]:
-                if isinstance(f, dict):
-                    # Normalize enum fields
-                    f["evidence_type"] = _normalize_enum(
-                        f.get("evidence_type"),
-                        VALID_EVIDENCE_TYPES,
-                        EVIDENCE_TYPE_SYNONYMS,
-                        "empirical",
-                    )
-                    f["significance"] = _normalize_enum(
-                        f.get("significance"),
-                        VALID_SIGNIFICANCE_LEVELS,
-                        {},
-                        "medium",
-                    )
-                    normalized_findings.append(KeyFinding(**f))
-                else:
-                    normalized_findings.append(f)
-            data["key_findings"] = normalized_findings
-
-        if "key_claims" in data and isinstance(data["key_claims"], list):
-            normalized_claims = []
-            for c in data["key_claims"]:
-                if isinstance(c, dict):
-                    # Normalize enum fields
-                    c["support_type"] = _normalize_enum(
-                        c.get("support_type"),
-                        VALID_SUPPORT_TYPES,
-                        {"empirical": "data", "experimental": "data"},
-                        "data",
-                    )
-                    c["strength"] = _normalize_enum(
-                        c.get("strength"),
-                        VALID_SIGNIFICANCE_LEVELS,
-                        {},
-                        "medium",
-                    )
-                    normalized_claims.append(KeyClaim(**c))
-                else:
-                    normalized_claims.append(c)
-            data["key_claims"] = normalized_claims
-
-        return PaperExtraction(**data)
+        return data
 
     def _save_batch_state(self, batch_id: str, requests: list[BatchRequest]) -> None:
         """Save batch state to disk for recovery."""
+        # Deduplicate paper_ids (each paper has 6 requests)
+        paper_ids = sorted({
+            r.custom_id.rsplit(":pass", 1)[0]
+            if ":pass" in r.custom_id
+            else r.custom_id
+            for r in requests
+        })
+
         state = {
             "batch_id": batch_id,
             "created_at": datetime.now().isoformat(),
             "model": self.model,
-            "paper_ids": [r.custom_id for r in requests],
+            "pipeline": "semantic_6pass",
+            "paper_ids": paper_ids,
+            "total_requests": len(requests),
+            "passes_per_paper": NUM_PASSES,
         }
 
         state_file = self.batch_dir / f"{batch_id}.json"
@@ -458,6 +470,8 @@ class BatchExtractionClient:
     def estimate_cost(self, num_papers: int, avg_text_length: int) -> dict:
         """Estimate cost for batch extraction.
 
+        Accounts for 6 passes per paper in the SemanticAnalysis pipeline.
+
         Args:
             num_papers: Number of papers.
             avg_text_length: Average text length per paper.
@@ -466,13 +480,14 @@ class BatchExtractionClient:
             Cost estimate dictionary.
         """
         # Rough estimate: 4 chars per token
-        input_tokens_per_paper = avg_text_length // 4 + 500
-        output_tokens_per_paper = 2000
+        # Each pass sends the full text, so input tokens are multiplied by 6
+        input_tokens_per_pass = avg_text_length // 4 + 500
+        output_tokens_per_pass = 2000
 
-        total_input = input_tokens_per_paper * num_papers
-        total_output = output_tokens_per_paper * num_papers
+        total_input = input_tokens_per_pass * num_papers * NUM_PASSES
+        total_output = output_tokens_per_pass * num_papers * NUM_PASSES
 
-        # Get batch pricing for model (default to Opus 4.5 pricing)
+        # Get batch pricing for model (default to Opus 4.6 pricing)
         input_cost_per_million, output_cost_per_million = self.BATCH_PRICING.get(
             self.model, (2.50, 12.50)
         )
@@ -482,6 +497,8 @@ class BatchExtractionClient:
 
         return {
             "num_papers": num_papers,
+            "passes_per_paper": NUM_PASSES,
+            "total_requests": num_papers * NUM_PASSES,
             "estimated_input_tokens": total_input,
             "estimated_output_tokens": total_output,
             "estimated_cost": round(input_cost + output_cost, 2),
