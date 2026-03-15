@@ -1321,16 +1321,18 @@ def main():
             print("\nNo new papers to extract.")
         return 0
 
-    # Initialize extractor settings
+    # Initialize extractor settings -- resolve per-provider config
     provider = args.provider or config.extraction.provider
-    mode = args.mode or config.extraction.mode
-    _model = args.model or config.extraction.model
+    config.extraction.apply_provider(provider)
 
-    # Override config with CLI args
-    if args.provider:
-        config.extraction.provider = args.provider
+    # CLI args override per-provider settings
+    if args.mode:
+        config.extraction.mode = args.mode
     if args.model:
         config.extraction.model = args.model
+
+    mode = config.extraction.mode
+    _model = config.extraction.model
 
     logger.info(f"Using LLM provider: {provider}")
 
