@@ -454,8 +454,8 @@ def main():
     )
     parser.add_argument(
         "--strategy", choices=["longest", "quality_weighted", "union"],
-        default="longest",
-        help="Aggregation strategy for council consensus (default: longest)",
+        default="quality_weighted",
+        help="Aggregation strategy for council consensus (default: quality_weighted)",
     )
     args = parser.parse_args()
 
