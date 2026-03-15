@@ -946,6 +946,8 @@ class SectionExtractor:
             "too many requests",
             "quota exceeded",
             "throttl",
+            "usage_limit_reached",
+            "usage limit",
         ))
 
     def _handle_quota_exhaustion(self, consecutive_errors: int) -> bool:
