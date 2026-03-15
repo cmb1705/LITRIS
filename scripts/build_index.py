@@ -217,6 +217,24 @@ def parse_args():
         help="Force re-classification of all papers (use with --classify-only).",
     )
     parser.add_argument(
+        "--gap-fill",
+        action="store_true",
+        help="After extraction, fill missing dimensions using a secondary provider. "
+        "Uses the opposite provider (anthropic<->openai) in CLI mode.",
+    )
+    parser.add_argument(
+        "--gap-fill-threshold",
+        type=float,
+        default=0.85,
+        help="Coverage threshold below which gap-filling runs (default: 0.85 = 85%%).",
+    )
+    parser.add_argument(
+        "--gap-fill-provider",
+        type=str,
+        default=None,
+        help="Provider for gap-filling (default: auto-select opposite of primary).",
+    )
+    parser.add_argument(
         "--source",
         type=str,
         default="zotero",
@@ -447,6 +465,177 @@ def run_extraction(
         checkpoint_mgr.save()
 
     return paper_dicts, existing_extractions, results
+
+
+def _run_gap_fill(
+    results: list,
+    existing_extractions: dict,
+    papers_to_extract: list,
+    primary_provider: str,
+    gap_fill_provider: str | None,
+    threshold: float,
+    mode: str,
+    config,
+    index_dir: Path,
+    paper_dicts: dict,
+    checkpoint_mgr,
+    logger,
+) -> None:
+    """Run gap-filling on low-coverage extractions using a secondary provider.
+
+    Iterates over successful results, identifies papers below the coverage
+    threshold, and runs only the extraction passes containing missing
+    dimensions using a different LLM provider.
+
+    Args:
+        results: Extraction results from primary run.
+        existing_extractions: Mutable dict of all extractions (updated in-place).
+        papers_to_extract: List of PaperMetadata that were extracted.
+        primary_provider: Primary provider name (e.g., "openai").
+        gap_fill_provider: Override provider name, or None for auto-select.
+        threshold: Coverage threshold (0-1) below which gap-filling runs.
+        mode: Extraction mode ("cli" or "api").
+        config: Config object.
+        index_dir: Index directory for saving checkpoints.
+        paper_dicts: Paper dict for checkpoint saving.
+        checkpoint_mgr: Checkpoint manager.
+        logger: Logger instance.
+    """
+    from src.analysis.llm_council import (
+        CouncilConfig,
+        LLMCouncil,
+        ProviderConfig,
+    )
+    from src.analysis.schemas import SemanticAnalysis
+
+    # Identify low-coverage papers
+    low_coverage = []
+    paper_lookup = {p.paper_id: p for p in papers_to_extract}
+
+    for result in results:
+        if not result.success or not result.extraction:
+            continue
+        extraction = result.extraction
+        if not isinstance(extraction, SemanticAnalysis):
+            continue
+        coverage = extraction.dimension_coverage
+        if coverage < threshold:
+            paper = paper_lookup.get(result.paper_id)
+            if paper:
+                low_coverage.append((paper, extraction, result))
+
+    if not low_coverage:
+        logger.info("Gap-fill: all papers above %.0f%% coverage, nothing to do", threshold * 100)
+        return
+
+    logger.info(
+        "Gap-fill: %d papers below %.0f%% coverage, running secondary provider",
+        len(low_coverage), threshold * 100,
+    )
+
+    # Determine secondary provider
+    secondary = gap_fill_provider or ("anthropic" if primary_provider == "openai" else "openai")
+
+    council_config = CouncilConfig(
+        providers=[
+            ProviderConfig(name=primary_provider, weight=1.2, timeout=600, mode=mode),
+            ProviderConfig(name=secondary, weight=1.0, timeout=600, mode=mode),
+        ],
+        aggregation_strategy="quality_weighted",
+    )
+    council = LLMCouncil(council_config)
+
+    # Load PDF extractor for text retrieval
+    pdf_extractor = PDFExtractor(
+        enable_ocr=config.processing.ocr_enabled or config.processing.ocr_on_fail,
+    )
+    text_cleaner = TextCleaner()
+
+    filled_total = 0
+    for idx, (paper, extraction, result) in enumerate(low_coverage, 1):
+        logger.info(
+            "Gap-fill %d/%d: %s (coverage: %.0f%%)",
+            idx, len(low_coverage), paper.paper_id, extraction.dimension_coverage * 100,
+        )
+
+        # Get paper text
+        if not paper.pdf_path or not paper.pdf_path.exists():
+            logger.warning("Gap-fill: no PDF for %s, skipping", paper.paper_id)
+            continue
+
+        try:
+            raw_text = pdf_extractor.extract_text(paper.pdf_path)
+            if raw_text:
+                text = text_cleaner.clean(raw_text)
+                text = text_cleaner.truncate_for_llm(text)
+            else:
+                logger.warning("Gap-fill: empty text for %s", paper.paper_id)
+                continue
+        except Exception as exc:
+            logger.warning("Gap-fill: text extraction failed for %s: %s", paper.paper_id, exc)
+            continue
+
+        authors = ", ".join(
+            f"{a.last_name}, {a.first_name}" for a in (paper.authors or [])
+        )
+
+        try:
+            merged, gaps_filled = council.fill_gaps(
+                analysis=extraction,
+                paper_id=paper.paper_id,
+                title=paper.title,
+                authors=authors,
+                year=getattr(paper, "publication_year", None),
+                item_type=paper.item_type,
+                text=text[:100000],
+                gap_provider=ProviderConfig(
+                    name=secondary, weight=1.0, timeout=600, mode=mode,
+                ),
+            )
+
+            if gaps_filled > 0:
+                filled_total += gaps_filled
+                logger.info(
+                    "Gap-fill: %s filled %d dimensions (%.0f%% -> %.0f%%)",
+                    paper.paper_id, gaps_filled,
+                    extraction.dimension_coverage * 100,
+                    merged.dimension_coverage * 100,
+                )
+                # Update extraction in-place
+                existing_extractions[paper.paper_id] = {
+                    "paper_id": paper.paper_id,
+                    "extraction": merged.to_index_dict(),
+                    "timestamp": datetime.now().isoformat(),
+                    "model": result.model_used,
+                    "duration": result.duration_seconds,
+                    "input_tokens": result.input_tokens,
+                    "output_tokens": result.output_tokens,
+                    "gap_filled_by": secondary,
+                    "gap_filled_count": gaps_filled,
+                }
+            else:
+                logger.info("Gap-fill: %s -- secondary provider found no new content", paper.paper_id)
+
+        except Exception as exc:
+            logger.error("Gap-fill failed for %s: %s", paper.paper_id, exc)
+
+    # Save updated extractions
+    if filled_total > 0:
+        save_checkpoint(
+            index_dir,
+            list(paper_dicts.values()),
+            existing_extractions,
+            {
+                "last_updated": datetime.now().isoformat(),
+                "paper_count": len(paper_dicts),
+                "extraction_count": len(existing_extractions),
+                "gap_fill_provider": secondary,
+                "gap_filled_total": filled_total,
+                **checkpoint_mgr.get_progress(),
+            },
+        )
+
+    logger.info("Gap-fill complete: %d dimensions filled across %d papers", filled_total, len(low_coverage))
 
 
 def write_skipped_report(
@@ -1313,6 +1502,23 @@ def main():
                 **checkpoint_mgr.get_progress(),
             },
         )
+
+        # Gap-filling: run secondary provider on low-coverage papers
+        if args.gap_fill:
+            _run_gap_fill(
+                results=results,
+                existing_extractions=existing_extractions,
+                papers_to_extract=papers_to_extract,
+                primary_provider=provider,
+                gap_fill_provider=args.gap_fill_provider,
+                threshold=args.gap_fill_threshold,
+                mode=mode,
+                config=config,
+                index_dir=index_dir,
+                paper_dicts=paper_dicts,
+                checkpoint_mgr=checkpoint_mgr,
+                logger=logger,
+            )
 
         # Track extraction method in classification index
         for result in results:
