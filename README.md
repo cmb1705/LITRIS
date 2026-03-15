@@ -19,10 +19,13 @@ Reference Source --> Metadata Extraction --> Paper Records
 (Zotero/Mendeley/EndNote/Paperpile/BibTeX/PDF Folder)
       |
       v
-PDF Storage --> Text Extraction --> LLM Analysis --> Structured Extractions
-      |
+PDF Storage --> Text Extraction --> 6-Pass LLM Analysis --> 40-Dimension Extractions
+      |                               (SemanticAnalysis)
       v
 Embedding Generation --> ChromaDB Vector Store --> Semantic Search
+      |
+      v
+LLM Council (optional) --> Multi-Provider Consensus --> Aggregated Extraction
 ```
 
 ## Features
@@ -40,7 +43,7 @@ Embedding Generation --> ChromaDB Vector Store --> Semantic Search
 - **Topic Clustering**: UMAP + HDBSCAN clustering to discover topic groups in the corpus
 - **Research Digest**: Generate summaries of newly indexed papers
 - **Research Questions**: LLM-generated research questions from gap analysis reports
-- **LLM Council**: Multi-model consensus extraction for higher quality results
+- **LLM Council**: Multi-provider consensus extraction with pluggable aggregation strategies (longest, quality-weighted, union merge), optional synthesis judge round, and generic query support
 - **Quality Rating**: Automated quality scoring of paper extractions
 - **Deep Review**: In-depth analysis of individual papers with full-text retrieval
 - **Discord Bot**: Search your index from Discord with `/litris` commands
@@ -108,6 +111,8 @@ Direct tool access for Claude Code enables seamless research collaboration:
 | `litris_summary` | Index coverage and statistics |
 | `litris_collections` | List available Zotero collections |
 | `litris_save_query` | Save search results to query_results/ folder |
+| `litris_search_dimension` | Search within a specific SemanticAnalysis dimension (q01-q40) |
+| `litris_search_group` | Search across a group of dimensions by analysis pass |
 
 **Setup**: Configure `.mcp.json` in project root and enable in `.claude/settings.json`:
 
@@ -239,18 +244,20 @@ python scripts/build_index.py --use-subscription
 ```
 LITRIS/
 ├── .claude/              # Claude Code configuration
-│   ├── agents/           # Specialized AI agents
-│   ├── skills/           # Domain knowledge
-│   └── commands/         # Slash commands
+│   ├── agents/           # Specialized AI agents (PI, pipeline, query, etc.)
+│   ├── skills/           # Domain knowledge (extraction, search, citation)
+│   └── commands/         # Slash commands (/build, /search, /review-paper)
 ├── src/                  # Source code
-│   ├── zotero/           # Zotero database reader
-│   ├── analysis/         # PDF and LLM extraction
-│   ├── indexing/         # Embeddings and storage
-│   └── query/            # Search interface
-├── scripts/              # CLI tools
-├── data/                 # Index and cache (gitignored)
-├── docs/                 # Documentation and specifications
-└── tests/                # Test suite
+│   ├── analysis/         # LLM clients, 6-pass extraction, council, schemas
+│   ├── extraction/       # PDF text extraction and cleaning
+│   ├── indexing/         # Embeddings, ChromaDB, RAPTOR summaries
+│   ├── mcp/              # MCP server for Claude Code integration
+│   ├── query/            # Search engine (semantic, RRF, agentic, deep review)
+│   └── zotero/           # Zotero database reader and models
+├── scripts/              # CLI tools (build, query, compare, gap analysis)
+├── data/                 # Index, cache, logs, query results (gitignored)
+├── docs/                 # Documentation, proposals, guides
+└── tests/                # Test suite (~980 tests)
 ```
 
 ## Configuration
@@ -268,16 +275,17 @@ extraction:
   model: ""              # Leave empty for provider default
 
 embeddings:
-  model: "sentence-transformers/all-MiniLM-L6-v2"
+  backend: "ollama"
+  model: "qwen3-embedding:8b-q8_0"
 ```
 
 ### LLM Provider Options
 
 | Provider | CLI Mode | API Mode | Default Model |
 | -------- | -------- | -------- | ------------- |
-| Anthropic | Claude Max | API key | claude-opus-4-5-20251101 |
-| OpenAI | ChatGPT Plus/Pro | API key | gpt-5.2 |
-| Google | N/A | API key | gemini-3-pro |
+| Anthropic | Claude Max | API key | claude-opus-4-6 |
+| OpenAI | ChatGPT Plus/Pro | API key | gpt-5.4 |
+| Google | N/A | API key | gemini-2.5-flash |
 | Ollama | N/A | Local server | llama3 |
 | llama.cpp | N/A | Local file | llama-3 |
 
@@ -400,6 +408,33 @@ The generated report includes:
 - Five additional recommended papers from web search
 - Raw search results for transparency
 
+### LLM Council
+
+The LLM Council enables multi-provider consensus extraction where multiple LLMs independently analyze the same paper and their results are aggregated into a higher-quality consensus.
+
+```bash
+# Compare individual extractions vs council consensus
+python scripts/council_comparison.py --keys PAPER_KEY1 PAPER_KEY2 --save
+
+# Use API mode instead of CLI
+python scripts/council_comparison.py --keys PAPER_KEY1 --mode api --save
+
+# Use quality-weighted strategy instead of longest
+python scripts/council_comparison.py --keys PAPER_KEY1 --strategy quality_weighted --save
+```
+
+**Aggregation strategies:**
+
+| Strategy | Behavior |
+|----------|----------|
+| `longest` (default) | Selects longest response per field |
+| `quality_weighted` | Scores by sentence structure, citations, numbers, multiplied by provider weight |
+| `union` | Merges unique sentences across providers, deduplicating by 60% word overlap |
+
+Per-field strategy overrides allow mixing strategies (e.g., `union` for key_claims, `quality_weighted` for thesis).
+
+**Synthesis round** (optional): A judge LLM reviews all provider outputs and produces a merged best answer, resolving disagreements by comparing evidence quality.
+
 ### Build Options
 
 ```bash
@@ -515,14 +550,18 @@ Pre-commit hooks (`.pre-commit-config.yaml`) enforce code quality on every commi
 
 ## Cost Estimates
 
-| Operation | CLI Mode | Batch API Mode |
-|-----------|----------|----------------|
-| Test build (10 papers) | $0 | ~$0.60 |
-| Full build (500 papers) | $0 | ~$31 |
-| Incremental updates | $0 | Variable |
+Extraction uses a 6-pass pipeline (each paper analyzed 6 times for different dimension groups). Costs reflect the full pipeline.
 
-- **CLI mode**: Free with Max subscription (rate limited)
-- **Batch API mode**: Opus 4.5 batch pricing: $2.50/MTok input, $12.50/MTok output
+| Operation | CLI Mode | API (Opus 4.6) | Batch API (50% off) |
+|-----------|----------|-----------------|---------------------|
+| Test build (10 papers) | $0 | ~$9 | ~$4.50 |
+| Full build (500 papers) | $0 | ~$450 | ~$225 |
+| Incremental updates | $0 | Variable | Variable |
+
+- **CLI mode**: Free with Max/Pro subscription (rate limited)
+- **API mode**: Opus 4.6: $5/$25 per MTok; GPT-5.4: $2.50/$15 per MTok
+- **Batch API mode**: 50% discount on all Anthropic models
+- **Gemini**: Significantly cheaper -- 2.5 Flash at $0.30/$2.50 per MTok
 
 ## License
 

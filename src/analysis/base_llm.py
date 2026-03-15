@@ -105,6 +105,37 @@ class BaseLLMClient(ABC):
                 f"Supported modes: {self.supported_modes}"
             )
 
+    def raw_query(self, prompt: str) -> tuple[str | None, bool, str | None]:
+        """Send a raw prompt and return text response.
+
+        Default implementation wraps ``extract()`` with ``prompt_override``.
+        Providers may override for efficiency.
+
+        Args:
+            prompt: The prompt to send.
+
+        Returns:
+            Tuple of (response_text, success, error).
+        """
+        try:
+            result = self.extract(
+                paper_id="query",
+                title="",
+                authors="",
+                year=None,
+                item_type="",
+                text="",
+                prompt_override=prompt,
+            )
+            if result.success and result.extraction:
+                # Concatenate non-None dimension values as response text
+                dims = result.extraction.non_none_dimensions()
+                text = "\n".join(dims.values())
+                return (text, True, None)
+            return (None, False, result.error)
+        except Exception as exc:
+            return (None, False, str(exc))
+
     @staticmethod
     def get_available_providers() -> list[str]:
         """Return list of available LLM providers."""

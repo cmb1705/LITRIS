@@ -112,30 +112,30 @@ def run_individual_extraction(
 
 def run_council_extraction(
     paper: PaperMetadata,
+    mode: str = "cli",
+    strategy: str = "longest",
 ) -> dict:
     """Run LLM Council extraction and return results."""
-    print("  Council: extracting (parallel)...", flush=True)
+    print(f"  Council: extracting (parallel, mode={mode}, strategy={strategy})...", flush=True)
     start = time.time()
 
     council_config = CouncilConfig(
         providers=[
-            ProviderConfig(name="anthropic", weight=1.2, timeout=600),
-            ProviderConfig(name="openai", weight=1.0, timeout=600),
+            ProviderConfig(
+                name="anthropic", weight=1.2, timeout=600, mode=mode,
+            ),
+            ProviderConfig(
+                name="openai", weight=1.0, timeout=600, mode=mode,
+            ),
         ],
         min_responses=2,
         fallback_to_single=True,
         parallel=True,
         timeout=900,  # 15 min overall
+        aggregation_strategy=strategy,
     )
 
     council = LLMCouncil(council_config)
-    # Pre-create clients with highest reasoning settings
-    from src.analysis.llm_factory import create_llm_client
-
-    council._clients["anthropic"] = create_llm_client(provider="anthropic")
-    council._clients["openai"] = create_llm_client(
-        provider="openai", reasoning_effort="xhigh",
-    )
 
     # Load paper text via PDF extractor + text cleaner
     from src.extraction.pdf_extractor import PDFExtractor
@@ -448,6 +448,15 @@ def main():
         "--save", action="store_true",
         help="Save full extractions to data/comparison/council/",
     )
+    parser.add_argument(
+        "--mode", choices=["cli", "api"], default="cli",
+        help="Extraction mode for council providers (default: cli)",
+    )
+    parser.add_argument(
+        "--strategy", choices=["longest", "quality_weighted", "union"],
+        default="longest",
+        help="Aggregation strategy for council consensus (default: longest)",
+    )
     args = parser.parse_args()
 
     config = Config.load()
@@ -484,10 +493,10 @@ def main():
 
     # Create individual extractors with highest reasoning
     anthropic_extractor = create_extractor(
-        config, "anthropic", mode="cli", effort="high",
+        config, "anthropic", mode=args.mode, effort="high",
     )
     openai_extractor = create_extractor(
-        config, "openai", mode="cli", reasoning_effort="xhigh",
+        config, "openai", mode=args.mode, reasoning_effort="xhigh",
     )
 
     all_results = []
@@ -511,7 +520,7 @@ def main():
         individual["openai"] = result_o
 
         # Phase 2: Council extraction (API mode, parallel)
-        council = run_council_extraction(paper)
+        council = run_council_extraction(paper, mode=args.mode, strategy=args.strategy)
 
         # Phase 3: Compare and print
         summary = print_paper_comparison(
