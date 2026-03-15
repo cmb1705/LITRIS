@@ -635,9 +635,31 @@ class SectionExtractor:
         analysis.dimension_coverage = coverage_result.coverage
         analysis.coverage_flags = coverage_result.flags
 
+        # Reject extractions with too many failed passes (likely quota hit)
+        min_passes = NUM_PASSES // 2  # At least half the passes must succeed
+        successful_passes = NUM_PASSES - len(errors)
+        if successful_passes < min_passes:
+            logger.warning(
+                f"Paper {paper.paper_id}: only {successful_passes}/{NUM_PASSES} "
+                f"passes succeeded (coverage: {analysis.dimension_coverage:.0%}). "
+                f"Marking as failed for retry."
+            )
+            return ExtractionResult(
+                paper_id=paper.paper_id,
+                success=False,
+                error=(
+                    f"Too few passes succeeded ({successful_passes}/{NUM_PASSES}): "
+                    + "; ".join(errors)
+                ),
+                duration_seconds=total_duration,
+                model_used=self.model,
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
+            )
+
         logger.info(
             f"Extracted paper {paper.paper_id} in {total_duration:.1f}s "
-            f"({NUM_PASSES - len(errors)}/{NUM_PASSES} passes, "
+            f"({successful_passes}/{NUM_PASSES} passes, "
             f"coverage: {analysis.dimension_coverage:.0%})"
         )
 
