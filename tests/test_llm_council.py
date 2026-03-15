@@ -830,9 +830,9 @@ class TestCouncilConfigNewFields:
     """Tests for new CouncilConfig fields."""
 
     def test_aggregation_strategy_default(self):
-        """Default aggregation strategy is 'longest'."""
+        """Default aggregation strategy is 'quality_weighted'."""
         config = CouncilConfig()
-        assert config.aggregation_strategy == "longest"
+        assert config.aggregation_strategy == "quality_weighted"
 
     def test_field_strategies_default_empty(self):
         """field_strategies defaults to empty dict."""

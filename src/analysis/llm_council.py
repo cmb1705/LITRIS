@@ -65,7 +65,7 @@ class CouncilConfig:
     fallback_to_single: bool = True  # Use single response if min not met
     parallel: bool = True  # Run providers in parallel
     timeout: int = 180  # Overall timeout for council
-    aggregation_strategy: str = "longest"  # "longest", "quality_weighted"
+    aggregation_strategy: str = "quality_weighted"  # "longest", "quality_weighted"
     field_strategies: dict[str, str] = field(default_factory=dict)
     synthesis: SynthesisConfig = field(default_factory=SynthesisConfig)
 
