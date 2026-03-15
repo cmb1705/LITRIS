@@ -74,7 +74,8 @@ class OpenAILLMClient(BaseLLMClient):
             if not api_key:
                 raise ValueError(
                     "OpenAI API key required for API mode. "
-                    "Set OPENAI_API_KEY environment variable."
+                    "Set OPENAI_API_KEY or store it in the OS keyring "
+                    "(service: 'litris', key: 'OPENAI_API_KEY')."
                 )
             # Lazy import to avoid requiring openai package if not used
             try:
@@ -116,8 +117,10 @@ class OpenAILLMClient(BaseLLMClient):
         return cls.MODELS.copy()
 
     def _get_api_key(self) -> str | None:
-        """Get OpenAI API key from environment."""
-        return os.environ.get("OPENAI_API_KEY")
+        """Get OpenAI API key from environment or OS keyring."""
+        from src.utils.secrets import get_openai_api_key
+
+        return get_openai_api_key()
 
     def _find_codex_path(self) -> str | None:
         """Find the Codex CLI executable path.

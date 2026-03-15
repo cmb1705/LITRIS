@@ -86,7 +86,7 @@ OPENAI_MODELS: dict[str, str] = {
 
 OPENAI_PRICING: dict[str, tuple[float, float]] = {
     # GPT-5.4 family
-    "gpt-5.4": (2.0, 16.0),
+    "gpt-5.4": (2.50, 15.0),
     "gpt-5.4-pro": (24.0, 192.0),
     # GPT-5 utility models
     "gpt-5-mini": (0.50, 4.0),
@@ -104,24 +104,28 @@ OPENAI_PRICING: dict[str, tuple[float, float]] = {
 
 # Google Gemini models and pricing
 # Source: https://ai.google.dev/gemini-api/docs/models
+# Updated: 2026-03-14
 GEMINI_MODELS: dict[str, str] = {
-    # Gemini 3 family (latest)
+    # Gemini 3.1 family (latest, March 2026)
+    "gemini-3.1-flash-lite": "Gemini 3.1 Flash Lite (Fastest, 2.5x faster TTFAT)",
+    # Gemini 3 family
     "gemini-3-flash": "Gemini 3 Flash (Pro intelligence at Flash speed)",
-    "gemini-3-pro": "Gemini 3 Pro Preview (Highest capability)",
     # Gemini 2.5 family (stable)
     "gemini-2.5-flash": "Gemini 2.5 Flash (Best price-performance)",
-    "gemini-2.5-flash-lite": "Gemini 2.5 Flash-Lite (Fastest, cost-effective)",
+    "gemini-2.5-flash-lite": "Gemini 2.5 Flash-Lite (Cost-effective)",
     "gemini-2.5-pro": "Gemini 2.5 Pro (State-of-the-art reasoning)",
-    # Legacy (deprecated March 2026)
+    # Deprecated
+    "gemini-3-pro": "Gemini 3 Pro Preview (Deprecated - shut down March 9, 2026)",
     "gemini-2.0-flash": "Gemini 2.0 Flash (Legacy - deprecated March 2026)",
 }
 
 GEMINI_PRICING: dict[str, tuple[float, float]] = {
+    "gemini-3.1-flash-lite": (0.25, 1.50),
     "gemini-3-flash": (0.50, 3.00),
-    "gemini-3-pro": (2.00, 12.00),  # <=200K context
-    "gemini-2.5-flash": (0.15, 0.60),
+    "gemini-2.5-flash": (0.30, 2.50),
     "gemini-2.5-flash-lite": (0.10, 0.40),
     "gemini-2.5-pro": (1.25, 10.00),
+    "gemini-3-pro": (2.00, 12.00),  # Deprecated March 9, 2026
     "gemini-2.0-flash": (0.10, 0.40),
 }
 

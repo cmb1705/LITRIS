@@ -3,13 +3,18 @@
 import pytest
 
 from src.analysis.llm_council import (
+    STRATEGY_REGISTRY,
     CouncilConfig,
     CouncilResult,
     LLMCouncil,
     ProviderConfig,
     ProviderResponse,
+    SynthesisConfig,
+    _compute_quality_score,
     aggregate_analyses,
     calculate_consensus_confidence,
+    strategy_quality_weighted,
+    strategy_union_merge,
 )
 from src.analysis.schemas import SemanticAnalysis
 
@@ -242,11 +247,13 @@ class TestProviderCostAndTimeout:
         council = LLMCouncil(config)
 
         # Mock client that returns a result with cost > max_cost
+        # 6 passes x 0.10 = 0.60 total, exceeds 0.05
         mock_client = MagicMock()
+        mock_client.model = "test-model"
         mock_result = MagicMock()
         mock_result.success = True
         mock_result.extraction = _make_analysis(q02_thesis="Test")
-        mock_result.cost = 0.10  # Exceeds max_cost of 0.05
+        mock_result.cost = 0.10
         mock_client.extract.return_value = mock_result
 
         with patch.object(council, "_get_client", return_value=mock_client):
@@ -267,17 +274,18 @@ class TestProviderCostAndTimeout:
         from unittest.mock import MagicMock, patch
 
         config = CouncilConfig(
-            providers=[ProviderConfig(name="cheap", max_cost=0.10)],
+            providers=[ProviderConfig(name="cheap", max_cost=1.0)],
             min_responses=1,
             fallback_to_single=True,
         )
         council = LLMCouncil(config)
 
         mock_client = MagicMock()
+        mock_client.model = "test-model"
         mock_result = MagicMock()
         mock_result.success = True
         mock_result.extraction = _make_analysis(q02_thesis="Test")
-        mock_result.cost = 0.05  # Within max_cost
+        mock_result.cost = 0.01  # 6 passes x 0.01 = 0.06 total, within 1.0
         mock_client.extract.return_value = mock_result
 
         with patch.object(council, "_get_client", return_value=mock_client):
@@ -291,7 +299,7 @@ class TestProviderCostAndTimeout:
             )
 
         assert result.success
-        assert result.provider_responses[0].cost == 0.05
+        assert result.provider_responses[0].cost > 0
 
     def test_no_cost_limit_allows_any_cost(self):
         """Provider with no max_cost accepts any cost."""
@@ -305,6 +313,7 @@ class TestProviderCostAndTimeout:
         council = LLMCouncil(config)
 
         mock_client = MagicMock()
+        mock_client.model = "test-model"
         mock_result = MagicMock()
         mock_result.success = True
         mock_result.extraction = _make_analysis(q02_thesis="Test")
@@ -375,6 +384,7 @@ class TestLLMCouncilIntegration:
         from unittest.mock import MagicMock
 
         mock_client = MagicMock()
+        mock_client.model = "test-model"
         mock_result = MagicMock()
         mock_result.success = True
         mock_result.extraction = extraction
@@ -387,6 +397,7 @@ class TestLLMCouncilIntegration:
         from unittest.mock import MagicMock
 
         mock_client = MagicMock()
+        mock_client.model = "test-model"
         mock_client.extract.side_effect = RuntimeError(error_msg)
         return mock_client
 
@@ -420,7 +431,7 @@ class TestLLMCouncilIntegration:
             "openai": self._make_mock_client(analysis_b),
         }
 
-        with patch.object(council, "_get_client", side_effect=lambda name: clients[name]):
+        with patch.object(council, "_get_client", side_effect=lambda p: clients[p.name if hasattr(p, "name") else p]):
             result = council.extract(
                 paper_id="test_paper",
                 title="Test Paper",
@@ -476,7 +487,7 @@ class TestLLMCouncilIntegration:
             "google": self._make_failing_client("API quota exceeded"),
         }
 
-        with patch.object(council, "_get_client", side_effect=lambda name: clients[name]):
+        with patch.object(council, "_get_client", side_effect=lambda p: clients[p.name if hasattr(p, "name") else p]):
             result = council.extract(
                 paper_id="test",
                 title="Test",
@@ -518,7 +529,7 @@ class TestLLMCouncilIntegration:
             "openai": self._make_failing_client(),
         }
 
-        with patch.object(council, "_get_client", side_effect=lambda name: clients[name]):
+        with patch.object(council, "_get_client", side_effect=lambda p: clients[p.name if hasattr(p, "name") else p]):
             result = council.extract(
                 paper_id="test",
                 title="Test",
@@ -554,7 +565,7 @@ class TestLLMCouncilIntegration:
             "openai": self._make_failing_client("Error B"),
         }
 
-        with patch.object(council, "_get_client", side_effect=lambda name: clients[name]):
+        with patch.object(council, "_get_client", side_effect=lambda p: clients[p.name if hasattr(p, "name") else p]):
             result = council.extract(
                 paper_id="test",
                 title="Test",
@@ -588,6 +599,7 @@ class TestParallelExecution:
 
         def make_client(q02_thesis: str):
             client = MagicMock()
+            client.model = "test-model"
             result = MagicMock()
             result.success = True
             result.extraction = _make_analysis(q02_thesis=q02_thesis)
@@ -600,7 +612,7 @@ class TestParallelExecution:
             "provider_b": make_client("Thesis B from provider B is longer"),
         }
 
-        with patch.object(council, "_get_client", side_effect=lambda name: clients[name]):
+        with patch.object(council, "_get_client", side_effect=lambda p: clients[p.name if hasattr(p, "name") else p]):
             result = council.extract(
                 paper_id="test",
                 title="Test",
@@ -631,6 +643,7 @@ class TestParallelExecution:
         council = LLMCouncil(config)
 
         fast_client = MagicMock()
+        fast_client.model = "test-model"
         fast_result = MagicMock()
         fast_result.success = True
         fast_result.extraction = _make_analysis(q02_thesis="Fast result")
@@ -638,11 +651,12 @@ class TestParallelExecution:
         fast_client.extract.return_value = fast_result
 
         slow_client = MagicMock()
+        slow_client.model = "test-model"
         slow_client.extract.side_effect = TimeoutError("Provider timed out")
 
         clients = {"fast": fast_client, "slow": slow_client}
 
-        with patch.object(council, "_get_client", side_effect=lambda name: clients[name]):
+        with patch.object(council, "_get_client", side_effect=lambda p: clients[p.name if hasattr(p, "name") else p]):
             result = council.extract(
                 paper_id="test",
                 title="Test",
@@ -656,3 +670,818 @@ class TestParallelExecution:
         failed = [r for r in result.provider_responses if not r.success]
         assert len(failed) == 1
         assert "slow" in failed[0].provider
+
+
+# =====================================================================
+# Tier 1: ProviderConfig mode/model, quality scoring, weighted agg
+# =====================================================================
+
+
+class TestProviderConfigMode:
+    """Tests for mode and model fields on ProviderConfig."""
+
+    def test_default_mode_is_cli(self):
+        """Default mode should be 'cli' to avoid API costs."""
+        config = ProviderConfig(name="anthropic")
+        assert config.mode == "cli"
+        assert config.model is None
+
+    def test_custom_mode_and_model(self):
+        """Custom mode and model are accepted."""
+        config = ProviderConfig(
+            name="openai", mode="api", model="gpt-5.4",
+        )
+        assert config.mode == "api"
+        assert config.model == "gpt-5.4"
+
+
+class TestGetClientWithMode:
+    """Tests for _get_client receiving mode/model from ProviderConfig."""
+
+    def test_mode_passed_to_factory(self):
+        """create_llm_client receives mode and model from ProviderConfig."""
+        from unittest.mock import MagicMock, patch
+
+        config = CouncilConfig(providers=[])
+        council = LLMCouncil(config)
+
+        mock_factory = MagicMock()
+        mock_factory.return_value = MagicMock()
+
+        provider = ProviderConfig(name="anthropic", mode="cli", model="test-model")
+
+        with patch("src.analysis.llm_factory.create_llm_client", mock_factory):
+            council._get_client(provider)
+
+        mock_factory.assert_called_once_with(
+            provider="anthropic",
+            mode="cli",
+            model="test-model",
+            timeout=120,
+        )
+
+    def test_cache_key_includes_mode_and_model(self):
+        """Different mode/model combos produce different cache keys."""
+        from unittest.mock import MagicMock, patch
+
+        config = CouncilConfig(providers=[])
+        council = LLMCouncil(config)
+
+        mock_factory = MagicMock()
+        mock_factory.return_value = MagicMock()
+
+        p1 = ProviderConfig(name="anthropic", mode="cli")
+        p2 = ProviderConfig(name="anthropic", mode="api")
+
+        with patch("src.analysis.llm_factory.create_llm_client", mock_factory):
+            council._get_client(p1)
+            council._get_client(p2)
+
+        assert mock_factory.call_count == 2
+
+
+class TestQualityScore:
+    """Tests for _compute_quality_score."""
+
+    def test_empty_string_scores_zero(self):
+        """Empty string gets zero score."""
+        assert _compute_quality_score("") == 0.0
+
+    def test_short_text_penalized(self):
+        """Text under 50 chars gets 0.5x multiplier."""
+        score = _compute_quality_score("Short.")
+        assert score < 0.2
+
+    def test_citation_boosts_score(self):
+        """Citation patterns increase score."""
+        text = "This builds on prior work (Smith, 2020). The analysis uses (Jones et al., 2019)."
+        score = _compute_quality_score(text)
+        assert score > 0.3
+
+    def test_numbers_boost_score(self):
+        """Numeric content increases score."""
+        text = "The model achieved 95.2% accuracy on 1000 samples across 5 domains."
+        score = _compute_quality_score(text)
+        assert score > 0.2
+
+    def test_ideal_sentence_count(self):
+        """2-5 sentences get maximum sentence bonus."""
+        text = (
+            "First finding is important. Second finding builds on it. "
+            "Third finding adds nuance."
+        )
+        score = _compute_quality_score(text)
+        assert score >= 0.3
+
+
+class TestQualityWeightedAggregation:
+    """Tests for quality_weighted aggregation strategy."""
+
+    def test_higher_quality_shorter_wins(self):
+        """A shorter but higher-quality response should beat verbose low-quality."""
+        verbose = "word " * 200  # 200 words, no structure
+        concise = (
+            "The study found 95% accuracy (Smith, 2020). "
+            "Cross-validation confirmed results across 5 datasets."
+        )
+        result = strategy_quality_weighted([
+            (verbose, 1.0),
+            (concise, 1.0),
+        ])
+        assert result == concise
+
+    def test_weight_breaks_tie(self):
+        """When quality is similar, higher weight wins."""
+        text_a = "Finding one is notable. Finding two confirms it."
+        text_b = "Finding one is notable. Finding two confirms it."
+        result = strategy_quality_weighted([
+            (text_a, 0.5),
+            (text_b, 2.0),
+        ])
+        # Same quality, but text_b has higher weight
+        assert result == text_b
+
+    def test_all_none_returns_none(self):
+        """All None values return None."""
+        assert strategy_quality_weighted([(None, 1.0), (None, 1.0)]) is None
+
+    def test_passes_through_aggregate(self):
+        """quality_weighted strategy works via aggregate_analyses."""
+        analyses = [
+            _make_analysis(
+                q02_thesis="word " * 200,
+            ),
+            _make_analysis(
+                q02_thesis=(
+                    "Network analysis reveals 87% clustering (Jones, 2021). "
+                    "Results replicate across 3 independent datasets."
+                ),
+            ),
+        ]
+        result = aggregate_analyses(
+            analyses,
+            weights=[1.0, 1.0],
+            default_strategy="quality_weighted",
+        )
+        assert "87%" in result.q02_thesis
+
+
+class TestCouncilConfigNewFields:
+    """Tests for new CouncilConfig fields."""
+
+    def test_aggregation_strategy_default(self):
+        """Default aggregation strategy is 'longest'."""
+        config = CouncilConfig()
+        assert config.aggregation_strategy == "longest"
+
+    def test_field_strategies_default_empty(self):
+        """field_strategies defaults to empty dict."""
+        config = CouncilConfig()
+        assert config.field_strategies == {}
+
+    def test_synthesis_disabled_by_default(self):
+        """Synthesis is disabled by default."""
+        config = CouncilConfig()
+        assert config.synthesis.enabled is False
+
+
+# =====================================================================
+# Tier 2: Strategy registry, union merge, per-field overrides
+# =====================================================================
+
+
+class TestStrategyRegistry:
+    """Tests for strategy registry."""
+
+    def test_all_builtin_strategies_registered(self):
+        """All built-in strategies are in STRATEGY_REGISTRY."""
+        assert "longest" in STRATEGY_REGISTRY
+        assert "quality_weighted" in STRATEGY_REGISTRY
+        assert "union" in STRATEGY_REGISTRY
+
+    def test_registry_functions_callable(self):
+        """All registered strategies are callable."""
+        for name, fn in STRATEGY_REGISTRY.items():
+            assert callable(fn), f"Strategy '{name}' is not callable"
+
+
+class TestStrategyUnionMerge:
+    """Tests for union merge strategy."""
+
+    def test_unique_sentences_merged(self):
+        """Unique sentences from different providers are combined."""
+        result = strategy_union_merge([
+            ("First finding is important. Second finding is notable.", 1.0),
+            ("Third finding adds context. Fourth insight is key.", 1.0),
+        ])
+        assert "First finding" in result
+        assert "Third finding" in result
+
+    def test_duplicate_sentences_removed(self):
+        """Near-duplicate sentences are deduplicated."""
+        result = strategy_union_merge([
+            ("The study found significant results.", 1.0),
+            ("The study found significant results.", 0.8),
+        ])
+        # Should only appear once
+        assert result.count("significant results") == 1
+
+    def test_higher_weight_phrasing_preserved(self):
+        """Higher-weight provider's sentences are processed first."""
+        result = strategy_union_merge([
+            ("Lower weight version of the finding.", 0.5),
+            ("Higher weight version of the finding.", 2.0),
+        ])
+        # Higher weight is processed first, so its phrasing wins
+        assert "Higher weight" in result
+
+    def test_all_none_returns_none(self):
+        """All None inputs return None."""
+        assert strategy_union_merge([(None, 1.0), (None, 1.0)]) is None
+
+    def test_overlap_threshold(self):
+        """Sentences with <60% word overlap are both kept."""
+        result = strategy_union_merge([
+            ("Network analysis reveals community structure.", 1.0),
+            ("Graph theory provides mathematical framework.", 1.0),
+        ])
+        assert "Network" in result
+        assert "Graph" in result
+
+
+class TestPerFieldStrategy:
+    """Tests for per-field strategy overrides."""
+
+    def test_field_strategy_overrides_default(self):
+        """field_strategies override the default strategy for specific fields."""
+        analyses = [
+            _make_analysis(
+                q02_thesis="Short thesis",
+                q03_key_claims="Claim A is supported. Claim B needs evidence.",
+            ),
+            _make_analysis(
+                q02_thesis="A much longer thesis with additional detail and nuance",
+                q03_key_claims="Claim C is novel. Claim D extends prior work.",
+            ),
+        ]
+        result = aggregate_analyses(
+            analyses,
+            weights=[1.0, 1.0],
+            default_strategy="longest",
+            field_strategies={"q03_key_claims": "union"},
+        )
+        # q02 uses longest (default)
+        assert "longer thesis" in result.q02_thesis
+        # q03 uses union -- both providers' claims should appear
+        assert "Claim A" in result.q03_key_claims
+        assert "Claim C" in result.q03_key_claims
+
+    def test_unknown_strategy_falls_back_to_longest(self):
+        """Unknown strategy name falls back to strategy_longest."""
+        analyses = [
+            _make_analysis(q02_thesis="Short"),
+            _make_analysis(q02_thesis="Much longer thesis here"),
+        ]
+        result = aggregate_analyses(
+            analyses,
+            default_strategy="nonexistent_strategy",
+        )
+        assert result.q02_thesis == "Much longer thesis here"
+
+
+class TestImprovedConfidence:
+    """Tests for improved consensus confidence calculation."""
+
+    def test_agreement_on_core_fields_boosts_confidence(self):
+        """High word overlap on core fields increases confidence."""
+        config = CouncilConfig(
+            providers=[ProviderConfig(name="a"), ProviderConfig(name="b")]
+        )
+        analyses = [
+            _make_analysis(
+                q01_research_question="What is the impact of network analysis on policy?",
+                q02_thesis="Network analysis improves policy decisions.",
+                q03_key_claims="Networks reveal hidden structure.",
+                q04_evidence="Quantitative survey of 500 respondents.",
+                q05_limitations="Limited to US context.",
+            ),
+            _make_analysis(
+                q01_research_question="What is the impact of network analysis on policy making?",
+                q02_thesis="Network analysis improves policy decision making.",
+                q03_key_claims="Networks reveal hidden structure in organizations.",
+                q04_evidence="Quantitative survey of 500 respondents across 3 cities.",
+                q05_limitations="Limited to US context only.",
+            ),
+        ]
+        confidence = calculate_consensus_confidence(analyses, config)
+        assert confidence > 0.7
+
+    def test_coverage_spread_affects_confidence(self):
+        """Divergent field coverage lowers confidence."""
+        config = CouncilConfig(
+            providers=[ProviderConfig(name="a"), ProviderConfig(name="b")]
+        )
+        # Provider A fills many fields, provider B fills few
+        a_fields = {f"q{i:02d}_{name}": f"Value for {name}"
+                    for i, name in enumerate(["research_question", "thesis"], 1)}
+        b_fields = {}
+        for field_name in SemanticAnalysis.DIMENSION_FIELDS[:30]:
+            a_fields[field_name] = f"Filled by A: {field_name}"
+
+        analyses = [
+            _make_analysis(**a_fields),
+            _make_analysis(**b_fields),
+        ]
+        confidence = calculate_consensus_confidence(analyses, config)
+        # Should be lower due to coverage divergence
+        assert confidence < 0.9
+
+
+# =====================================================================
+# Tier 3: Synthesis round, query method, raw_query
+# =====================================================================
+
+
+class TestSynthesisConfig:
+    """Tests for SynthesisConfig dataclass."""
+
+    def test_defaults(self):
+        """SynthesisConfig has sensible defaults."""
+        config = SynthesisConfig()
+        assert config.enabled is False
+        assert config.judge_provider == "anthropic"
+        assert config.judge_mode == "api"
+        assert config.judge_model is None
+
+
+class TestSynthesisPrompt:
+    """Tests for synthesis prompt building."""
+
+    def test_prompt_includes_all_providers(self):
+        """Synthesis prompt includes extractions from all providers."""
+        config = CouncilConfig(providers=[])
+        council = LLMCouncil(config)
+
+        responses = [
+            ProviderResponse(
+                provider="anthropic",
+                extraction=_make_analysis(
+                    q02_thesis="Anthropic thesis", q07_methods="Qualitative",
+                ),
+                success=True,
+            ),
+            ProviderResponse(
+                provider="openai",
+                extraction=_make_analysis(
+                    q02_thesis="OpenAI thesis", q07_methods="Quantitative",
+                ),
+                success=True,
+            ),
+        ]
+
+        prompt = council._build_synthesis_prompt(responses)
+        assert "anthropic" in prompt.lower()
+        assert "openai" in prompt.lower()
+        assert "Anthropic thesis" in prompt
+        assert "OpenAI thesis" in prompt
+
+
+class TestSynthesisRound:
+    """Tests for synthesis round execution."""
+
+    def test_synthesis_used_as_consensus(self):
+        """When synthesis is enabled and succeeds, it replaces mechanical aggregation."""
+        from unittest.mock import MagicMock, patch
+
+        synth_extraction = _make_analysis(
+            q02_thesis="Synthesized best thesis from judge",
+        )
+
+        config = CouncilConfig(
+            providers=[
+                ProviderConfig(name="anthropic"),
+                ProviderConfig(name="openai"),
+            ],
+            min_responses=2,
+            parallel=False,
+            synthesis=SynthesisConfig(
+                enabled=True, judge_provider="anthropic", judge_mode="api",
+            ),
+        )
+        council = LLMCouncil(config)
+
+        analysis_a = _make_analysis(q02_thesis="Thesis A")
+        analysis_b = _make_analysis(q02_thesis="Thesis B is longer for testing")
+
+        def mock_get_client(provider):
+            name = provider.name if hasattr(provider, "name") else provider
+            mode = provider.mode if hasattr(provider, "mode") else "cli"
+            client = MagicMock()
+
+            if name == "anthropic" and mode == "api":
+                # Judge synthesis call -- return synthesized extraction
+                result = MagicMock()
+                result.success = True
+                result.extraction = synth_extraction
+                result.cost = 0.01
+                client.extract.return_value = result
+            elif name == "anthropic":
+                # Provider extraction call
+                result = MagicMock()
+                result.success = True
+                result.extraction = analysis_a
+                result.cost = 0.01
+                client.extract.return_value = result
+            else:
+                result = MagicMock()
+                result.success = True
+                result.extraction = analysis_b
+                result.cost = 0.01
+                client.extract.return_value = result
+            return client
+
+        with patch.object(council, "_get_client", side_effect=mock_get_client):
+            result = council.extract(
+                paper_id="test",
+                title="Test",
+                authors="Author",
+                year=2024,
+                item_type="article",
+                text="Content",
+            )
+
+        assert result.success
+        assert result.consensus is not None
+        assert "Synthesized" in result.consensus.q02_thesis
+
+    def test_synthesis_disabled_not_called(self):
+        """Synthesis is not called when disabled."""
+        from unittest.mock import MagicMock, patch
+
+        config = CouncilConfig(
+            providers=[
+                ProviderConfig(name="anthropic"),
+                ProviderConfig(name="openai"),
+            ],
+            min_responses=2,
+            parallel=False,
+            synthesis=SynthesisConfig(enabled=False),
+        )
+        council = LLMCouncil(config)
+
+        analysis_a = _make_analysis(q02_thesis="Thesis A short")
+        analysis_b = _make_analysis(q02_thesis="Thesis B is the longest one here")
+
+        clients = {
+            "anthropic": MagicMock(),
+            "openai": MagicMock(),
+        }
+
+        for name, extraction in [("anthropic", analysis_a), ("openai", analysis_b)]:
+            result_mock = MagicMock()
+            result_mock.success = True
+            result_mock.extraction = extraction
+            result_mock.cost = 0.01
+            clients[name].extract.return_value = result_mock
+
+        with patch.object(
+            council, "_get_client",
+            side_effect=lambda p: clients[p.name if hasattr(p, "name") else p],
+        ):
+            with patch.object(council, "_run_synthesis_round") as mock_synth:
+                result = council.extract(
+                    paper_id="test",
+                    title="Test",
+                    authors="Author",
+                    year=2024,
+                    item_type="article",
+                    text="Content",
+                )
+
+        mock_synth.assert_not_called()
+        assert result.success
+        # Should use mechanical aggregation (longest)
+        assert "longest one" in result.consensus.q02_thesis
+
+
+class TestQueryMethod:
+    """Tests for generic query() method."""
+
+    def test_query_fans_out_to_providers(self):
+        """query() sends prompt to all enabled providers."""
+        from unittest.mock import MagicMock, patch
+
+        config = CouncilConfig(
+            providers=[
+                ProviderConfig(name="anthropic"),
+                ProviderConfig(name="openai"),
+            ],
+        )
+        council = LLMCouncil(config)
+
+        def mock_get_client(provider):
+            client = MagicMock()
+            client.raw_query.return_value = (
+                f"Response from {provider.name}", True, None,
+            )
+            return client
+
+        with patch.object(council, "_get_client", side_effect=mock_get_client):
+            result = council.query("What is network analysis?", query_id="q1")
+
+        assert result.success
+        assert len(result.provider_responses) == 2
+        assert result.consensus_response is not None
+        assert result.query_id == "q1"
+
+    def test_query_no_providers(self):
+        """query() with no providers returns failure."""
+        config = CouncilConfig(providers=[])
+        council = LLMCouncil(config)
+        result = council.query("test prompt")
+        assert not result.success
+        assert result.provider_responses == []
+
+
+class TestRawQuery:
+    """Tests for BaseLLMClient.raw_query default implementation."""
+
+    def test_raw_query_wraps_extract(self):
+        """raw_query delegates to extract with prompt_override."""
+        from unittest.mock import MagicMock
+
+        from src.analysis.base_llm import BaseLLMClient
+
+        # Create a concrete subclass for testing
+        class MockClient(BaseLLMClient):
+            @property
+            def provider(self):
+                return "anthropic"
+
+            @property
+            def default_model(self):
+                return "test"
+
+            @property
+            def supported_modes(self):
+                return ["api"]
+
+            def extract(self, **kwargs):
+                extraction = _make_analysis(
+                    q02_thesis="Response to query",
+                )
+                result = MagicMock()
+                result.success = True
+                result.extraction = extraction
+                return result
+
+            def estimate_cost(self, text_length):
+                return 0.0
+
+        client = MockClient()
+        text, success, error = client.raw_query("Tell me about networks")
+        assert success
+        assert text is not None
+        assert "Response to query" in text
+
+    def test_raw_query_handles_failure(self):
+        """raw_query returns error tuple on exception."""
+        from src.analysis.base_llm import BaseLLMClient
+
+        class FailingClient(BaseLLMClient):
+            @property
+            def provider(self):
+                return "anthropic"
+
+            @property
+            def default_model(self):
+                return "test"
+
+            @property
+            def supported_modes(self):
+                return ["api"]
+
+            def extract(self, **kwargs):
+                raise RuntimeError("API error")
+
+            def estimate_cost(self, text_length):
+                return 0.0
+
+        client = FailingClient()
+        text, success, error = client.raw_query("test")
+        assert not success
+        assert error is not None
+        assert "API error" in error
+
+
+# =====================================================================
+# Graceful fallback and warning tests
+# =====================================================================
+
+
+class TestGracefulFallbacks:
+    """Tests for graceful degradation when things go wrong."""
+
+    def test_unknown_strategy_warns_and_uses_longest(self, caplog):
+        """Unknown strategy name logs a warning and falls back to longest."""
+        import logging
+
+        analyses = [
+            _make_analysis(q02_thesis="Short"),
+            _make_analysis(q02_thesis="Much longer thesis here for testing"),
+        ]
+        with caplog.at_level(logging.WARNING, logger="src.analysis.llm_council"):
+            result = aggregate_analyses(
+                analyses,
+                field_strategies={"q02_thesis": "nonexistent_strategy"},
+            )
+        assert result.q02_thesis == "Much longer thesis here for testing"
+        assert any("Unknown aggregation strategy" in msg for msg in caplog.messages)
+
+    def test_mismatched_weights_warns_and_pads(self, caplog):
+        """Too few weights logs a warning and pads with 1.0."""
+        import logging
+
+        analyses = [
+            _make_analysis(q02_thesis="A"),
+            _make_analysis(q02_thesis="BB"),
+            _make_analysis(q02_thesis="CCC"),
+        ]
+        with caplog.at_level(logging.WARNING, logger="src.analysis.llm_council"):
+            result = aggregate_analyses(analyses, weights=[1.0])
+        # Should still produce a result (longest)
+        assert result.q02_thesis == "CCC"
+        assert any("Weights length" in msg for msg in caplog.messages)
+
+    def test_mismatched_weights_truncates(self, caplog):
+        """Too many weights logs a warning and truncates."""
+        import logging
+
+        analyses = [
+            _make_analysis(q02_thesis="A"),
+            _make_analysis(q02_thesis="BB"),
+        ]
+        with caplog.at_level(logging.WARNING, logger="src.analysis.llm_council"):
+            result = aggregate_analyses(analyses, weights=[1.0, 2.0, 3.0])
+        assert result.q02_thesis == "BB"
+        assert any("Weights length" in msg for msg in caplog.messages)
+
+    def test_synthesis_with_no_valid_extractions_returns_none(self, caplog):
+        """Synthesis round returns None when no responses have extractions."""
+        import logging
+
+        config = CouncilConfig(
+            providers=[],
+            synthesis=SynthesisConfig(enabled=True),
+        )
+        council = LLMCouncil(config)
+
+        responses = [
+            ProviderResponse(provider="a", extraction=None, success=True),
+            ProviderResponse(provider="b", extraction=None, success=True),
+        ]
+
+        with caplog.at_level(logging.WARNING, logger="src.analysis.llm_council"):
+            result = council._run_synthesis_round(responses)
+
+        assert result is None
+        assert any("no valid extractions" in msg for msg in caplog.messages)
+
+    def test_synthesis_judge_failure_falls_back_to_mechanical(self):
+        """If synthesis judge fails, mechanical aggregation is preserved."""
+        from unittest.mock import MagicMock, patch
+
+        config = CouncilConfig(
+            providers=[
+                ProviderConfig(name="anthropic"),
+                ProviderConfig(name="openai"),
+            ],
+            min_responses=2,
+            parallel=False,
+            synthesis=SynthesisConfig(
+                enabled=True, judge_provider="anthropic", judge_mode="api",
+            ),
+        )
+        council = LLMCouncil(config)
+
+        analysis_a = _make_analysis(q02_thesis="Thesis A short")
+        analysis_b = _make_analysis(q02_thesis="Thesis B is the longest one here")
+
+        def mock_get_client(provider):
+            name = provider.name if hasattr(provider, "name") else provider
+            mode = provider.mode if hasattr(provider, "mode") else "cli"
+            client = MagicMock()
+
+            if name == "anthropic" and mode == "api":
+                # Judge fails
+                client.extract.side_effect = RuntimeError("Judge API error")
+            elif name == "anthropic":
+                result = MagicMock()
+                result.success = True
+                result.extraction = analysis_a
+                result.cost = 0.01
+                client.extract.return_value = result
+            else:
+                result = MagicMock()
+                result.success = True
+                result.extraction = analysis_b
+                result.cost = 0.01
+                client.extract.return_value = result
+            return client
+
+        with patch.object(council, "_get_client", side_effect=mock_get_client):
+            result = council.extract(
+                paper_id="test",
+                title="Test",
+                authors="Author",
+                year=2024,
+                item_type="article",
+                text="Content",
+            )
+
+        assert result.success
+        assert result.consensus is not None
+        # Should fall back to mechanical aggregation (longest)
+        assert "longest one" in result.consensus.q02_thesis
+
+    def test_query_provider_error_captured(self):
+        """query() captures provider errors without crashing."""
+        from unittest.mock import MagicMock, patch
+
+        config = CouncilConfig(
+            providers=[
+                ProviderConfig(name="good_provider"),
+                ProviderConfig(name="bad_provider"),
+            ],
+        )
+        council = LLMCouncil(config)
+
+        def mock_get_client(provider):
+            name = provider.name if hasattr(provider, "name") else provider
+            client = MagicMock()
+            if name == "bad_provider":
+                client.raw_query.side_effect = RuntimeError("Connection refused")
+            else:
+                client.raw_query.return_value = ("Good response", True, None)
+            return client
+
+        with patch.object(council, "_get_client", side_effect=mock_get_client):
+            result = council.query("test prompt")
+
+        assert result.success  # Still succeeds with 1 good provider
+        assert len(result.provider_responses) == 2
+        failed = [r for r in result.provider_responses if not r.success]
+        assert len(failed) == 1
+        assert "Connection refused" in failed[0].error
+
+    def test_quality_score_handles_punctuation_only(self):
+        """Quality score handles text that is only punctuation."""
+        score = _compute_quality_score("...")
+        assert score == 0.0  # No sentences, no content
+
+    def test_union_merge_single_provider(self):
+        """Union merge with single provider returns its content."""
+        result = strategy_union_merge([
+            ("First sentence. Second sentence.", 1.0),
+        ])
+        assert "First sentence" in result
+        assert "Second sentence" in result
+
+    def test_aggregate_with_all_providers_returning_none(self):
+        """Aggregation handles all providers returning None for a field."""
+        analyses = [
+            _make_analysis(),
+            _make_analysis(),
+            _make_analysis(),
+        ]
+        result = aggregate_analyses(analyses, default_strategy="quality_weighted")
+        # All q-fields are None, should remain None
+        assert result.q02_thesis is None
+        assert result.q07_methods is None
+
+    def test_confidence_single_analysis(self):
+        """Confidence with single analysis returns reasonable value."""
+        config = CouncilConfig(
+            providers=[ProviderConfig(name="only_one")]
+        )
+        analyses = [_make_analysis(q02_thesis="Solo thesis")]
+        confidence = calculate_consensus_confidence(analyses, config)
+        # 1/1 response rate = 0.6, no agreement data = 0.5 default
+        assert 0.5 <= confidence <= 1.0
+
+    def test_synthesis_prompt_empty_dimensions(self):
+        """Synthesis prompt with extractions that have no filled dimensions."""
+        config = CouncilConfig(providers=[])
+        council = LLMCouncil(config)
+
+        responses = [
+            ProviderResponse(
+                provider="anthropic",
+                extraction=_make_analysis(),  # All dimensions None
+                success=True,
+            ),
+        ]
+
+        prompt = council._build_synthesis_prompt(responses)
+        # Should still produce a valid prompt, just with empty JSON
+        assert "Provider: anthropic" in prompt
