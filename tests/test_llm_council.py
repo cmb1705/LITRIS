@@ -13,6 +13,7 @@ from src.analysis.llm_council import (
     _compute_quality_score,
     aggregate_analyses,
     calculate_consensus_confidence,
+    identify_gap_passes,
     strategy_quality_weighted,
     strategy_union_merge,
 )
@@ -1485,3 +1486,169 @@ class TestGracefulFallbacks:
         prompt = council._build_synthesis_prompt(responses)
         # Should still produce a valid prompt, just with empty JSON
         assert "Provider: anthropic" in prompt
+
+
+# =====================================================================
+# Tier 4: Gap-filling extraction
+# =====================================================================
+
+
+class TestGapFilling:
+    """Tests for gap-filling extraction via fill_gaps()."""
+
+    def test_identifies_gap_passes(self):
+        """identify_gap_passes maps unfilled fields to correct pass numbers."""
+        # Fill only pass 1 fields (q01-q05), leave rest as None
+        analysis = _make_analysis(
+            q01_research_question="Filled",
+            q02_thesis="Filled",
+            q03_key_claims="Filled",
+            q04_evidence="Filled",
+            q05_limitations="Filled",
+        )
+        gap_passes = identify_gap_passes(analysis)
+
+        # Pass 1 should NOT be in gaps (all filled)
+        assert 1 not in gap_passes
+        # Passes 2-6 should be present
+        assert 2 in gap_passes
+        assert 3 in gap_passes
+        assert 4 in gap_passes
+        assert 5 in gap_passes
+        assert 6 in gap_passes
+        # Pass 2 should contain q06-q10
+        assert "q06_paradigm" in gap_passes[2]
+        assert "q10_framework" in gap_passes[2]
+
+    def test_fills_missing_fields(self):
+        """fill_gaps runs gap passes and merges results into original analysis."""
+        from unittest.mock import MagicMock, patch
+
+        # Original analysis has pass 1 filled, everything else None
+        original = _make_analysis(
+            q01_research_question="Original research question",
+            q02_thesis="Original thesis statement",
+            q03_key_claims="Original key claims",
+            q04_evidence="Original evidence description",
+            q05_limitations="Original limitations",
+        )
+
+        config = CouncilConfig(
+            providers=[
+                ProviderConfig(name="anthropic", weight=1.0),
+                ProviderConfig(name="openai", weight=1.0),
+            ],
+        )
+        council = LLMCouncil(config)
+
+        # Mock the secondary provider to fill pass 2 fields
+        mock_client = MagicMock()
+        mock_client.model = "openai-model"
+        gap_extraction = _make_analysis(
+            q06_paradigm="Positivist paradigm",
+            q07_methods="Quantitative survey methods",
+            q08_data="500 respondents over 3 years",
+            q09_reproducibility="High reproducibility with shared data",
+            q10_framework="Social network theory",
+        )
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.extraction = gap_extraction
+        mock_result.cost = 0.01
+        mock_client.extract.return_value = mock_result
+
+        with patch.object(council, "_get_client", return_value=mock_client):
+            merged, gaps_filled = council.fill_gaps(
+                analysis=original,
+                paper_id="test_id",
+                title="Test Paper",
+                authors="Test Author",
+                year=2024,
+                item_type="article",
+                text="Full paper text here.",
+            )
+
+        # Original pass 1 fields preserved
+        assert merged.q01_research_question == "Original research question"
+        assert merged.q02_thesis == "Original thesis statement"
+        # Gap-fill fields now populated
+        assert merged.q06_paradigm is not None
+        assert gaps_filled > 0
+
+    def test_no_gaps_returns_unchanged(self):
+        """fill_gaps returns original analysis when all fields are filled."""
+        # Build analysis with ALL 40 fields filled
+        all_fields = {}
+        for field_name in SemanticAnalysis.DIMENSION_FIELDS:
+            all_fields[field_name] = f"Filled value for {field_name}"
+
+        analysis = _make_analysis(**all_fields)
+
+        config = CouncilConfig(
+            providers=[ProviderConfig(name="anthropic")],
+        )
+        council = LLMCouncil(config)
+
+        merged, gaps_filled = council.fill_gaps(
+            analysis=analysis,
+            paper_id="test_id",
+            title="Test",
+            authors="Author",
+            year=2024,
+            item_type="article",
+            text="Content",
+        )
+
+        assert gaps_filled == 0
+        # Should be the exact same object (no-op path)
+        assert merged is analysis
+
+    def test_uses_different_provider(self):
+        """fill_gaps selects a provider different from the original extraction_model."""
+        from unittest.mock import MagicMock, patch
+
+        original = _make_analysis(
+            extraction_model="anthropic",
+            q01_research_question="Filled",
+        )
+
+        config = CouncilConfig(
+            providers=[
+                ProviderConfig(name="anthropic", weight=1.0),
+                ProviderConfig(name="openai", weight=1.0),
+            ],
+        )
+        council = LLMCouncil(config)
+
+        mock_client = MagicMock()
+        mock_client.model = "openai-model"
+        gap_extraction = _make_analysis(
+            q06_paradigm="Positivist approach to analysis",
+        )
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.extraction = gap_extraction
+        mock_result.cost = 0.01
+        mock_client.extract.return_value = mock_result
+
+        provider_used = None
+
+        def capture_get_client(provider):
+            nonlocal provider_used
+            provider_used = provider
+            return mock_client
+
+        with patch.object(council, "_get_client", side_effect=capture_get_client):
+            council.fill_gaps(
+                analysis=original,
+                paper_id="test_id",
+                title="Test",
+                authors="Author",
+                year=2024,
+                item_type="article",
+                text="Content",
+            )
+
+        # Should have picked "openai" (not "anthropic" which matches extraction_model)
+        assert provider_used is not None
+        assert provider_used.name == "openai"
