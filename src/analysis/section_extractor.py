@@ -722,15 +722,22 @@ class SectionExtractor:
         Returns:
             ExtractionStats with overall statistics.
         """
-        stats = ExtractionStats(total=len(papers))
+        import time
 
-        for i, paper in enumerate(papers):
+        stats = ExtractionStats(total=len(papers))
+        consecutive_rate_limits = 0
+
+        i = 0
+        while i < len(papers):
+            paper = papers[i]
+
             if progress_callback:
                 progress_callback(i + 1, len(papers), paper.title)
 
             # Skip papers without PDFs
             if not paper.pdf_path:
                 stats.skipped += 1
+                i += 1
                 continue
 
             result, from_cache = self.extract_paper(paper)
@@ -738,22 +745,39 @@ class SectionExtractor:
             if from_cache:
                 stats.cached += 1
                 stats.successful += 1
+                consecutive_rate_limits = 0
             elif result.success:
                 stats.successful += 1
                 stats.total_input_tokens += result.input_tokens
                 stats.total_output_tokens += result.output_tokens
                 stats.total_duration += result.duration_seconds
+                consecutive_rate_limits = 0
             else:
-                if result.error and (
-                    result.error.startswith("Likely non-publication")
-                    or result.error.startswith("Insufficient text content")
-                ):
+                error_str = result.error or ""
+                if error_str.startswith(
+                    "Likely non-publication"
+                ) or error_str.startswith("Insufficient text content"):
                     stats.skipped += 1
+                    consecutive_rate_limits = 0
+                elif self._is_rate_limit_error(error_str):
+                    consecutive_rate_limits += 1
+                    if self._handle_quota_exhaustion(consecutive_rate_limits):
+                        # Quota sleep completed, retry this paper
+                        consecutive_rate_limits = 0
+                        continue  # Don't increment i, retry same paper
+                    # Brief backoff for transient rate limit
+                    logger.warning(
+                        f"Rate limit on {paper.paper_id}, waiting 30s"
+                    )
+                    time.sleep(30)
+                    continue  # Retry same paper
                 else:
                     stats.failed += 1
+                    consecutive_rate_limits = 0
                 stats.total_duration += result.duration_seconds
 
             yield result
+            i += 1
 
         self._log_completion_stats(stats)
         return stats
@@ -865,6 +889,12 @@ class SectionExtractor:
                                 remaining.insert(0, paper)
                                 completed -= 1
                                 continue
+                            elif self._handle_quota_exhaustion(rate_limit_count):
+                                rate_limit_count = 0
+                                current_workers = self.parallel_workers
+                                remaining.insert(0, paper)
+                                completed -= 1
+                                continue
                             else:
                                 stats.failed += 1
                         else:
@@ -901,6 +931,11 @@ class SectionExtractor:
             ), False
         return self.extract_paper(paper)
 
+    # Maximum consecutive rate limit errors before triggering quota sleep
+    _QUOTA_THRESHOLD = 3
+    # Hours to sleep when quota is exhausted
+    _QUOTA_SLEEP_HOURS = 4
+
     @staticmethod
     def _is_rate_limit_error(error: str) -> bool:
         """Check if an error string indicates a rate limit."""
@@ -912,6 +947,48 @@ class SectionExtractor:
             "quota exceeded",
             "throttl",
         ))
+
+    def _handle_quota_exhaustion(self, consecutive_errors: int) -> bool:
+        """Sleep and retry if quota appears exhausted.
+
+        Called when rate limit errors persist even at 1 worker. Sleeps
+        for ``_QUOTA_SLEEP_HOURS`` with periodic status logs, then
+        signals the caller to retry.
+
+        Args:
+            consecutive_errors: Number of consecutive rate limit errors.
+
+        Returns:
+            True if caller should retry (slept and ready), False if
+            threshold not met.
+        """
+        import time
+
+        if consecutive_errors < self._QUOTA_THRESHOLD:
+            return False
+
+        sleep_seconds = self._QUOTA_SLEEP_HOURS * 3600
+        logger.warning(
+            f"Quota appears exhausted ({consecutive_errors} consecutive rate limit "
+            f"errors at 1 worker). Sleeping {self._QUOTA_SLEEP_HOURS} hours. "
+            f"Extraction will auto-resume. Safe to leave unattended."
+        )
+
+        # Log every 30 min so the process looks alive
+        interval = 1800  # 30 minutes
+        slept = 0
+        while slept < sleep_seconds:
+            chunk = min(interval, sleep_seconds - slept)
+            time.sleep(chunk)
+            slept += chunk
+            remaining = (sleep_seconds - slept) / 3600
+            if remaining > 0:
+                logger.info(
+                    f"Quota cooldown: {remaining:.1f} hours remaining"
+                )
+
+        logger.info("Quota cooldown complete. Resuming extraction.")
+        return True
 
     def _log_completion_stats(self, stats: ExtractionStats) -> None:
         """Log completion statistics."""
