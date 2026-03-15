@@ -688,6 +688,9 @@ class SectionExtractor:
     ) -> Generator[ExtractionResult, None, ExtractionStats]:
         """Extract content from multiple papers.
 
+        Uses parallel workers if configured (parallel_workers > 1).
+        Automatically reduces workers on rate limit errors.
+
         Args:
             papers: List of papers to process.
             progress_callback: Optional callback(current, total, paper_title).
@@ -698,6 +701,8 @@ class SectionExtractor:
         Returns:
             ExtractionStats with overall statistics.
         """
+        if self.parallel_workers > 1:
+            return self._extract_batch_parallel(papers, progress_callback)
         return self._extract_batch_sequential(papers, progress_callback)
 
     def _extract_batch_sequential(
@@ -752,6 +757,161 @@ class SectionExtractor:
 
         self._log_completion_stats(stats)
         return stats
+
+    def _extract_batch_parallel(
+        self,
+        papers: list[PaperMetadata],
+        progress_callback: Callable | None = None,
+    ) -> Generator[ExtractionResult, None, ExtractionStats]:
+        """Parallel batch extraction with adaptive rate limit backoff.
+
+        Runs multiple papers concurrently using a thread pool. If rate
+        limit errors are detected, reduces worker count and retries.
+
+        Args:
+            papers: List of papers to process.
+            progress_callback: Optional callback(current, total, paper_title).
+
+        Yields:
+            ExtractionResult for each paper.
+
+        Returns:
+            ExtractionStats with overall statistics.
+        """
+        import time
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        stats = ExtractionStats(total=len(papers))
+        current_workers = self.parallel_workers
+        rate_limit_count = 0
+        completed = 0
+
+        logger.info(f"Parallel extraction: {len(papers)} papers, {current_workers} workers")
+
+        # Process in chunks to allow worker adjustment between chunks
+        remaining = list(papers)
+
+        while remaining:
+            chunk_size = min(current_workers * 3, len(remaining))
+            chunk = remaining[:chunk_size]
+            remaining = remaining[chunk_size:]
+
+            with ThreadPoolExecutor(max_workers=current_workers) as executor:
+                future_to_paper = {
+                    executor.submit(self._extract_single_paper, paper): paper
+                    for paper in chunk
+                }
+
+                for future in as_completed(future_to_paper):
+                    paper = future_to_paper[future]
+                    completed += 1
+
+                    if progress_callback:
+                        progress_callback(completed, len(papers), paper.title)
+
+                    try:
+                        result, from_cache = future.result()
+                    except Exception as exc:
+                        error_str = str(exc)
+                        result = ExtractionResult(
+                            paper_id=paper.paper_id,
+                            success=False,
+                            error=error_str,
+                        )
+                        from_cache = False
+
+                        # Detect rate limit errors
+                        if self._is_rate_limit_error(error_str):
+                            rate_limit_count += 1
+                            if current_workers > 1:
+                                current_workers = max(1, current_workers - 1)
+                                logger.warning(
+                                    f"Rate limit hit ({rate_limit_count}x). "
+                                    f"Reducing workers to {current_workers}. "
+                                    f"Waiting 30s before retry."
+                                )
+                                time.sleep(30)
+                                # Re-queue this paper
+                                remaining.insert(0, paper)
+                                completed -= 1
+                                continue
+
+                    if from_cache:
+                        stats.cached += 1
+                        stats.successful += 1
+                    elif result.success:
+                        stats.successful += 1
+                        stats.total_input_tokens += result.input_tokens
+                        stats.total_output_tokens += result.output_tokens
+                        stats.total_duration += result.duration_seconds
+                        # Reset rate limit count on success
+                        rate_limit_count = 0
+                    else:
+                        error_str = result.error or ""
+                        if error_str.startswith(
+                            "Likely non-publication"
+                        ) or error_str.startswith("Insufficient text content"):
+                            stats.skipped += 1
+                        elif self._is_rate_limit_error(error_str):
+                            rate_limit_count += 1
+                            if current_workers > 1:
+                                current_workers = max(1, current_workers - 1)
+                                logger.warning(
+                                    f"Rate limit in result ({rate_limit_count}x). "
+                                    f"Reducing workers to {current_workers}. "
+                                    f"Waiting 30s."
+                                )
+                                time.sleep(30)
+                                remaining.insert(0, paper)
+                                completed -= 1
+                                continue
+                            else:
+                                stats.failed += 1
+                        else:
+                            stats.failed += 1
+                        stats.total_duration += result.duration_seconds
+
+                    yield result
+
+        if rate_limit_count > 0:
+            logger.info(
+                f"Rate limits encountered: {rate_limit_count}x. "
+                f"Final worker count: {current_workers}"
+            )
+
+        self._log_completion_stats(stats)
+        return stats
+
+    def _extract_single_paper(
+        self, paper: PaperMetadata,
+    ) -> tuple[ExtractionResult, bool]:
+        """Extract a single paper (for use in thread pool).
+
+        Args:
+            paper: Paper to extract.
+
+        Returns:
+            Tuple of (ExtractionResult, from_cache).
+        """
+        if not paper.pdf_path:
+            return ExtractionResult(
+                paper_id=paper.paper_id,
+                success=False,
+                error="No PDF path",
+            ), False
+        return self.extract_paper(paper)
+
+    @staticmethod
+    def _is_rate_limit_error(error: str) -> bool:
+        """Check if an error string indicates a rate limit."""
+        lower = error.lower()
+        return any(phrase in lower for phrase in (
+            "rate limit",
+            "429",
+            "too many requests",
+            "quota exceeded",
+            "throttl",
+        ))
 
     def _log_completion_stats(self, stats: ExtractionStats) -> None:
         """Log completion statistics."""
