@@ -62,7 +62,18 @@ def main():
             print("No requests created. Stopping.")
             break
 
-        batch_id = client.submit_batch(requests)
+        try:
+            batch_id = client.submit_batch(requests)
+        except Exception as exc:
+            error_str = str(exc).lower()
+            if any(p in error_str for p in (
+                "billing", "hard_limit", "insufficient", "payment", "spending",
+            )):
+                print(f"\nBilling limit reached: {exc}")
+                print(f"Batches completed: {batch_count}")
+                print(f"Papers collected: {total_collected}")
+                return
+            raise
         print(f"Submitted: {batch_id}")
 
         # Wait for completion
