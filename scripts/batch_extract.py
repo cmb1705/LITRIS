@@ -89,9 +89,18 @@ def get_unextracted_papers(config: Config, limit: int | None = None):
     else:
         existing_ids = set()
 
-    unextracted = [p for p in papers if p.paper_id not in existing_ids]
+    # Load skip list (papers rejected by content filters)
+    skip_data = safe_read_json(index_dir / "skip_papers.json", default={})
+    skip_ids = set(skip_data.get("papers", {}).keys())
+
+    unextracted = [
+        p for p in papers
+        if p.paper_id not in existing_ids and p.paper_id not in skip_ids
+    ]
     print(f"Total papers with PDFs: {len(papers)}")
     print(f"Already extracted: {len(existing_ids)}")
+    if skip_ids:
+        print(f"Skipped (content policy): {len(skip_ids)}")
     print(f"Remaining: {len(unextracted)}")
 
     if limit:
