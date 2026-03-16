@@ -60,6 +60,18 @@ class BatchStatus:
 
 
 @dataclass
+class BatchIssue:
+    """A notable issue encountered during batch processing."""
+
+    paper_id: str
+    pass_number: int
+    issue_type: str  # "policy_violation", "content_filter", "rate_limit", "parse_error", "api_error"
+    message: str
+    status_code: int = 0
+    error_code: str = ""
+
+
+@dataclass
 class _PaperPassResults:
     """Accumulator for per-paper pass results during batch reassembly."""
 
@@ -325,6 +337,7 @@ class OpenAIBatchClient:
         paper_results: dict[str, _PaperPassResults] = defaultdict(
             _PaperPassResults
         )
+        issues: list[BatchIssue] = []
 
         for line in lines:
             result = json.loads(line)
@@ -370,8 +383,24 @@ class OpenAIBatchClient:
                     acc.errors.append(f"pass {pass_num}: parse error: {e}")
             else:
                 error = response.get("error", {})
-                error_msg = error.get("message", str(error))
-                acc.errors.append(f"pass {pass_num}: {error_msg}")
+                if isinstance(error, dict):
+                    error_msg = error.get("message", str(error))
+                    error_code = error.get("code", "")
+                else:
+                    error_msg = str(error)
+                    error_code = ""
+                status_code = response.get("status_code", 0)
+
+                # Classify the error
+                issue = self._classify_error(
+                    paper_id, pass_num, status_code, error_code, error_msg,
+                )
+                issues.append(issue)
+                acc.errors.append(f"pass {pass_num}: [{issue.issue_type}] {error_msg}")
+
+        # Log issue summary
+        if issues:
+            self._report_issues(batch_id, issues)
 
         # Reassemble each paper
         for paper_id, acc in paper_results.items():
@@ -440,6 +469,143 @@ class OpenAIBatchClient:
                     input_tokens=acc.total_input_tokens,
                     output_tokens=acc.total_output_tokens,
                 )
+
+    @staticmethod
+    def _classify_error(
+        paper_id: str,
+        pass_num: int,
+        status_code: int,
+        error_code: str,
+        error_msg: str,
+    ) -> BatchIssue:
+        """Classify a batch error into an issue type.
+
+        Returns:
+            BatchIssue with classified issue_type.
+        """
+        msg_lower = error_msg.lower()
+        code_lower = error_code.lower()
+
+        # Policy / content filter violations
+        if (
+            "invalid_prompt" in code_lower
+            or "safety" in msg_lower
+            or "limited access" in msg_lower
+            or "not permitted" in msg_lower
+            or "usage policy" in msg_lower
+            or "content_policy" in code_lower
+        ):
+            return BatchIssue(
+                paper_id=paper_id,
+                pass_number=pass_num,
+                issue_type="policy_violation",
+                message=error_msg,
+                status_code=status_code,
+                error_code=error_code,
+            )
+
+        # Rate limits / quota
+        if (
+            "rate_limit" in code_lower
+            or "429" in str(status_code)
+            or "quota" in msg_lower
+            or "usage_limit" in msg_lower
+        ):
+            return BatchIssue(
+                paper_id=paper_id,
+                pass_number=pass_num,
+                issue_type="rate_limit",
+                message=error_msg,
+                status_code=status_code,
+                error_code=error_code,
+            )
+
+        # Content filter (model refusal)
+        if (
+            "content_filter" in code_lower
+            or "flagged" in msg_lower
+            or "refused" in msg_lower
+        ):
+            return BatchIssue(
+                paper_id=paper_id,
+                pass_number=pass_num,
+                issue_type="content_filter",
+                message=error_msg,
+                status_code=status_code,
+                error_code=error_code,
+            )
+
+        # Generic API error
+        return BatchIssue(
+            paper_id=paper_id,
+            pass_number=pass_num,
+            issue_type="api_error",
+            message=error_msg,
+            status_code=status_code,
+            error_code=error_code,
+        )
+
+    def _report_issues(
+        self, batch_id: str, issues: list[BatchIssue],
+    ) -> None:
+        """Log and save a report of batch issues.
+
+        Writes a JSON report to data/logs/ and logs a summary.
+        """
+        from collections import Counter
+
+        # Summarize by type
+        by_type = Counter(i.issue_type for i in issues)
+        by_paper = Counter(i.paper_id for i in issues)
+
+        logger.warning(
+            f"Batch {batch_id}: {len(issues)} issue(s) detected: "
+            + ", ".join(f"{count} {itype}" for itype, count in by_type.items())
+        )
+
+        # Log policy violations prominently
+        policy_issues = [i for i in issues if i.issue_type == "policy_violation"]
+        if policy_issues:
+            affected_papers = sorted({i.paper_id for i in policy_issues})
+            logger.warning(
+                f"POLICY VIOLATIONS in {len(affected_papers)} paper(s): "
+                + ", ".join(affected_papers)
+            )
+            for paper_id in affected_papers:
+                paper_issues = [i for i in policy_issues if i.paper_id == paper_id]
+                logger.warning(
+                    f"  {paper_id}: {len(paper_issues)} pass(es) rejected -- "
+                    f"{paper_issues[0].message[:150]}"
+                )
+
+        # Save report
+        report_dir = Path("data/logs")
+        report_dir.mkdir(parents=True, exist_ok=True)
+        report_path = report_dir / f"batch_issues_{batch_id[:20]}.json"
+
+        report = {
+            "batch_id": batch_id,
+            "generated_at": datetime.now().isoformat(),
+            "total_issues": len(issues),
+            "by_type": dict(by_type),
+            "affected_papers": dict(by_paper),
+            "issues": [
+                {
+                    "paper_id": i.paper_id,
+                    "pass_number": i.pass_number,
+                    "issue_type": i.issue_type,
+                    "status_code": i.status_code,
+                    "error_code": i.error_code,
+                    "message": i.message[:500],
+                }
+                for i in issues
+            ],
+        }
+
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Issue report saved: {report_path}")
 
     def _parse_pass_response(self, response_text: str) -> dict[str, str | None]:
         """Parse a single pass JSON response into a dict of q-field answers."""
