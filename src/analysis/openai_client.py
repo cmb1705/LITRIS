@@ -324,7 +324,7 @@ class OpenAILLMClient(BaseLLMClient):
             "model": self.model,
             "messages": messages,
             "max_completion_tokens": self.max_tokens,
-            "user": "litris-api-extract",
+            "safety_identifier": "litris-api-extract",
         }
 
         # Add reasoning effort for GPT-5.x models
