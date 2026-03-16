@@ -81,6 +81,7 @@ def main():
                 break
             elif status.status in ("failed", "expired", "cancelled"):
                 print(f"Batch {status.status}! Checking error...")
+                error_msg = ""
                 try:
                     from openai import OpenAI
 
@@ -88,9 +89,33 @@ def main():
                     oc = OpenAI(api_key=get_openai_api_key())
                     b = oc.batches.retrieve(batch_id)
                     print(f"Error: {b.errors}")
+                    if b.errors and b.errors.data:
+                        error_msg = str(b.errors.data[0].message).lower()
                 except Exception:
                     pass
-                print("Waiting 60s before retrying with smaller batch...")
+
+                # Exit on budget/billing errors
+                budget_phrases = (
+                    "billing",
+                    "budget",
+                    "insufficient",
+                    "payment",
+                    "spending limit",
+                    "exceeded your current",
+                )
+                if any(p in error_msg for p in budget_phrases):
+                    print("\nBudget or billing limit reached. Exiting gracefully.")
+                    print(f"Batches completed: {batch_count}")
+                    print(f"Papers collected: {total_collected}")
+                    return
+
+                # Token limit -- retry with smaller batch or wait
+                if "token_limit" in error_msg or "enqueued" in error_msg:
+                    print("Token enqueue limit -- waiting 5 min for queue to clear...")
+                    time.sleep(300)
+                    break
+
+                print("Waiting 60s before retrying...")
                 time.sleep(60)
                 break
 
