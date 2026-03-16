@@ -187,7 +187,7 @@ class OpenAIBatchClient:
                         {"role": "user", "content": req.prompt},
                     ],
                     "max_completion_tokens": self.max_tokens,
-                    "user": "litris-batch-extract",
+                    "safety_identifier": "litris-batch-extract",
                 }
                 # Add reasoning effort for GPT-5.x
                 if self.reasoning_effort and self.model.startswith("gpt-5"):
