@@ -38,6 +38,7 @@ def main():
     parser.add_argument("--threshold", type=float, default=0.90)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--provider", default="anthropic")
+    parser.add_argument("--parallel", type=int, default=1, help="Number of parallel workers")
     parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
@@ -112,8 +113,6 @@ def main():
         ],
         aggregation_strategy="quality_weighted",
     )
-    council = LLMCouncil(council_config)
-
     cascade_cache = Path("data/cache/cascade_text")
     pdf_extractor = PDFExtractor(
         enable_ocr=config.processing.ocr_enabled or config.processing.ocr_on_fail,
@@ -128,14 +127,24 @@ def main():
     filled_total = 0
     processed = 0
     failed = 0
+    save_lock = __import__("threading").Lock()
 
-    for idx, (pid, filled, coverage) in enumerate(candidates, 1):
+    def process_one(idx_and_candidate):
+        """Process a single paper gap-fill (thread-safe)."""
+        nonlocal filled_total, processed, failed
+        idx, (pid, filled, coverage) = idx_and_candidate
+
         paper = paper_lookup[pid]
-        gap_passes = identify_gap_passes(
-            SemanticAnalysis(**extractions[pid]["extraction"])
-        )
-        n_gaps = sum(len(fields) for fields in gap_passes.values())
+        try:
+            gap_passes = identify_gap_passes(
+                SemanticAnalysis(**extractions[pid]["extraction"])
+            )
+        except Exception as exc:
+            print(f"  [{idx}] {pid[:20]}: parse error: {exc}")
+            failed += 1
+            return
 
+        n_gaps = sum(len(fields) for fields in gap_passes.values())
         print(
             f"[{idx}/{len(candidates)}] {pid[:20]} "
             f"{filled}/40 ({coverage:.0%}) "
@@ -159,30 +168,32 @@ def main():
                     text = text_cleaner.clean(text)
                 text = text_cleaner.truncate_for_llm(text)
             except Exception as exc:
-                print(f"  Text extraction failed: {exc}")
+                print(f"  [{idx}] Text extraction failed: {exc}")
                 failed += 1
-                continue
+                return
         else:
-            print("  No PDF, skipping")
+            print(f"  [{idx}] No PDF, skipping")
             failed += 1
-            continue
+            return
 
         if not text:
-            print("  Empty text, skipping")
+            print(f"  [{idx}] Empty text, skipping")
             failed += 1
-            continue
+            return
 
         authors = ", ".join(
             f"{a.last_name}, {a.first_name}" for a in (paper.authors or [])
         )
 
         try:
+            # Each thread gets its own council instance to avoid shared client state
+            thread_council = LLMCouncil(council_config)
             analysis = SemanticAnalysis(**extractions[pid]["extraction"])
             gap_provider = ProviderConfig(
                 name=args.provider, weight=1.0, timeout=600, mode="cli",
             )
 
-            merged, gaps_filled = council.fill_gaps(
+            merged, gaps_filled = thread_council.fill_gaps(
                 analysis=analysis,
                 paper_id=pid,
                 title=paper.title,
@@ -193,35 +204,67 @@ def main():
                 gap_provider=gap_provider,
             )
 
-            if gaps_filled > 0:
-                filled_total += gaps_filled
-                new_filled = sum(
-                    1 for k, v in merged.model_dump().items()
-                    if k.startswith("q") and len(k) > 3 and k[1:3].isdigit() and v is not None
-                )
-                print(f"  Filled {gaps_filled} gaps ({filled}/40 -> {new_filled}/40)")
+            with save_lock:
+                if gaps_filled > 0:
+                    filled_total += gaps_filled
+                    new_filled = sum(
+                        1 for k, v in merged.model_dump().items()
+                        if k.startswith("q") and len(k) > 3 and k[1:3].isdigit() and v is not None
+                    )
+                    print(f"  [{idx}] Filled {gaps_filled} gaps ({filled}/40 -> {new_filled}/40)")
 
-                extractions[pid]["extraction"] = merged.to_index_dict()
-                extractions[pid]["gap_filled_by"] = args.provider
-                extractions[pid]["gap_filled_count"] = gaps_filled
-            else:
-                print("  No new content from gap-fill")
+                    extractions[pid]["extraction"] = merged.to_index_dict()
+                    extractions[pid]["gap_filled_by"] = args.provider
+                    extractions[pid]["gap_filled_count"] = gaps_filled
+                else:
+                    print(f"  [{idx}] No new content from gap-fill")
 
-            processed += 1
+                processed += 1
 
         except Exception as exc:
-            print(f"  Gap-fill failed: {exc}")
+            print(f"  [{idx}] Gap-fill failed: {exc}")
             failed += 1
 
-        # Save every 10 papers
-        if idx % 10 == 0:
-            sa["extractions"] = extractions
-            sa["extraction_count"] = len(extractions)
-            sa_path.write_text(
-                json.dumps(sa, indent=2, ensure_ascii=False, default=str),
-                encoding="utf-8",
-            )
-            print(f"  [Saved checkpoint: {filled_total} gaps filled so far]")
+    # Run with parallel workers
+    if args.parallel > 1:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        print(f"Using {args.parallel} parallel workers")
+        indexed = list(enumerate(candidates, 1))
+        chunk_size = args.parallel * 3
+
+        for chunk_start in range(0, len(indexed), chunk_size):
+            chunk = indexed[chunk_start:chunk_start + chunk_size]
+            with ThreadPoolExecutor(max_workers=args.parallel) as executor:
+                futures = {executor.submit(process_one, item): item for item in chunk}
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        print(f"  Worker error: {exc}")
+
+            # Save after each chunk
+            with save_lock:
+                sa["extractions"] = extractions
+                sa["extraction_count"] = len(extractions)
+                sa_path.write_text(
+                    json.dumps(sa, indent=2, ensure_ascii=False, default=str),
+                    encoding="utf-8",
+                )
+                print(f"  [Saved: {filled_total} gaps filled, {processed} processed]")
+    else:
+        for idx, candidate in enumerate(candidates, 1):
+            process_one((idx, candidate))
+
+            # Save every 10 papers
+            if idx % 10 == 0:
+                sa["extractions"] = extractions
+                sa["extraction_count"] = len(extractions)
+                sa_path.write_text(
+                    json.dumps(sa, indent=2, ensure_ascii=False, default=str),
+                    encoding="utf-8",
+                )
+                print(f"  [Saved checkpoint: {filled_total} gaps filled so far]")
 
     # Final save
     sa["extractions"] = extractions
