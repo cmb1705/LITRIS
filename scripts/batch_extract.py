@@ -102,19 +102,47 @@ def get_unextracted_papers(config: Config, limit: int | None = None):
 
 
 def make_text_getter(config: Config):
-    """Create a function that extracts and cleans text from a paper."""
+    """Create a function that extracts and cleans text from a paper.
+
+    Checks the cascade text cache first (from preextract_text.py).
+    Falls back to the full extraction cascade: arXiv HTML -> PyMuPDF -> Marker -> OCR.
+    """
+    from src.extraction.cascade import ExtractionCascade
+
+    cascade_cache = Path("data/cache/cascade_text")
+
     pdf_extractor = PDFExtractor(
         enable_ocr=config.processing.ocr_enabled or config.processing.ocr_on_fail,
     )
     text_cleaner = TextCleaner()
+    cascade = ExtractionCascade(
+        pdf_extractor=pdf_extractor,
+        enable_arxiv=config.processing.arxiv_enabled,
+        enable_marker=config.processing.marker_enabled,
+    )
 
     def text_getter(paper):
         if not paper.pdf_path or not paper.pdf_path.exists():
             raise ValueError(f"No PDF for {paper.paper_id}")
-        text = pdf_extractor.extract_text(paper.pdf_path)
+
+        # Check cascade text cache first
+        cached_path = cascade_cache / f"{paper.paper_id}.txt"
+        if cached_path.exists():
+            text = cached_path.read_text(encoding="utf-8")
+            if text:
+                return text
+
+        # Fall back to live cascade extraction
+        result = cascade.extract_text(
+            paper.pdf_path,
+            doi=getattr(paper, "doi", None),
+            url=getattr(paper, "url", None),
+        )
+        text = result.text
         if not text:
             raise ValueError(f"Empty text for {paper.paper_id}")
-        text = text_cleaner.clean(text)
+        if not result.is_markdown:
+            text = text_cleaner.clean(text)
         text = text_cleaner.truncate_for_llm(text)
         return text
 
