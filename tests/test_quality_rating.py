@@ -92,13 +92,14 @@ class TestFormatExtraction:
         extraction = {
             "q01_research_question": "What is X?",
             "q02_thesis": "X is Y.",
-            "q21_summary": "Summary of quality.",
             "q22_contribution": "Novel contribution.",
         }
         formatted = adapter._format_extraction(extraction)
-        assert "pass_1_research_core" in formatted
-        assert formatted["pass_1_research_core"]["q01_research_question"] == "What is X?"
-        assert formatted["pass_1_research_core"]["q02_thesis"] == "X is Y."
+        assert "research_core" in formatted
+        assert formatted["research_core"]["q01_research_question"] == "What is X?"
+        assert formatted["research_core"]["q02_thesis"] == "X is Y."
+        assert "meta" in formatted
+        assert formatted["meta"]["q22_contribution"] == "Novel contribution."
 
     def test_format_handles_missing_fields(self):
         from src.mcp.adapters import LitrisAdapter
@@ -108,8 +109,10 @@ class TestFormatExtraction:
             "q02_thesis": "Test thesis.",
         }
         formatted = adapter._format_extraction(extraction)
-        assert formatted["pass_1_research_core"]["q01_research_question"] is None
-        assert formatted["pass_1_research_core"]["q02_thesis"] == "Test thesis."
+        # Only non-None fields are included in the group
+        assert "research_core" in formatted
+        assert formatted["research_core"]["q02_thesis"] == "Test thesis."
+        assert "q01_research_question" not in formatted["research_core"]
 
 
 class TestPromptVersion:
