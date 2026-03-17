@@ -65,7 +65,8 @@ def main():
     # Non-academic title patterns to skip
     skip_patterns = [
         "errata", "youtube", "playlist", ".jpg", ".png", ".ppt",
-        "activity ", "sharing", "draft ", "call ", "ppt ", "d:\\",
+        "activity 12", "sharing.jpg", "draft methods", "draft research",
+        "ppt ", "dd form",
     ]
 
     # Find academic papers below threshold
