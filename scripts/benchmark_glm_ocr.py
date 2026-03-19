@@ -20,7 +20,10 @@ from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
 from src.zotero.database import ZoteroDatabase
 
-OLLAMA = "C:/Users/USER/AppData/Local/Programs/Ollama/ollama.exe"
+OLLAMA = os.environ.get(
+    "OLLAMA_PATH",
+    os.path.expandvars(r"%LOCALAPPDATA%\Programs\Ollama\ollama.exe"),
+)
 MAX_PAGES = 3  # Only process first 3 pages per paper
 OCR_TIMEOUT = 120  # seconds per page
 

@@ -218,6 +218,9 @@ package-lock.json
 # Project data directories
 data/
 
+# Generated PDFs from proposals/docs (source .md is tracked)
+docs/proposals/*.pdf
+
 # Local configuration with absolute paths
 .mcp.json
 

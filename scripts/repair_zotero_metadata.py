@@ -37,8 +37,13 @@ logger = get_logger(__name__)
 
 CROSSREF_API = "https://api.crossref.org/works"
 CROSSREF_EMAIL = "user@example.com"  # For polite pool
-ZOTERO_DB = Path("C:/Users/USER/Zotero/zotero.sqlite")
-ZOTERO_STORAGE = Path("C:/Users/USER/Zotero/storage")
+
+# Resolve Zotero paths from config (not hardcoded)
+from src.config import Config as _Config
+
+_cfg = _Config.load()
+ZOTERO_DB = Path(_cfg.zotero.database_path)
+ZOTERO_STORAGE = Path(_cfg.zotero.storage_path)
 
 
 @dataclass
