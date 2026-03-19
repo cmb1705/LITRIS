@@ -241,6 +241,8 @@ class SectionExtractor:
         cascade_enabled: bool = True,
         companion_dir: Path | None = None,
         arxiv_enabled: bool = True,
+        opendataloader_enabled: bool = True,
+        opendataloader_mode: str = "fast",
         marker_enabled: bool = True,
     ):
         """Initialize section extractor.
@@ -278,9 +280,11 @@ class SectionExtractor:
             self.cascade = ExtractionCascade(
                 pdf_extractor=self.pdf_extractor,
                 enable_arxiv=arxiv_enabled,
+                enable_opendataloader=opendataloader_enabled,
                 enable_marker=marker_enabled,
                 min_words=min_text_length,
                 companion_dir=companion_dir,
+                opendataloader_mode=opendataloader_mode,
             )
 
         # Create LLM client using factory

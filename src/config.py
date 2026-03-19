@@ -298,6 +298,8 @@ class ProcessingConfig(BaseModel):
     cascade_enabled: bool = True
     companion_dir: Path | None = None
     arxiv_enabled: bool = True
+    opendataloader_enabled: bool = True
+    opendataloader_mode: str = "fast"
     marker_enabled: bool = True
     classification: ClassificationConfig = Field(default_factory=ClassificationConfig)
 

@@ -60,3 +60,6 @@ Pillow>=10.0,<13.0
 
 # PDF to markdown (optional - ML-based extraction for tables/figures)
 marker-pdf>=1.0,<2.0
+
+# PDF layout analysis (optional - Java-based, requires Java 11+)
+opendataloader-pdf>=2.0,<3.0

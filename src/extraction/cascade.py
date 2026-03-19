@@ -1,31 +1,33 @@
 """Multi-tier PDF extraction cascade.
 
-Orchestrates extraction across multiple backends in speed-priority order,
-reserving heavy ML tiers (Marker) for cases where fast extraction fails:
+Orchestrates extraction across multiple backends in quality-priority order:
 
 For arXiv papers:
   1. arXiv HTML (highest quality, cleanest text)
   2. ar5iv HTML5 rendering
-  3. PyMuPDF (fast text extraction)
-  4. Marker PDF-to-markdown (ML fallback for complex layouts)
-  5. OCR (last resort for scanned PDFs)
+  3. OpenDataLoader PDF (primary: better reading order, +4-15% word yield)
+  4. PyMuPDF (fallback: instant, no Java dependency)
+  5. Marker PDF-to-markdown (ML fallback for complex layouts)
+  6. OCR (last resort for scanned PDFs)
 
 For non-arXiv papers:
-  1. PyMuPDF (fast text extraction)
-  2. Marker PDF-to-markdown (ML fallback for complex layouts)
-  3. OCR (last resort for scanned PDFs)
+  1. OpenDataLoader PDF (primary: better reading order, +4-15% word yield)
+  2. PyMuPDF (fallback: instant, no Java dependency)
+  3. Marker PDF-to-markdown (ML fallback for complex layouts)
+  4. OCR (last resort for scanned PDFs)
 
 Each tier is tried in order; the first to produce text with sufficient
-word count wins. Marker is intentionally placed after PyMuPDF because
-it runs ML models on every page (10-30s/page) and is only needed when
-PyMuPDF cannot extract text (scanned PDFs, image-heavy layouts).
+word count wins. OpenDataLoader is the primary PDF tier because it
+consistently extracts more words than PyMuPDF (especially on multi-column
+papers) at a modest speed cost (~1-3s/paper). PyMuPDF is kept as the
+fallback for environments without Java 11+.
 """
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from src.extraction import arxiv_extractor, marker_extractor
+from src.extraction import arxiv_extractor, marker_extractor, opendataloader_extractor
 from src.extraction.pdf_extractor import PDFExtractionError, PDFExtractor
 from src.utils.logging_config import get_logger
 
@@ -35,6 +37,7 @@ CascadeMethod = Literal[
     "companion",
     "arxiv_html",
     "ar5iv",
+    "opendataloader",
     "marker",
     "pymupdf",
     "ocr",
@@ -68,28 +71,41 @@ class ExtractionCascade:
         self,
         pdf_extractor: PDFExtractor,
         enable_arxiv: bool = True,
+        enable_opendataloader: bool = True,
         enable_marker: bool = True,
         arxiv_timeout: int = 30,
         min_words: int = MIN_EXTRACTION_WORDS,
         companion_dir: Path | None = None,
+        opendataloader_mode: str = "fast",
     ):
         """Initialize cascade.
 
         Args:
             pdf_extractor: Existing PDFExtractor instance (handles PyMuPDF + OCR).
             enable_arxiv: Enable arXiv HTML and ar5iv tiers.
+            enable_opendataloader: Enable OpenDataLoader PDF tier.
             enable_marker: Enable Marker PDF-to-markdown tier.
             arxiv_timeout: Timeout for arXiv/ar5iv HTTP requests.
             min_words: Minimum word count to accept an extraction.
             companion_dir: Optional directory for pre-extracted .md files.
+            opendataloader_mode: OpenDataLoader mode ("fast" or "hybrid").
         """
         self.pdf_extractor = pdf_extractor
         self.enable_arxiv = enable_arxiv
+        self.enable_opendataloader = (
+            enable_opendataloader and opendataloader_extractor.is_available()
+        )
         self.enable_marker = enable_marker and marker_extractor.is_available()
         self.arxiv_timeout = arxiv_timeout
         self.min_words = min_words
         self.companion_dir = companion_dir
+        self.opendataloader_mode = opendataloader_mode
 
+        if enable_opendataloader and not opendataloader_extractor.is_available():
+            logger.info(
+                "OpenDataLoader PDF not available (missing Java 11+ or package); "
+                "OpenDataLoader tier disabled"
+            )
         if enable_marker and not marker_extractor.is_available():
             logger.info("Marker not installed; Marker tier disabled")
 
@@ -171,7 +187,22 @@ class ExtractionCascade:
                     tiers_attempted=tiers_attempted,
                 )
 
-        # Tier 3: PyMuPDF (fast, handles most PDFs with embedded text)
+        # Tier 3: OpenDataLoader PDF (primary PDF tier -- better reading order)
+        if self.enable_opendataloader:
+            tiers_attempted.append("opendataloader")
+            text = opendataloader_extractor.extract_with_opendataloader(
+                pdf_path, mode=self.opendataloader_mode,
+            )
+            if text and self._is_sufficient(text):
+                return CascadeResult(
+                    text=text,
+                    method="opendataloader",
+                    word_count=len(text.split()),
+                    tiers_attempted=tiers_attempted,
+                    is_markdown=True,
+                )
+
+        # Tier 4: PyMuPDF (fallback for when ODL/Java unavailable)
         tiers_attempted.append("pymupdf")
         try:
             text, method = self.pdf_extractor.extract_text_with_method(pdf_path)
@@ -190,7 +221,7 @@ class ExtractionCascade:
         except PDFExtractionError:
             pass
 
-        # Tier 4: Marker (ML fallback for complex layouts, scanned docs)
+        # Tier 5: Marker (ML fallback for complex layouts, scanned docs)
         if self.enable_marker:
             tiers_attempted.append("marker")
             text = marker_extractor.extract_with_marker(pdf_path)

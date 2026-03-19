@@ -114,6 +114,12 @@ processing:
   # Requires Tesseract and Poppler installation
   ocr_enabled: false
 
+  # Enable OpenDataLoader PDF extraction tier (between PyMuPDF and Marker)
+  # Requires Java 11+ and opendataloader-pdf package
+  opendataloader_enabled: false
+  # OpenDataLoader mode: "fast" (Java-only, ~0.4s/page) or "hybrid" (AI-assisted)
+  opendataloader_mode: "fast"
+
   # Attempt OCR when initial text checks fail (recommended for scanned books)
   ocr_on_fail: true
 

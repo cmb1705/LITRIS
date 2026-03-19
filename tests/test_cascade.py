@@ -126,17 +126,24 @@ class TestExtractionCascade:
         )
         return extractor
 
-    def test_cascade_uses_pymupdf_for_non_arxiv(self, mock_pdf_extractor):
-        """Non-arXiv paper goes straight to PyMuPDF."""
+    @patch("src.extraction.cascade.opendataloader_extractor.is_available")
+    def test_cascade_uses_pymupdf_when_odl_unavailable(
+        self, mock_odl_available, mock_pdf_extractor,
+    ):
+        """Non-arXiv paper falls back to PyMuPDF when ODL not available."""
+        mock_odl_available.return_value = False
+
         cascade = ExtractionCascade(
             pdf_extractor=mock_pdf_extractor,
-            enable_arxiv=True,
+            enable_arxiv=False,
+            enable_opendataloader=True,
             enable_marker=False,
         )
         result = cascade.extract_text(Path("paper.pdf"))
 
         assert result.method == "pymupdf"
         assert "pymupdf" in result.tiers_attempted
+        assert "opendataloader" not in result.tiers_attempted
         mock_pdf_extractor.extract_text_with_method.assert_called_once()
 
     @patch("src.extraction.cascade.arxiv_extractor.detect_arxiv_id")
@@ -150,6 +157,7 @@ class TestExtractionCascade:
 
         cascade = ExtractionCascade(
             pdf_extractor=mock_pdf_extractor,
+            enable_opendataloader=False,
             enable_marker=False,
         )
         result = cascade.extract_text(Path("2301.12345.pdf"), doi="10.48550/arXiv.2301.12345")
@@ -172,6 +180,7 @@ class TestExtractionCascade:
 
         cascade = ExtractionCascade(
             pdf_extractor=mock_pdf_extractor,
+            enable_opendataloader=False,
             enable_marker=False,
         )
         result = cascade.extract_text(Path("paper.pdf"), doi="10.48550/arXiv.2301.12345")
@@ -180,19 +189,23 @@ class TestExtractionCascade:
         assert "arxiv_html" in result.tiers_attempted
         assert "ar5iv" in result.tiers_attempted
 
+    @patch("src.extraction.cascade.opendataloader_extractor.is_available")
     @patch("src.extraction.cascade.arxiv_extractor.detect_arxiv_id")
     @patch("src.extraction.cascade.arxiv_extractor.fetch_arxiv_html")
     @patch("src.extraction.cascade.arxiv_extractor.fetch_ar5iv_html")
-    def test_cascade_falls_through_to_pymupdf(
-        self, mock_ar5iv, mock_arxiv, mock_detect, mock_pdf_extractor,
+    def test_cascade_falls_through_arxiv_to_pymupdf(
+        self, mock_ar5iv, mock_arxiv, mock_detect,
+        mock_odl_available, mock_pdf_extractor,
     ):
-        """If all arXiv tiers fail, falls through to PyMuPDF."""
+        """If arXiv tiers fail and ODL unavailable, falls through to PyMuPDF."""
         mock_detect.return_value = "2301.12345"
         mock_arxiv.return_value = None
         mock_ar5iv.return_value = None
+        mock_odl_available.return_value = False
 
         cascade = ExtractionCascade(
             pdf_extractor=mock_pdf_extractor,
+            enable_opendataloader=True,
             enable_marker=False,
         )
         result = cascade.extract_text(Path("paper.pdf"), doi="10.48550/arXiv.2301.12345")
@@ -208,6 +221,7 @@ class TestExtractionCascade:
         cascade = ExtractionCascade(
             pdf_extractor=mock_extractor,
             enable_arxiv=False,
+            enable_opendataloader=False,
             enable_marker=False,
         )
         with pytest.raises(PDFExtractionError, match="All extraction tiers failed"):
@@ -220,6 +234,7 @@ class TestExtractionCascade:
         cascade = ExtractionCascade(
             pdf_extractor=mock_pdf_extractor,
             enable_arxiv=False,
+            enable_opendataloader=False,
             enable_marker=False,
             min_words=100,
         )
@@ -240,6 +255,7 @@ class TestExtractionCascade:
         cascade = ExtractionCascade(
             pdf_extractor=mock_pdf_extractor,
             enable_arxiv=False,
+            enable_opendataloader=False,
             enable_marker=True,
         )
         # Force enable_marker since we're mocking is_available after init
@@ -251,11 +267,109 @@ class TestExtractionCascade:
         assert "marker" in result.tiers_attempted
         assert "pymupdf" in result.tiers_attempted
 
+    @patch("src.extraction.cascade.opendataloader_extractor.is_available")
+    @patch("src.extraction.cascade.opendataloader_extractor.extract_with_opendataloader")
+    def test_cascade_uses_opendataloader_as_primary(
+        self, mock_extract, mock_available, mock_pdf_extractor,
+    ):
+        """OpenDataLoader is the primary PDF tier (before PyMuPDF)."""
+        mock_available.return_value = True
+        mock_extract.return_value = self._LONG_TEXT
+
+        cascade = ExtractionCascade(
+            pdf_extractor=mock_pdf_extractor,
+            enable_arxiv=False,
+            enable_opendataloader=True,
+            enable_marker=False,
+        )
+        cascade.enable_opendataloader = True
+
+        result = cascade.extract_text(Path("paper.pdf"))
+
+        assert result.method == "opendataloader"
+        assert result.is_markdown is True
+        assert "opendataloader" in result.tiers_attempted
+        # PyMuPDF should NOT have been called (ODL succeeded first)
+        mock_pdf_extractor.extract_text_with_method.assert_not_called()
+
+    @patch("src.extraction.cascade.opendataloader_extractor.is_available")
+    @patch("src.extraction.cascade.opendataloader_extractor.extract_with_opendataloader")
+    def test_cascade_falls_through_opendataloader_to_pymupdf(
+        self, mock_extract, mock_available, mock_pdf_extractor,
+    ):
+        """When OpenDataLoader fails, cascade falls through to PyMuPDF."""
+        mock_available.return_value = True
+        mock_extract.return_value = None  # ODL fails
+
+        cascade = ExtractionCascade(
+            pdf_extractor=mock_pdf_extractor,
+            enable_arxiv=False,
+            enable_opendataloader=True,
+            enable_marker=False,
+        )
+        cascade.enable_opendataloader = True
+
+        result = cascade.extract_text(Path("paper.pdf"))
+
+        assert result.method == "pymupdf"
+        assert "opendataloader" in result.tiers_attempted
+        assert "pymupdf" in result.tiers_attempted
+
+    @patch("src.extraction.cascade.opendataloader_extractor.is_available")
+    @patch("src.extraction.cascade.opendataloader_extractor.extract_with_opendataloader")
+    @patch("src.extraction.cascade.marker_extractor.is_available")
+    @patch("src.extraction.cascade.marker_extractor.extract_with_marker")
+    def test_cascade_falls_through_all_to_marker(
+        self, mock_marker_extract, mock_marker_avail,
+        mock_odl_extract, mock_odl_avail, mock_pdf_extractor,
+    ):
+        """When ODL and PyMuPDF both fail, cascade falls through to Marker."""
+        mock_odl_avail.return_value = True
+        mock_odl_extract.return_value = None  # ODL fails
+        mock_marker_avail.return_value = True
+        mock_marker_extract.return_value = self._LONG_TEXT
+        mock_pdf_extractor.extract_text_with_method.return_value = ("Short.", "pymupdf")
+
+        cascade = ExtractionCascade(
+            pdf_extractor=mock_pdf_extractor,
+            enable_arxiv=False,
+            enable_opendataloader=True,
+            enable_marker=True,
+        )
+        cascade.enable_opendataloader = True
+        cascade.enable_marker = True
+
+        result = cascade.extract_text(Path("paper.pdf"))
+
+        assert result.method == "marker"
+        assert "opendataloader" in result.tiers_attempted
+        assert "pymupdf" in result.tiers_attempted
+        assert "marker" in result.tiers_attempted
+
+    @patch("src.extraction.cascade.opendataloader_extractor.is_available")
+    def test_cascade_skips_opendataloader_when_unavailable(
+        self, mock_available, mock_pdf_extractor,
+    ):
+        """OpenDataLoader tier skipped when package/Java not available."""
+        mock_available.return_value = False
+
+        cascade = ExtractionCascade(
+            pdf_extractor=mock_pdf_extractor,
+            enable_arxiv=False,
+            enable_opendataloader=True,
+            enable_marker=False,
+        )
+        result = cascade.extract_text(Path("paper.pdf"))
+
+        assert result.method == "pymupdf"
+        assert "opendataloader" not in result.tiers_attempted
+
     def test_cascade_disables_arxiv(self, mock_pdf_extractor):
         """arXiv tiers are skipped when disabled."""
         cascade = ExtractionCascade(
             pdf_extractor=mock_pdf_extractor,
             enable_arxiv=False,
+            enable_opendataloader=False,
             enable_marker=False,
         )
         result = cascade.extract_text(
@@ -271,6 +385,7 @@ class TestExtractionCascade:
         cascade = ExtractionCascade(
             pdf_extractor=mock_pdf_extractor,
             enable_arxiv=False,
+            enable_opendataloader=False,
             enable_marker=False,
         )
         result = cascade.extract_text(Path("paper.pdf"))
@@ -289,6 +404,7 @@ class TestExtractionCascade:
         cascade = ExtractionCascade(
             pdf_extractor=mock_extractor,
             enable_arxiv=False,
+            enable_opendataloader=False,
             enable_marker=False,
         )
         result = cascade.extract_text(Path("scanned.pdf"))

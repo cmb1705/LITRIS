@@ -74,6 +74,28 @@ def check_extraction_pipeline() -> list[tuple[str, str]]:
             "pip install marker-pdf",
         ))
 
+    # OpenDataLoader PDF
+    try:
+        import opendataloader_pdf  # noqa: F401
+        ver = getattr(opendataloader_pdf, "__version__", "unknown")
+        ok(f"OpenDataLoader PDF {ver} (Java-based layout analysis)")
+
+        # Check Java 11+
+        from src.extraction.opendataloader_extractor import _find_java
+        java_path = _find_java()
+        if java_path:
+            ok(f"Java 11+ found: {java_path}")
+        else:
+            issues.append(warn(
+                "Java 11+ not found (required for OpenDataLoader PDF)",
+                "winget install Microsoft.OpenJDK.21",
+            ))
+    except ImportError:
+        issues.append(warn(
+            "OpenDataLoader PDF not installed (Java PDF layout analysis)",
+            "pip install opendataloader-pdf",
+        ))
+
     # Tesseract
     try:
         import pytesseract
