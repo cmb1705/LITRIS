@@ -4,7 +4,7 @@
 
 **Why this analysis exists**: To evaluate LITRIS (our literature review indexing system) against Minty (MINT Research Lab's agentic research infrastructure) and identify features worth adopting, architectural differences, and strategic gaps in either direction.
 
-**Minty fork**: `cmb1705/minty-agent-litris-fork` on GitHub (not yet cloned locally).
+**Minty source**: MINT Research Lab's agentic research infrastructure.
 
 ---
 
@@ -190,7 +190,7 @@ Both validate extraction quality -- LITRIS via confidence scores and type-specif
 #### G. Institutional Memory (FACTS.md / RECENT.md Pattern)
 **What**: Persistent knowledge files that accumulate learned patterns, preferences, and context across sessions.
 **Why**: LITRIS already has CLAUDE.md and beads, but lacks a structured "lessons learned" system that grows with use. Would help the agent remember corpus-specific insights.
-**Effort**: Low. We already have `C:\Users\USER\.claude\projects\d--Git-Repos-LITRIS\memory\` -- could formalize this.
+**Effort**: Low. Claude Code's auto-memory system already provides this foundation -- could formalize it.
 
 #### H. Quality Rating (1-5 Scale)
 **What**: Minty's q24 assigns a 1-5 quality rating to every paper based on methodology, evidence, and contribution.
@@ -321,7 +321,7 @@ This deserves special attention. LITRIS uses `all-MiniLM-L6-v2` (384 dimensions,
 
 ## 8. Verification Plan
 
-After cloning the fork (`gh repo clone cmb1705/minty-agent-litris-fork`), verify this analysis by:
+After cloning the Minty repository, verify this analysis by:
 1. Reading their `SETUP_GUIDE.md` in full (7,000 lines)
 2. Examining the actual 41-question prompt template
 3. Reviewing the RAPTOR implementation

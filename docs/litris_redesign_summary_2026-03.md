@@ -1,12 +1,12 @@
 # LITRIS Redesign: Technical Progress Report
 
-**Author:** LITRIS Contributors \| **Date:** March 2026 \| **Version:** 0.2.0
+**Date:** March 2026 \| **Version:** 0.2.0
 
 ***
 
 ## Overview
 
-LITRIS (Literature Review Indexing System) is an AI-assisted literature review tool that extracts structured insights from academic papers and indexes them for semantic search. The system supports a corpus of approximately 1,750 papers across network science, scientometrics, and related fields. This report summarizes the infrastructure redesign completed in March 2026, which replaced the original single-pass extraction pipeline with a multi-dimensional analysis framework and introduced multi-provider consensus capabilities.
+LITRIS (Literature Review Indexing System) is an AI-assisted literature review tool that extracts structured insights from academic papers and indexes them for semantic search. The system supports corpora of any size across arbitrary academic disciplines. This report summarizes the infrastructure redesign completed in March 2026, which replaced the original single-pass extraction pipeline with a multi-dimensional analysis framework and introduced multi-provider consensus capabilities.
 
 ## 40-Dimension Semantic Analysis
 
@@ -64,7 +64,7 @@ The full corpus re-extraction is underway using GPT-5.4 with highest reasoning e
 
 | Metric                  | Value                                               |
 |-------------------------|-----------------------------------------------------|
-| Corpus size             | \~1,750 papers                                      |
+| Corpus size             | User-defined (scales to thousands of papers)         |
 | Extraction dimensions   | 40 (6-pass pipeline)                                |
 | Test coverage           | 980 tests, CI green across 3 OS x 3 Python versions |
 | Aggregation strategies  | 3 (quality-weighted, union, longest)                |

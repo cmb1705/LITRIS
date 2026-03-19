@@ -21,8 +21,8 @@
 
 LITRIS is fully operational with comprehensive integrations:
 
-- **332 papers** indexed from Zotero library
-- **3,746 embedding chunks** in vector store
+- Papers indexed from Zotero library
+- Embedding chunks in vector store
 - Semantic search with metadata filtering
 - Incremental update support
 - MCP tools for Claude Code integration
@@ -49,17 +49,14 @@ All five implementation phases complete. System is production-ready for research
 
 ## Index Statistics
 
-| Metric | Value |
-|--------|-------|
-| Total Papers | ~1,746 |
-| Total Chunks | ~19,166 (~17,074 in ChromaDB after dedup) |
-| Collections | 20+ Zotero collections |
+Run `python scripts/preflight.py` or `mcp__litris__litris_summary` for current corpus stats.
+
+| Metric | Source |
+|--------|--------|
+| Total Papers | `litris_summary` |
+| Total Chunks | `litris_summary` |
 | Item Types | Journal articles, books, preprints, conference papers |
-| Year Range | 1945-2025 |
-| Top Disciplines | Scientometrics, Network Science, Machine Learning |
-| Citation Edges | ~1,479 (title-match based) |
-| Similarity Pairs | ~30,960 across 1,548 papers |
-| Embedding Model | Qwen3-Embedding-8B Q8_0 via Ollama |
+| Embedding Model | Configured in `config.yaml` |
 
 ---
 

@@ -214,7 +214,7 @@ prompt_version changes.
 
 ### Cost Estimate
 
-- 1,746 papers x 6 passes = 10,476 LLM calls
+- N papers x 6 passes = 6N LLM calls
 - Via CLI subscription: $0 marginal cost
 - Time estimate: ~65 hours at 8 parallel workers
   - CLI subscription has rate limits (~3-5 RPM sustained)
@@ -277,7 +277,7 @@ scratch.
 
 ### Scale
 
-- ~1,746 papers x ~38 chunks avg = ~66,300 chunks
+- N papers x ~38 chunks avg = ~38N chunks
 - At 4096d Qwen3: ~1.1 GB in ChromaDB
 - Embedding time: ~2.5 hours on workstation GPU
 
@@ -461,7 +461,7 @@ Phase 2: Extraction Pipeline      (rewire section_extractor)
 Phase 3: Downstream Consumers     (rewire all readers)
 Phase 4: Embedding & Search       (new chunks, search modes)
 Phase 5: Tests                    (rewrite affected tests)
-Phase 6: Full Re-extraction       (1,746 papers, 6 passes each)
+Phase 6: Full Re-extraction       (all papers, 6 passes each)
 Phase 7: Rebuild Index            (embed, store, graphs)
 Phase 8: Validation & Cleanup     (coverage report, retire old code)
 ```
@@ -555,7 +555,7 @@ Epic: LITRIS Semantic Analysis Migration (P1)
   |
   +-- Epic: Index Rebuild (Phases 6-8)
         +-- Task: Backup current index
-        +-- Task: Run full 6-pass extraction (1,746 papers)
+        +-- Task: Run full 6-pass extraction (all papers)
         +-- Task: Rebuild embeddings and ChromaDB
         +-- Task: Rebuild citation and similarity graphs
         +-- Task: Generate and review coverage report

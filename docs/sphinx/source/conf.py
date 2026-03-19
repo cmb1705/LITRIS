@@ -9,7 +9,7 @@ PROJECT_ROOT = os.path.abspath("../../..")
 sys.path.insert(0, PROJECT_ROOT)
 
 project = "LITRIS"
-author = "cmb1705"
+author = "LITRIS Contributors"
 release = "0.1.0"
 
 extensions = [

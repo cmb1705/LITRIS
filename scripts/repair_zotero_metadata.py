@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -36,7 +37,7 @@ from src.utils.logging_config import get_logger, setup_logging
 logger = get_logger(__name__)
 
 CROSSREF_API = "https://api.crossref.org/works"
-CROSSREF_EMAIL = "user@example.com"  # For polite pool
+CROSSREF_EMAIL = os.environ.get("CROSSREF_EMAIL", "")  # For CrossRef polite pool
 
 # Resolve Zotero paths from config (not hardcoded)
 from src.config import Config as _Config

@@ -350,9 +350,7 @@ Based on Zotero collections:
 
 ### Paper Types
 
-| Type         | Count | Notes                          |
-|--------------|-------|--------------------------------|
-| Total Papers | 1,624 | Run `litris_summary` for current stats |
+Run `mcp__litris__litris_summary` or `python scripts/preflight.py` for current corpus statistics.
 
 **Note:** Run `mcp__litris__litris_summary` or check STATE.md for current corpus statistics.
 
