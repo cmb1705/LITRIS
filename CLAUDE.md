@@ -145,7 +145,7 @@ When invoked from Claude Code, tools are prefixed: `mcp__litris__litris_search`
 ### Server Startup
 
 ```bash
-python -m src.mcp.server
+python -m src.mcp
 ```
 
 ### Configuration
@@ -157,7 +157,7 @@ MCP server is defined in `.mcp.json` (project root):
   "mcpServers": {
     "litris": {
       "command": "python",
-      "args": ["-m", "src.mcp.server"],
+      "args": ["-m", "src.mcp"],
       "cwd": "path/to/litris"
     }
   }

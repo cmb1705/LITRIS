@@ -16,7 +16,7 @@
 
 **Diagnostic Command**:
 ```bash
-python -m src.mcp.server
+python -m src.mcp
 ```
 
 ### Tools Not Discovered

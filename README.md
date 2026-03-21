@@ -122,7 +122,7 @@ Direct tool access for Claude Code enables seamless research collaboration:
   "mcpServers": {
     "litris": {
       "command": "python",
-      "args": ["-m", "src.mcp.server"],
+      "args": ["-m", "src.mcp"],
       "cwd": "/path/to/LITRIS"
     }
   }
