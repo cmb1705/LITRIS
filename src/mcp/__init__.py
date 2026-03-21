@@ -12,6 +12,16 @@ Tools:
     litris_collections: List collections
 """
 
-from src.mcp.server import create_server, run_server
+def create_server():
+    """Create and return the MCP server instance (lazy import)."""
+    from src.mcp.server import create_server as _create
+    return _create()
+
+
+def run_server():
+    """Run the MCP server (lazy import)."""
+    from src.mcp.server import run_server as _run
+    _run()
+
 
 __all__ = ["create_server", "run_server"]
