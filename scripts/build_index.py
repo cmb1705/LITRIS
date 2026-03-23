@@ -747,31 +747,47 @@ def run_embedding_generation(
 
     # Build paper lookups - by full paper_id and by zotero_key for backward compat
     paper_lookup = {p.paper_id: p for p in papers}
-    paper_by_zotero_key: dict[str, PaperMetadata] = {}
+    paper_by_zotero_key: dict[str, list[PaperMetadata]] = {}
     for p in papers:
-        # Only store first paper per zotero_key (for old-style ID matching)
-        if p.zotero_key not in paper_by_zotero_key:
-            paper_by_zotero_key[p.zotero_key] = p
+        paper_by_zotero_key.setdefault(p.zotero_key, []).append(p)
 
     # Filter to papers with extractions
     # Handle both old-style (zotero_key) and new-style (zotero_key_attachment_key) IDs
     papers_with_extractions = []
     extraction_lookup = {}
+    skipped_ambiguous = 0
 
     for paper_id, ext_data in extractions.items():
         paper = None
         # Try exact match first (new-style ID)
         if paper_id in paper_lookup:
             paper = paper_lookup[paper_id]
-        # Fall back to zotero_key match (old-style ID)
+        # Fall back to zotero_key match (old-style ID) -- only safe for
+        # single-attachment items. Multi-attachment items are ambiguous
+        # because we cannot determine which PDF was actually extracted.
         elif "_" not in paper_id and paper_id in paper_by_zotero_key:
-            paper = paper_by_zotero_key[paper_id]
+            candidates = paper_by_zotero_key[paper_id]
+            if len(candidates) == 1:
+                paper = candidates[0]
+            else:
+                skipped_ambiguous += 1
+                logger.warning(
+                    f"Skipping old-style extraction '{paper_id}': "
+                    f"{len(candidates)} attachments for this zotero_key. "
+                    f"Re-extract with new-style IDs to resolve ambiguity."
+                )
 
         if paper:
             papers_with_extractions.append(paper)
             # Extract the actual extraction data
             ext = ext_data.get("extraction", ext_data)
             extraction_lookup[paper.paper_id] = SemanticAnalysis(**ext)
+
+    if skipped_ambiguous > 0:
+        logger.warning(
+            f"Skipped {skipped_ambiguous} old-style extractions with ambiguous "
+            f"multi-attachment zotero_keys. Re-extract these papers to fix."
+        )
 
     if not papers_with_extractions:
         # Provide diagnostic info to help debug matching issues
