@@ -47,7 +47,8 @@ mcp = FastMCP(
     "literature reviews, litris_get_paper for full details, "
     "litris_similar for related papers, litris_summary for index stats, "
     "litris_collections for available collections, litris_save_query to save "
-    "query results to the query_results folder, "
+    "query results to the query_results folder (content must include the "
+    "original query verbatim in a blockquote before analysis), "
     "litris_search_dimension to search within a specific SemanticAnalysis "
     "dimension (q01-q40, e.g. q07_methods for methodology), and "
     "litris_search_group to search across a group of dimensions by analysis "
@@ -601,8 +602,15 @@ async def litris_save_query(
 ) -> dict[str, Any]:
     """Save query results to the query_results folder.
 
+    IMPORTANT: The content must include the original query/prompt verbatim
+    in a "Search Query" section (blockquote format) immediately after the
+    metadata header and before any analysis. Reports must be self-contained
+    so any reader can understand what questions are being answered.
+    See CLAUDE.md "Report Standards" for the full format specification.
+
     Args:
-        content: Markdown content to save (the formatted query response)
+        content: Markdown content to save. Must begin with a title, metadata
+            header, and the original query in a blockquote before analysis.
         query: The original search query (used for filename generation)
         title: Optional custom title for the file (overrides query-based slug)
         generate_pdf: Whether to also generate a PDF version (default: True)

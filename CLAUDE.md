@@ -119,6 +119,41 @@ pytest tests/ -v --tb=short  # Run test suite
 | PreToolUse (Edit) | Verify task completion before edits |
 | PostToolUse (Bash/Write/Edit) | Log to operations.log |
 
+## Report Standards
+
+All LITRIS reports (saved via `litris_save_query`, `litris_deep_review`, or manual write to `data/query_results/`) must be self-contained documents that any reader can understand without prior context.
+
+### Required Structure
+
+```markdown
+# [Report Title]
+
+**Generated**: YYYY-MM-DD | **Index**: [paper count] papers, [chunk count] chunks | ...
+
+---
+
+## Search Query
+
+> **Part 1:** [exact original query text]
+>
+> **Part 2:** [exact original query text]
+
+---
+
+## [Analysis sections...]
+```
+
+### Rules
+
+1. **Include the exact query**: The full original query/prompt must appear verbatim in a "Search Query" section immediately after the metadata header, before any analysis. Use blockquotes with part labels.
+2. **Metadata header**: Include generation date, index size, and search method summary.
+3. **Paper references**: Include LITRIS paper_id (e.g., `ZLBNMNC5`) alongside author-year citations for traceability back to the index.
+4. **Self-contained**: A reader unfamiliar with the original conversation must be able to understand what questions the report answers and why.
+
+### Reference
+
+See `data/query_results/2026-01-22_hgt-citation-network-anomaly-detection.md` for the canonical example.
+
 ## MCP Integration
 
 LITRIS exposes semantic search as MCP tools for Claude Code.
