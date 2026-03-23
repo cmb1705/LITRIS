@@ -2,6 +2,7 @@
 """Validate extraction results and generate quality report."""
 
 import argparse
+import re
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
@@ -74,11 +75,60 @@ class ExtractionValidator:
         self.min_confidence = min_confidence
         self.require_claims = require_claims
 
+    # Minimum fraction of title tokens that must appear in extraction text
+    TITLE_CONTENT_THRESHOLD = 0.30
+
+    def check_title_content_match(
+        self,
+        paper_id: str,
+        title: str,
+        cascade_text_dir: Path | None = None,
+    ) -> tuple[float, str | None]:
+        """Check if the Zotero title matches the extracted PDF content.
+
+        Compares title tokens against the first 1000 chars of the cascade
+        text to detect cases where the wrong PDF was attached in Zotero.
+
+        Args:
+            paper_id: Paper identifier (format: ZOTERO_KEY_ATTACHMENT_KEY).
+            title: Zotero bibliographic title.
+            cascade_text_dir: Path to cascade_text cache directory.
+
+        Returns:
+            Tuple of (containment_score, issue_description_or_None).
+        """
+        if not cascade_text_dir or not title or title == "Untitled":
+            return 1.0, None
+
+        txt_path = cascade_text_dir / f"{paper_id}.txt"
+        if not txt_path.exists():
+            return 1.0, None
+
+        title_tokens = set(re.findall(r"[a-z]{3,}", title.lower()))
+        if len(title_tokens) < 3:
+            return 1.0, None  # Too short to evaluate meaningfully
+
+        text_start = txt_path.read_text(encoding="utf-8")[:1000]
+        text_tokens = set(re.findall(r"[a-z]{3,}", text_start.lower()))
+
+        overlap = title_tokens & text_tokens
+        containment = len(overlap) / len(title_tokens) if title_tokens else 1.0
+
+        if containment < self.TITLE_CONTENT_THRESHOLD:
+            return containment, (
+                f"Title-content mismatch (containment={containment:.2f}): "
+                f"Zotero title tokens have <{self.TITLE_CONTENT_THRESHOLD:.0%} "
+                f"overlap with PDF text. The attached PDF may be a different "
+                f"document than the Zotero bibliographic record."
+            )
+        return containment, None
+
     def validate_extraction(
         self,
         paper_id: str,
         title: str,
         extraction_data: dict,
+        cascade_text_dir: Path | None = None,
     ) -> ValidationResult:
         """Validate a single extraction using type-aware rules.
 
@@ -99,6 +149,15 @@ class ExtractionValidator:
             valid=True,
             confidence=extraction_data.get("extraction_confidence", 0.0),
         )
+
+        # Check title-content mismatch
+        if cascade_text_dir:
+            _containment, mismatch_issue = self.check_title_content_match(
+                paper_id, title, cascade_text_dir
+            )
+            if mismatch_issue:
+                result.issues.append(mismatch_issue)
+                result.valid = False
 
         # Determine document type
         doc_type = extraction_data.get("document_type")
@@ -177,12 +236,14 @@ class ExtractionValidator:
         self,
         extractions: dict[str, dict],
         papers: dict[str, dict] | None = None,
+        cascade_text_dir: Path | None = None,
     ) -> tuple[list[ValidationResult], ValidationSummary]:
         """Validate all extractions.
 
         Args:
             extractions: Dictionary of paper_id -> extraction data.
             papers: Optional dictionary of paper_id -> paper data.
+            cascade_text_dir: Path to cascade text cache for title-content checks.
 
         Returns:
             Tuple of (list of results, summary).
@@ -199,7 +260,9 @@ class ExtractionValidator:
             if papers and paper_id in papers:
                 title = papers[paper_id].get("title", "Unknown")
 
-            result = self.validate_extraction(paper_id, title, extraction)
+            result = self.validate_extraction(
+                paper_id, title, extraction, cascade_text_dir
+            )
             results.append(result)
 
             # Count issues
@@ -314,9 +377,15 @@ def main():
         if isinstance(papers_data, dict) and "papers" in papers_data:
             papers = {p["paper_id"]: p for p in papers_data["papers"] if "paper_id" in p}
 
+    # Resolve cascade text directory for title-content mismatch detection
+    cascade_text_dir = project_root / "data" / "cache" / "cascade_text"
+    if not cascade_text_dir.exists():
+        cascade_text_dir = None
+        logger.warning("Cascade text cache not found; skipping title-content checks")
+
     # Run validation
     validator = ExtractionValidator(min_confidence=args.min_confidence)
-    results, summary = validator.validate_all(extractions, papers)
+    results, summary = validator.validate_all(extractions, papers, cascade_text_dir)
 
     # Print summary
     print("\n" + "=" * 60)
