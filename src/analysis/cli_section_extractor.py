@@ -63,7 +63,7 @@ class CliSectionExtractor:
         executor: ClaudeCliExecutor | None = None,
         rate_handler: RateLimitHandler | None = None,
         progress_tracker: ProgressTracker | None = None,
-        max_text_length: int = 600000,
+        max_text_length: int = 3000000,
     ):
         """Initialize CLI section extractor.
 
