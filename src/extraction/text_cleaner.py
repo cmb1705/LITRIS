@@ -189,11 +189,15 @@ class TextCleaner:
     def truncate_for_llm(
         self,
         text: str,
-        max_chars: int = 150000,
+        max_chars: int = 600000,
         preserve_start: int = 20000,
         preserve_end: int = 10000,
     ) -> str:
         """Truncate text for LLM input while preserving key parts.
+
+        600K chars (~150K tokens) fits well within Opus 4.6's 1M token
+        context window, leaving room for system prompt, 6-pass extraction
+        instructions, and output.
 
         Args:
             text: Full text.
