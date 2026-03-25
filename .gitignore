@@ -221,6 +221,9 @@ data/
 # Generated PDFs from proposals/docs (source .md is tracked)
 docs/proposals/*.pdf
 
+# Local analysis drafts and exports
+docs/analysis/
+
 # Local configuration with absolute paths
 .mcp.json
 
