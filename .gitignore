@@ -254,5 +254,6 @@ nul
 # Dolt database files (added by bd init)
 *.db
 
-# Beads / Dolt files (added by bd init)
+# Beads state (personal task tracking, not for public repo)
+.beads/
 .beads-credential-key
