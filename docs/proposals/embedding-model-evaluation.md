@@ -111,31 +111,31 @@ Some models require prefixes for optimal retrieval:
 
 | Spec | Value | Impact |
 | ---- | ----- | ------ |
-| CPU | AMD Ryzen 9 6000 series (16C, AVX2) | Fast CPU inference path, 16 threads for parallel encoding |
-| RAM | 64 GB DDR4/5 | Any model fits comfortably, including Qwen3-8B (16 GB) |
-| GPU | NVIDIA RTX 3080 Ti (16 GB VRAM) | CUDA acceleration: 10-50x faster than CPU for embedding |
+| CPU | 16-core workstation-class CPU with AVX2 | Fast CPU inference path, 16 threads for parallel encoding |
+| RAM | 64 GB system RAM | Any model fits comfortably, including Qwen3-8B (16 GB) |
+| GPU | CUDA-capable GPU with 16 GB VRAM | CUDA acceleration: 10-50x faster than CPU for embedding |
 | Role | Runs embedding during index builds | Full 500-paper re-index: ~1-2 min (GPU), ~3-5 min (CPU) |
 
 All recommended models fit in the 16 GB VRAM. sentence-transformers auto-detects CUDA.
 
-### NAS: Synology DS224+
+### Low-Power Self-Hosted Node
 
 | Spec | Value | Impact |
 | ---- | ----- | ------ |
-| CPU | Intel Celeron J4125 (4C/4T, 2.0-2.7 GHz, Gemini Lake 2019) | Low single-thread perf, no AVX/AVX2 |
-| RAM | 10 GB DDR4 (upgraded from stock 2 GB) | Limits model size to ~4-6 GB working set |
+| CPU | Low-power 4-core CPU (2.0-2.7 GHz class, no AVX/AVX2) | Low single-thread perf, no AVX/AVX2 |
+| RAM | 10 GB system RAM | Limits model size to ~4-6 GB working set |
 | GPU/NPU | None | No hardware acceleration for inference |
 | AVX support | **None** | Ollama falls back to slowest CPU path (2-3x penalty) |
-| Storage | 28 TB | Ample for models and indexes |
-| Docker | Container Manager (DSM 7) | Supported but AVX-dependent containers may fail |
+| Storage | Large local disk volume | Ample for models and indexes |
+| Docker | Container runtime | Supported but AVX-dependent containers may fail |
 
 ### Hardware Constraints
 
 1. **No AVX = slow Ollama inference.** Ollama's CPU library hierarchy is: `cpu_avx2` (fastest)
-   -> `cpu_avx` -> `cpu` (slowest). The J4125 gets the slowest path, meaning 2-3x slower
+   -> `cpu_avx` -> `cpu` (slowest). A low-power host without AVX gets the slowest path, meaning 2-3x slower
    embedding generation than a modern desktop CPU.
 
-2. **10 GB RAM ceiling.** After DSM overhead (~1-2 GB), Docker overhead, ChromaDB, and the
+2. **10 GB RAM ceiling.** After OS overhead (~1-2 GB), Docker overhead, ChromaDB, and the
    Discord bot, roughly 4-6 GB is available for embedding model inference. This rules out
    any model requiring >4 GB of RAM (Qwen3-8B at ~16 GB, NV-Embed-v2 at ~30 GB).
 
@@ -157,14 +157,14 @@ All recommended models fit in the 16 GB VRAM. sentence-transformers auto-detects
 
 ## Recommendations
 
-### Strategy: Embed locally on workstation, search on NAS
+### Strategy: Embed locally on workstation, search on self-hosted node
 
-The best approach given the DS224+ constraints:
+The best approach given the low-power host constraints:
 
-1. **Build the index on your workstation** (Ryzen 9 16C, 64 GB RAM, RTX 3080 Ti) -- fast GPU embedding with any model
-2. **Copy the ChromaDB directory to the NAS** -- vector search is lightweight
-3. **Run ChromaDB + Discord bot + MCP server on the NAS** -- these are all low-resource
-4. **Open WebUI on NAS uses cloud API** (Anthropic/OpenAI) for conversation, not local Ollama
+1. **Build the index on your workstation** (16 CPU cores, 64 GB RAM, 16 GB VRAM GPU) -- fast GPU embedding with any model
+2. **Copy the ChromaDB directory to the target host** -- vector search is lightweight
+3. **Run ChromaDB + Discord bot + MCP server on the self-hosted node** -- these are all low-resource
+4. **Open WebUI on the self-hosted node uses cloud API** (Anthropic/OpenAI) for conversation, not local Ollama
 
 This decouples the expensive one-time embedding step from the always-on search service.
 
@@ -176,19 +176,19 @@ Best choice when embedding runs on the workstation:
 - 8,192-token context -- handles long academic text
 - 1024 dimensions
 - Apache 2.0 license
-- sentence-transformers drop-in replacement (embeds 4,500 chunks in ~1-2 min on RTX 3080 Ti)
+- sentence-transformers drop-in replacement (embeds 4,500 chunks in ~1-2 min on a 16 GB VRAM GPU)
 - ~1.6 GB on disk
 - Requires `trust_remote_code=True`
 
-### Alternative: Qwen3-Embedding-0.6B (if embedding must run on NAS)
+### Alternative: Qwen3-Embedding-0.6B (if embedding must run on the self-hosted node)
 
 If the NAS must handle embedding autonomously (e.g., auto-ingesting new papers):
 
 - MTEB 64.33 -- 1 point below gte-large, still 8 points above current
 - **32K-token context** -- most generous of any free model
 - 1024 dimensions, Apache 2.0, available in Ollama
-- ~1.2 GB via Ollama -- fits in DS224+ RAM
-- **Caveat**: Embedding 4,500 chunks will take 30-60+ min on the J4125 without AVX.
+- ~1.2 GB via Ollama -- fits in a 10 GB RAM host
+- **Caveat**: Embedding 4,500 chunks will take 30-60+ min on a low-power CPU without AVX.
   Acceptable for overnight batch jobs, not for interactive use.
 
 ### Best Paid API: voyage-3.5
@@ -199,32 +199,32 @@ If you want to skip local embedding entirely:
 - 32K context, 2048 dimensions
 - $0.06/1M tokens ($0.14 per full index build of 500 papers)
 - First 200M tokens free per account (covers ~88 full index builds)
-- NAS just runs ChromaDB for search; embedding happens via API call from either machine
+- The self-hosted node just runs ChromaDB for search; embedding happens via API call from either machine
 - **Downside**: Requires internet for index builds, not reproducible offline
 
-### NOT Recommended for DS224+
+### NOT Recommended for low-power self-hosted node
 
 | Model | Why Not |
 | ----- | ------- |
-| Qwen3-Embedding-8B | Needs 16 GB RAM; DS224+ has 10 GB total |
+| Qwen3-Embedding-8B | Needs 16 GB RAM; the reference host has 10 GB total |
 | NV-Embed-v2 | 7.85B params, ~30 GB RAM, non-commercial license |
-| Any Ollama LLM (7B+) | Too slow on Celeron J4125 without AVX for conversational use |
+| Any Ollama LLM (7B+) | Too slow on a low-power non-AVX CPU for conversational use |
 
-### Decision Matrix (DS224+ adjusted)
+### Decision Matrix (low-power host adjusted)
 
 | Scenario | Recommended Model | Why |
 | -------- | ----------------- | --- |
-| Embed on workstation, search on NAS | **gte-large-en-v1.5** | Best quality, fast on workstation, ChromaDB is portable |
-| NAS must embed autonomously | Qwen3-Embedding-0.6B | Fits in RAM, Ollama, slow but works as batch job |
+| Embed on workstation, search on self-hosted node | **gte-large-en-v1.5** | Best quality, fast on workstation, ChromaDB is portable |
+| Self-hosted node must embed autonomously | Qwen3-Embedding-0.6B | Fits in RAM, Ollama, slow but works as batch job |
 | Skip local embedding entirely | voyage-3.5 | Best quality, $0.14/build, 200M free tokens |
 | Cheapest API fallback | OpenAI emb-3-small | $0.05/build, adequate quality |
-| Minimal resources on NAS | nomic-embed-text-v1.5 | 137M params, smallest viable upgrade |
+| Minimal resources on self-hosted node | nomic-embed-text-v1.5 | 137M params, smallest viable upgrade |
 
 ## Re-Embedding Frequency
 
 Embedding is **not** a continuous operation. It runs only when the index needs updating.
 
-| Trigger | Scope | Frequency | Time (RTX 3080 Ti) |
+| Trigger | Scope | Frequency | Time (reference GPU) |
 | ------- | ----- | --------- | ------------------- |
 | New papers added to Zotero | Incremental (new papers only) | As-needed (weekly/monthly) | Seconds (5-20 papers) |
 | Embedding model switch | Full re-index (all papers) | One-time or rare | ~1-2 min (500 papers) |
@@ -243,8 +243,8 @@ Switching models requires a full re-index:
 3. Update `config.yaml`: model, dimension, backend, query_prefix
 4. Delete existing ChromaDB collection (or use `--rebuild-embeddings`)
 5. Run `python scripts/build_index.py --rebuild-embeddings` (on workstation)
-6. Copy `data/chroma/` directory to NAS
-7. Re-embedding ~4,500 chunks: ~1-2 min on workstation (GPU), ~45 min on DS224+ (CPU, no AVX)
+6. Copy `data/chroma/` directory to the target host
+7. Re-embedding ~4,500 chunks: ~1-2 min on workstation (GPU), ~45 min on a low-power CPU-only host
 
 Integration point: `src/indexing/embeddings.py` (`EmbeddingGenerator` class).
 

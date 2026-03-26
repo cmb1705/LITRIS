@@ -230,6 +230,8 @@ docs/analysis/
 # Claude Code local configuration (machine-specific)
 .claude/*.local.*
 .claude/settings.local.json
+.claude/settings.private.json
+.claude/local/
 
 # Security - never track these patterns
 *.pem
@@ -251,7 +253,6 @@ nul
 
 # Gas Town (added by gt)
 .runtime/
-.claude/
 .logs/
 
 # Dolt database files (added by bd init)

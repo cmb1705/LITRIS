@@ -9,7 +9,8 @@ model_reasoning_effort = "high"
 # Note: MCP servers are configured globally via `codex mcp add`
 #
 # To add LITRIS MCP server (run from LITRIS directory):
-#   codex mcp add litris --env "PYTHONPATH=d:\Git_Repos\LITRIS" -- "d:\Git_Repos\LITRIS\.venv\Scripts\python.exe" -m src.mcp.server
+#   $repo = (Resolve-Path .).Path
+#   codex mcp add litris --env "PYTHONPATH=$repo" -- "$repo\.venv\Scripts\python.exe" -m src.mcp
 #
 # Available tools:
 #   - litris_search: Semantic search over literature index

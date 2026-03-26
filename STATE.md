@@ -186,8 +186,8 @@ LITRIS/
 
 ### Requires User Infrastructure
 
-- **NAS deployment** (li-33k): Docker/systemd deployment to NAS hardware — needs NAS access
-- **Open WebUI + MCP integration** (li-6s7): Blocked by NAS deployment
+- **Self-hosted deployment** (li-33k): Docker/systemd deployment to the target host — needs host access
+- **Open WebUI + MCP integration** (li-6s7): Blocked by self-hosted deployment
 
 ### Future Expansion Ideas
 

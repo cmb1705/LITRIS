@@ -339,9 +339,9 @@ Track in metadata.json:
 
 ## Domain Context
 
-### Research Areas in Corpus
+### Example Research Areas
 
-Based on Zotero collections:
+Research areas depend on the active collections. Typical examples:
 
 - Network Analysis (citation networks, graph methods)
 - Scientometrics (bibliometrics, research metrics)
@@ -409,7 +409,7 @@ For each task implementation, follow this progression:
 
 - Refactor for clarity and performance (vectorization, batching, caching)
 - Ensure maximum parallelization by default (multiprocessing, multithreading, GPU)
-- Assume 16 CPU cores, 64GB RAM, high-end GPU available
+- Detect available CPU/GPU resources and size work accordingly instead of assuming a fixed workstation profile
 - Re-test after each optimization to ensure correctness is preserved
 
 ### 6. Scale Test (Pilot Run)

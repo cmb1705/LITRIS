@@ -7,9 +7,14 @@ benchmark_glm_ocr.py.
 Usage:
     python scripts/benchmark_opendataloader.py
     python scripts/benchmark_opendataloader.py --quick   # 5 papers only
+
+Set `LITRIS_OPENDATALOADER_TARGETS_JSON` to point at a private JSON file
+with corpus-specific benchmark targets if you want a curated sample.
 """
 
+import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -21,12 +26,25 @@ from src.config import Config
 from src.extraction.text_cleaner import TextCleaner
 from src.zotero.database import ZoteroDatabase
 
+BENCHMARK_TARGETS_ENV = "LITRIS_OPENDATALOADER_TARGETS_JSON"
+
 
 def word_count(text: str) -> int:
     """Count words in text."""
     if not text:
         return 0
     return len(text.split())
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--quick",
+        action="store_true",
+        help="Benchmark a smaller sample size.",
+    )
+    return parser.parse_args()
 
 
 def extract_pymupdf(pdf_path: Path) -> tuple[str, float]:
@@ -107,32 +125,8 @@ def get_page_count(pdf_path: Path) -> int:
         return 0
 
 
-# Test corpus: diverse papers from LITRIS
-# Format: (zotero_key, description, category, odl_mode)
-TARGETS = [
-    # Standard digital PDF (single column)
-    ("22FLI2DD", "Digitized journal article (Star & Gerson 1987)", "journal", "fast"),
-    ("22GEWMB6", "Standard journal article", "journal", "fast"),
-    ("22NZCYJ3", "Standard journal article", "journal", "fast"),
-    # Multi-column papers (conference proceedings)
-    ("233SW49D", "Conference/multi-column paper", "multi_column", "fast"),
-    ("22PCD9K3", "Conference/multi-column paper", "multi_column", "fast"),
-    ("24BQNWCR", "Conference/multi-column paper", "multi_column", "fast"),
-    # Equation-heavy (arXiv math/physics)
-    ("ITXX4K2T", "Equation-heavy paper (meta-heuristics)", "equations", "fast"),
-    ("25K65MAN", "Equation-heavy paper", "equations", "fast"),
-    ("26V28YAY", "Equation-heavy paper", "equations", "fast"),
-    # Scanned PDFs (from OCR corpus)
-    ("V535UYAH", "Scanned research paper (betweenness)", "scanned", "fast"),
-    ("A9SFRQXA", "Classic scanned (Architecture of Complexity)", "scanned", "fast"),
-    ("F2YZIGEL", "Scanned research (Org Structure)", "scanned", "fast"),
-    # Books/long documents (100+ pages)
-    ("EXSV6C6H", "Book (writing journal article, 180pp)", "book", "fast"),
-    ("UUMFULSR", "Scanned book (Book ScanCenter)", "book", "fast"),
-    ("HQBDYZ25", "Long document (Task-Technology Fit)", "book", "fast"),
-]
-
-QUICK_TARGETS = TARGETS[:5]
+DEFAULT_TARGET_LIMIT = 15
+QUICK_TARGET_LIMIT = 5
 
 
 def is_error_text(text: str) -> bool:
@@ -140,9 +134,78 @@ def is_error_text(text: str) -> bool:
     return text.startswith(("ERROR:", "UNAVAILABLE:", "EMPTY:"))
 
 
+def load_targets_from_env() -> list[tuple[str, str, str, str]] | None:
+    """Load corpus-specific benchmark targets from a JSON file."""
+    raw_path = os.environ.get(BENCHMARK_TARGETS_ENV)
+    if not raw_path:
+        return None
+
+    path = Path(raw_path).expanduser()
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return [
+        (
+            str(item["key"]),
+            str(item["description"]),
+            str(item.get("category", "custom")),
+            str(item.get("odl_mode", "fast")),
+        )
+        for item in payload
+    ]
+
+
+def categorize_title(title: str) -> str:
+    """Infer a loose benchmark category from a paper title."""
+    lowered = title.lower()
+    if any(token in lowered for token in ("proceedings", "conference", "workshop")):
+        return "multi_column"
+    if any(token in lowered for token in ("equation", "optimization", "physics", "math")):
+        return "equations"
+    if any(token in lowered for token in ("book", "handbook", "guide")):
+        return "book"
+    return "auto"
+
+
+def autodiscover_targets(
+    papers_map: dict[str, object],
+    limit: int,
+) -> list[tuple[str, str, str, str]]:
+    """Select a generic set of benchmark PDFs from the current corpus."""
+    unique_papers: dict[str, object] = {}
+    for paper in papers_map.values():
+        zotero_key = getattr(paper, "zotero_key", None)
+        if zotero_key and zotero_key not in unique_papers:
+            unique_papers[zotero_key] = paper
+
+    selected: list[tuple[str, str, str, str]] = []
+    for paper in sorted(
+        unique_papers.values(),
+        key=lambda item: (
+            getattr(item, "title", "") or "",
+            getattr(item, "zotero_key", ""),
+        ),
+    ):
+        pdf_path = getattr(paper, "pdf_path", None)
+        if not pdf_path or not pdf_path.exists():
+            continue
+
+        title = (getattr(paper, "title", "") or "Untitled PDF").strip()
+        selected.append(
+            (
+                paper.zotero_key,
+                f"Auto-selected benchmark paper: {title[:60]}",
+                categorize_title(title),
+                "fast",
+            )
+        )
+        if len(selected) >= limit:
+            break
+
+    return selected
+
+
 def main() -> None:
     """Run the benchmark."""
-    quick_mode = "--quick" in sys.argv
+    args = parse_args()
 
     config = Config.load()
     db = ZoteroDatabase(config.zotero.database_path, config.zotero.storage_path)
@@ -153,7 +216,13 @@ def main() -> None:
             papers_map[p.pdf_attachment_key] = p
 
     text_cleaner = TextCleaner()
-    targets = QUICK_TARGETS if quick_mode else TARGETS
+    target_limit = QUICK_TARGET_LIMIT if args.quick else DEFAULT_TARGET_LIMIT
+    targets = load_targets_from_env() or autodiscover_targets(papers_map, target_limit)
+    if not targets:
+        raise RuntimeError(
+            "No benchmark targets found. Set "
+            f"{BENCHMARK_TARGETS_ENV} to a JSON file or ensure the corpus has PDFs."
+        )
 
     results = []
 

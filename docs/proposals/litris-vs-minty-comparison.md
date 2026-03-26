@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-LITRIS and Minty share a core mission -- extracting structured knowledge from academic papers and making it searchable -- but they operate at fundamentally different scales and with different philosophies. LITRIS is a **focused extraction-and-search pipeline** optimized for individual researchers managing their personal Zotero libraries. Minty is a **full research lab operating system** with 18 background daemons, multi-source content discovery, team communication integration, and a persistent AI colleague persona.
+LITRIS and Minty share a core mission -- extracting structured knowledge from academic papers and making it searchable -- but they operate at fundamentally different scales and with different philosophies. LITRIS is a **focused extraction-and-search pipeline** optimized for researchers managing their own reference libraries. Minty is a **full research lab operating system** with 18 background daemons, multi-source content discovery, team communication integration, and a persistent AI colleague persona.
 
 The comparison reveals that LITRIS excels in areas Minty does not address (multi-reference-manager support, document type classification, federated search, batch API cost optimization) while Minty offers capabilities LITRIS lacks entirely (content discovery, hierarchical summarization, multi-round agentic search, institutional memory, team collaboration).
 
@@ -69,7 +69,7 @@ Both validate extraction quality -- LITRIS via confidence scores and type-specif
 | Dimension | LITRIS | Minty |
 |-----------|--------|-------|
 | **Target user** | Individual researcher | Research lab (29 members, 11 institutions) |
-| **Corpus size** | 332 papers, 3,746 chunks | 2,400+ papers, 270,858 chunks |
+| **Corpus size** | Deployment-dependent; typically hundreds of papers and thousands of chunks | 2,400+ papers, 270,858 chunks |
 | **Operating model** | On-demand CLI/script execution | 18 always-on background daemons |
 | **Platform** | Cross-platform (Windows primary) | macOS primary (launchd-dependent) |
 | **Infrastructure** | Local machine, no cloud services | Mac Studio + Cloudflare tunnel + Google Drive + Ghost CMS |

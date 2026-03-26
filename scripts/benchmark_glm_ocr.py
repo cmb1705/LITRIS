@@ -2,6 +2,9 @@
 
 Compares extraction quality across three methods for papers that were
 skipped from the LITRIS index due to insufficient text from PyMuPDF.
+
+Set `LITRIS_GLM_OCR_TARGETS_JSON` to point at a private JSON file with
+corpus-specific benchmark targets if you want a curated sample.
 """
 
 import json
@@ -26,6 +29,8 @@ OLLAMA = os.environ.get(
 )
 MAX_PAGES = 3  # Only process first 3 pages per paper
 OCR_TIMEOUT = 120  # seconds per page
+BENCHMARK_TARGETS_ENV = "LITRIS_GLM_OCR_TARGETS_JSON"
+DEFAULT_TARGET_LIMIT = 8
 
 
 def word_count(text: str) -> int:
@@ -33,6 +38,25 @@ def word_count(text: str) -> int:
     if not text:
         return 0
     return len(text.split())
+
+
+def load_targets_from_env() -> list[tuple[str, str]] | None:
+    """Load corpus-specific benchmark targets from a JSON file.
+
+    The JSON file should contain a list of objects with `key` and `description`
+    fields. Keeping the file path in an environment variable allows private
+    corpus identifiers to stay out of version control.
+    """
+    raw_path = os.environ.get(BENCHMARK_TARGETS_ENV)
+    if not raw_path:
+        return None
+
+    path = Path(raw_path).expanduser()
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return [
+        (str(item["key"]), str(item["description"]))
+        for item in payload
+    ]
 
 
 def extract_pymupdf(pdf_path: Path) -> tuple[str, float]:
@@ -174,6 +198,41 @@ def extract_glm_ocr(pdf_path: Path) -> tuple[str, float]:
     return text, elapsed
 
 
+def autodiscover_targets(
+    papers_map: dict[str, object],
+    limit: int = DEFAULT_TARGET_LIMIT,
+) -> list[tuple[str, str]]:
+    """Select a generic set of benchmark papers from the current corpus.
+
+    This fallback keeps the benchmark runnable in any checkout without
+    hardcoding private Zotero keys into the repository.
+    """
+    unique_papers: dict[str, object] = {}
+    for paper in papers_map.values():
+        zotero_key = getattr(paper, "zotero_key", None)
+        if zotero_key and zotero_key not in unique_papers:
+            unique_papers[zotero_key] = paper
+
+    selected: list[tuple[str, str]] = []
+    for paper in sorted(
+        unique_papers.values(),
+        key=lambda item: (
+            getattr(item, "title", "") or "",
+            getattr(item, "zotero_key", ""),
+        ),
+    ):
+        pdf_path = getattr(paper, "pdf_path", None)
+        if not pdf_path or not pdf_path.exists():
+            continue
+
+        title = (getattr(paper, "title", "") or "Untitled PDF").strip()
+        selected.append((paper.zotero_key, f"Auto-selected benchmark paper: {title[:60]}"))
+        if len(selected) >= limit:
+            break
+
+    return selected
+
+
 def main() -> None:
     """Run the benchmark."""
     config = Config.load()
@@ -186,18 +245,12 @@ def main() -> None:
 
     text_cleaner = TextCleaner()
 
-    # Target papers -- diverse sample from classification index
-    # Format: (classification_key, description)
-    targets = [
-        ("V535UYAH", "Scanned research paper (betweenness centrality)"),
-        ("A9SFRQXA", "Classic scanned paper (Architecture of Complexity)"),
-        ("EXSV6C6H", "Scanned book (writing your journal article, 180pp)"),
-        ("UUMFULSR", "Explicitly scanned (Book ScanCenter)"),
-        ("ITXX4K2T", "Equation-heavy (meta-heuristic algorithms)"),
-        ("HQBDYZ25", "Partial text extraction (Task-Technology Fit)"),
-        ("QMLFEZIF", "Very low text (Innovators and imitators)"),
-        ("F2YZIGEL", "Scanned research (Organizational Structure)"),
-    ]
+    targets = load_targets_from_env() or autodiscover_targets(papers_map)
+    if not targets:
+        raise RuntimeError(
+            "No benchmark targets found. Set "
+            f"{BENCHMARK_TARGETS_ENV} to a JSON file or ensure the corpus has PDFs."
+        )
 
     results = []
 

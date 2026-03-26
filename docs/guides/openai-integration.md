@@ -90,7 +90,8 @@ Codex CLI can use LITRIS as an MCP (Model Context Protocol) server, enabling GPT
 
 ```powershell
 # Add LITRIS MCP server to Codex (run once)
-codex mcp add litris --env "PYTHONPATH=D:\Git_Repos\LITRIS" -- "D:\Git_Repos\LITRIS\.venv\Scripts\python.exe" -m src.mcp.server
+$repo = (Resolve-Path .).Path
+codex mcp add litris --env "PYTHONPATH=$repo" -- "$repo\.venv\Scripts\python.exe" -m src.mcp
 
 # Verify
 codex mcp list
@@ -184,10 +185,10 @@ If Python can't find Codex CLI:
 
 ```powershell
 # Check where it's installed
-where codex
+Get-Command codex | Select-Object -ExpandProperty Source
 
-# Common location on Windows
-C:\Users\<username>\AppData\Roaming\npm\codex.cmd
+# Common Windows npm-global location
+Join-Path $env:APPDATA "npm\\codex.cmd"
 ```
 
 LITRIS automatically searches npm global directories. If issues persist, ensure the npm bin directory is in your PATH.

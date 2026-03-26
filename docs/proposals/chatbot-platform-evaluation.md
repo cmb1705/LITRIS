@@ -6,7 +6,7 @@
 
 ## Context
 
-LITRIS needs a conversational interface for semantic search over academic papers. The system has an MCP server (FastMCP, 6 tools) and a Streamlit web UI. Target deployment: home NAS, always-on.
+LITRIS needs a conversational interface for semantic search over academic papers. The system has an MCP server (FastMCP, 6 tools) and a Streamlit web UI. Target deployment: self-hosted, always-on.
 
 ## Platforms Evaluated
 
@@ -30,11 +30,11 @@ LITRIS needs a conversational interface for semantic search over academic papers
 ### Discord (Recommended for messaging)
 
 - Free, zero ongoing cost, `discord.py` is mature and async
-- Runs as lightweight Python process on NAS
+- Runs as lightweight Python process on a small self-hosted node
 - Slash commands + embeds format paper results well
 - Mobile app for research access anywhere
 - 2K/6K char limit manageable with pagination
-- Private server = personal research assistant
+- Private server = dedicated research assistant
 
 ### Open WebUI (Recommended for web chat)
 
@@ -47,16 +47,16 @@ LITRIS needs a conversational interface for semantic search over academic papers
 
 ### Not Recommended
 
-- **Teams**: Azure dependency, enterprise complexity disproportionate for personal NAS
+- **Teams**: Azure dependency, enterprise complexity disproportionate for a small self-hosted deployment
 - **Slack**: $7.25/user/mo for features needed, free plan has 90-day history and 10-integration limits
-- **Matrix**: Synapse requires 2-4 GB RAM -- too heavy for NAS running LITRIS + ChromaDB + LLM
+- **Matrix**: Synapse requires 2-4 GB RAM -- too heavy for a small self-hosted node running LITRIS + ChromaDB + LLM
 
 ### Chainlit (Not Recommended Despite MCP Fit)
 
 - Native MCP support and tool-calling visualization are ideal for LITRIS
 - Purpose-built for LLM + tool calling + chat
 - **Risk**: Original team abandoned active development May 2025; community-maintained under Maintainer Agreement
-- For always-on NAS deployment, long-term maintenance uncertainty is disqualifying
+- For always-on self-hosted deployment, long-term maintenance uncertainty is disqualifying
 
 ### Simplest Single Option: Telegram
 
@@ -69,12 +69,12 @@ LITRIS needs a conversational interface for semantic search over academic papers
 
 **Dual-interface approach**: Discord (mobile/messaging) + Open WebUI (web chat/deep research)
 
-Both integrate with LITRIS tools, run on NAS via Docker, and have zero ongoing cost. Discord handles quick queries from mobile; Open WebUI handles longer research sessions with full MCP tool orchestration.
+Both integrate with LITRIS tools, run in a self-hosted Docker stack, and have zero ongoing cost. Discord handles quick queries from mobile; Open WebUI handles longer research sessions with full MCP tool orchestration.
 
 ## Integration Architecture
 
 ```
-NAS Docker Compose:
+Self-hosted Docker Compose:
   - litris-mcp-server (FastMCP, streamable HTTP via mcpo)
   - open-webui (connects to MCP server + Ollama)
   - ollama (local LLM for conversation)

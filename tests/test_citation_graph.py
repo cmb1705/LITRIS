@@ -299,8 +299,8 @@ def test_collections_unioned():
 def test_part_of_siblings_not_merged():
     """Papers in part_of relationships are excluded from dedup."""
     papers = [
-        {"paper_id": "po1", "title": "PAF540 Advanced Research Methods Syllabus", "collections": ["Syllabi"]},
-        {"paper_id": "po2", "title": "PAF540 Advanced Research Methods Syllabus", "collections": ["Syllabi"]},
+        {"paper_id": "po1", "title": "Research Methods Syllabus", "collections": ["Syllabi"]},
+        {"paper_id": "po2", "title": "Research Methods Syllabus", "collections": ["Syllabi"]},
     ]
     part_of_pairs = {("po1", "parent1"), ("po2", "parent1")}
     deduped, redirect_map = _deduplicate_papers(papers, part_of_pairs)
@@ -388,7 +388,7 @@ def test_book_section_creates_part_of_edge():
 def test_syllabus_bundle_detection():
     """3+ papers with same title, different content -> virtual parent + part_of edges."""
     papers = [
-        {"paper_id": f"paf{i}", "title": "PAF540 Advanced Research Methods", "publication_year": 2020}
+        {"paper_id": f"paf{i}", "title": "Advanced Research Methods", "publication_year": 2020}
         for i in range(4)
     ]
     extractions = {

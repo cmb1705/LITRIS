@@ -103,7 +103,7 @@ python scripts/query_index.py -q "citation networks" -n 20
 python scripts/query_index.py -q "methodology" --year-min 2020
 
 # Filter by collection
-python scripts/query_index.py -q "research methods" --collection "PhD/Dissertation"
+python scripts/query_index.py -q "research methods" --collection "Core Readings"
 ```
 
 ### Output Formats

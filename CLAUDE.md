@@ -72,7 +72,7 @@ pytest tests/ -v --tb=short  # Run test suite
 | STATE.md | Status tracker |
 | config.yaml | Configuration |
 | docs/proposals/*.md | Specs and plans |
-| D:\Git_Repos\claude-dotfiles | Global Claude Code config repo (settings, plugins, skills) |
+| Local Claude Code config repo | Machine-specific shared config (settings, plugins, skills) |
 
 ## Custom Agents
 
