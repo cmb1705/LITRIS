@@ -17,11 +17,38 @@ Before starting, ensure you have:
 Build the full index from your reference library:
 
 ```bash
-# Test with a small sample first
-python scripts/build_index.py --limit 10
+# Preview the resolved sync plan
+python scripts/build_index.py --explain-plan --dry-run
 
-# Full build
+# First build or first run after upgrading to unified sync
+python scripts/build_index.py --sync-mode full
+```
+
+### Sync Modes
+
+`scripts/build_index.py` is the normal entrypoint for both initial builds and updates.
+
+- `auto` (default): Use incremental sync when the existing index is compatible; otherwise upgrade to a full rebuild.
+- `full`: Rebuild the vector store for the full scope. Existing extractions are reused unless they are missing or incompatible.
+- `update`: Force incremental sync for compatible Zotero indexes only. If compatibility checks fail, the command exits with an error.
+
+Use `--explain-plan --dry-run` to inspect the resolved action before making changes:
+
+```bash
+# Inspect the planned sync path
+python scripts/build_index.py --explain-plan --dry-run
+
+# Normal day-to-day sync
 python scripts/build_index.py
+
+# Force a full rebuild
+python scripts/build_index.py --sync-mode full
+
+# Force update-only mode
+python scripts/build_index.py --sync-mode update
+
+# Refresh a specific paper by Zotero key or paper_id
+python scripts/build_index.py --paper ABC123_DEF456
 ```
 
 ### Build Options
@@ -29,12 +56,15 @@ python scripts/build_index.py
 | Option | Description |
 |--------|-------------|
 | `--limit N` | Process only N papers |
+| `--sync-mode auto/full/update` | Choose automatic sync, full rebuild, or update-only |
+| `--explain-plan` | Print the resolved sync plan before running |
 | `--mode cli/api` | Override extraction mode |
 | `--resume` | Resume from checkpoint |
 | `--dry-run` | Show what would be processed |
 | `--estimate-cost` | Estimate API costs |
-| `--skip-extraction` | Skip LLM analysis |
+| `--skip-extraction` | Skip LLM analysis and reuse existing extractions |
 | `--skip-embeddings` | Skip vector store |
+| `--paper PAPER_ID` | Treat a specific paper as the target scope (repeatable) |
 | `--retry-failed` | Retry failed papers |
 | `--classify-only` | Run classification pre-pass only (no extraction) |
 | `--index-all` | Extract all papers regardless of classification |
@@ -215,21 +245,24 @@ print(gap_analysis.follow_up_queries)
 
 ## Incremental Updates
 
-Keep your index synchronized with Zotero changes:
+Keep your index synchronized with Zotero changes via `build_index.py`:
 
 ```bash
-# Check for changes without applying
-python scripts/update_index.py --detect-only
+# Preview the incremental plan without applying changes
+python scripts/build_index.py --sync-mode update --explain-plan --dry-run
 
-# Apply all updates
-python scripts/update_index.py
+# Apply compatible updates only
+python scripts/build_index.py --sync-mode update
 
-# Only add new papers
-python scripts/update_index.py --new-only
-
-# Only remove deleted papers
-python scripts/update_index.py --delete-only
+# Use the default automatic path instead
+python scripts/build_index.py
 ```
+
+Notes:
+
+- `--sync-mode update` is currently supported for Zotero-backed indexes only.
+- If the index configuration changed in a way that makes incremental sync unsafe, `--sync-mode update` fails loudly and `--sync-mode auto` upgrades to a full rebuild.
+- `scripts/update_index.py` remains available as a deprecated compatibility wrapper during the transition.
 
 ## Exporting Results
 
@@ -298,6 +331,7 @@ The extraction data is stored in `data/index/extractions.json`.
 | `data/index/extractions.json` | LLM extractions |
 | `data/index/summary.json` | Statistics |
 | `data/index/metadata.json` | Build metadata |
+| `data/index/index_manifest.json` | Sync manifest and pending-work state |
 | `data/index/chroma/` | Vector embeddings |
 | `data/cache/pdf_text/` | Cached PDF text |
 
@@ -792,7 +826,9 @@ The following `build_index.py` options were added in recent releases:
 | `--dedupe-by-doi` | Skip papers with DOIs already in index |
 | `--show-doi-overlap` | Analyze DOI overlap without processing |
 | `--skip-similarity` | Skip pre-computed similarity pair generation |
-| `--rebuild-embeddings` | Rebuild embeddings even if they exist |
+| `--sync-mode auto/full/update` | Choose automatic sync, full rebuild, or update-only |
+| `--explain-plan` | Print the resolved sync plan before running |
+| `--rebuild-embeddings` | Deprecated alias for `--sync-mode full` |
 | `--paper PAPER_ID` | Process only this paper (repeatable) |
 | `--skip-paper PAPER_ID` | Skip specific paper ID (repeatable) |
 | `--show-failed` | Show list of failed papers from previous run |

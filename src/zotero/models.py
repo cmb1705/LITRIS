@@ -152,10 +152,12 @@ class PaperMetadata(BaseModel):
         return {
             "paper_id": self.paper_id,
             "zotero_key": self.zotero_key,
+            "zotero_item_id": self.zotero_item_id,
             "title": self.title,
             "authors": [a.model_dump() for a in self.authors],
             "author_string": self.author_string,
             "publication_year": self.publication_year,
+            "publication_date": self.publication_date,
             "journal": self.journal,
             "doi": self.doi,
             "abstract": self.abstract,
@@ -163,6 +165,10 @@ class PaperMetadata(BaseModel):
             "tags": self.tags,
             "item_type": self.item_type,
             "pdf_path": str(self.pdf_path) if self.pdf_path else None,
+            "pdf_attachment_key": self.pdf_attachment_key,
             "date_added": self.date_added.isoformat() if self.date_added else None,
+            "date_modified": (
+                self.date_modified.isoformat() if self.date_modified else None
+            ),
             "indexed_at": self.indexed_at.isoformat() if self.indexed_at else None,
         }

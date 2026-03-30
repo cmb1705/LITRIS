@@ -226,17 +226,20 @@ the Claude Code or Codex CLI inside the image or running on the host. See
 ## Quick Start
 
 ```bash
-# Preview what will be indexed
-python scripts/build_index.py --dry-run
+# Preview the resolved sync plan
+python scripts/build_index.py --explain-plan --dry-run
 
 # Test build with 10 papers (using Claude subscription)
 python scripts/build_index.py --limit 10 --use-subscription
 
+# First run after upgrading to unified sync
+python scripts/build_index.py --sync-mode full --use-subscription
+
+# Normal day-to-day sync (default: --sync-mode auto)
+python scripts/build_index.py --use-subscription
+
 # Query the index (results auto-saved to data/query_results/)
 python scripts/query_index.py -q "network analysis methods"
-
-# Full library build
-python scripts/build_index.py --use-subscription
 ```
 
 ## Project Structure
@@ -439,9 +442,9 @@ Per-field strategy overrides allow mixing strategies (e.g., `union` for key_clai
 
 ```bash
 # Preview what will be processed
-python scripts/build_index.py --dry-run
+python scripts/build_index.py --explain-plan --dry-run
 
-# Use Claude subscription (free with Max/Pro)
+# Day-to-day sync (auto chooses update vs full)
 python scripts/build_index.py --use-subscription
 
 # Skip DOI duplicates (when adding from new Zotero database)
@@ -450,8 +453,11 @@ python scripts/build_index.py --use-subscription --dedupe-by-doi
 # Analyze DOI overlap before building
 python scripts/build_index.py --show-doi-overlap
 
-# Rebuild embeddings only (skip extraction)
-python scripts/build_index.py --skip-extraction
+# Force a full rebuild of the vector store
+python scripts/build_index.py --sync-mode full --use-subscription
+
+# Rebuild embeddings from existing extractions
+python scripts/build_index.py --sync-mode full --skip-extraction
 
 # Show papers without PDFs
 python scripts/build_index.py --show-skipped
@@ -461,16 +467,30 @@ python scripts/build_index.py --limit 50 --use-subscription
 
 # Build only papers from a specific collection
 python scripts/build_index.py --collection "Machine Learning" --use-subscription
+
+# Force update-only mode (Zotero only; fails if compatibility checks require full rebuild)
+python scripts/build_index.py --sync-mode update --use-subscription
+
+# Refresh a specific paper by Zotero key or paper_id
+python scripts/build_index.py --paper ABC123_DEF456 --use-subscription
 ```
 
-### Incremental Updates
+### Sync Modes
 
-The build script automatically detects new papers and only processes those not already in the index:
+`scripts/build_index.py` is now the primary indexing entrypoint. The default
+`--sync-mode auto` chooses the safest path automatically:
+
+- `auto`: Use incremental sync when the index is compatible, otherwise upgrade to a full rebuild.
+- `full`: Rebuild the vector store for the full scope. Existing extractions are reused unless they are missing or incompatible.
+- `update`: Force incremental sync for compatible Zotero indexes only. If compatibility checks fail, the command exits with an error instead of silently rebuilding.
+
+For the first run after upgrading to the unified sync flow, run an explicit full rebuild once:
 
 ```bash
-# Just run build again - it skips already-extracted papers
-python scripts/build_index.py --use-subscription
+python scripts/build_index.py --sync-mode full --use-subscription
 ```
+
+The legacy `scripts/update_index.py` command still exists as a deprecated compatibility wrapper, but new workflows should use `scripts/build_index.py`.
 
 ### Gap Analysis
 

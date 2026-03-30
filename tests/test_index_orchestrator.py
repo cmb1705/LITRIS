@@ -1,0 +1,239 @@
+"""Tests for the unified index orchestrator decision logic."""
+
+from __future__ import annotations
+
+import argparse
+import logging
+from pathlib import Path
+from types import SimpleNamespace
+
+from src.config import Config
+from src.indexing.orchestrator import (
+    CHUNK_SCHEMA_VERSION,
+    SIMILARITY_SCHEMA_VERSION,
+    ChangeSet,
+    IndexManifest,
+    IndexOrchestrator,
+    PaperSnapshot,
+    PendingStageWork,
+    RAPTOR_SCHEMA_VERSION,
+    detect_snapshot_changes,
+)
+
+
+def _make_config(tmp_path: Path) -> Config:
+    zotero_db = tmp_path / "zotero.sqlite"
+    zotero_db.write_text("", encoding="utf-8")
+    storage_dir = tmp_path / "storage"
+    storage_dir.mkdir()
+    return Config(
+        zotero={"database_path": zotero_db, "storage_path": storage_dir},
+        extraction={"provider": "anthropic", "mode": "api", "model": "claude-test"},
+        embeddings={
+            "model": "embed-test",
+            "dimension": 384,
+            "backend": "sentence-transformers",
+        },
+        storage={"chroma_path": tmp_path / "chroma", "cache_path": tmp_path / "cache"},
+    )
+
+
+def _make_args(**overrides) -> argparse.Namespace:
+    defaults = {
+        "sync_mode": "auto",
+        "rebuild_embeddings": False,
+        "paper": [],
+        "collection": None,
+        "index_all": False,
+        "provider": None,
+        "mode": None,
+        "model": None,
+        "summary_model": None,
+        "methodology_model": None,
+        "new_only": False,
+        "delete_only": False,
+    }
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
+def _make_snapshot(
+    paper_id: str,
+    zotero_key: str,
+    fingerprint: str,
+    extractable: bool | None = True,
+    indexed: bool | None = True,
+) -> PaperSnapshot:
+    return PaperSnapshot(
+        paper_id=paper_id,
+        zotero_key=zotero_key,
+        pdf_attachment_key=paper_id.split("_", 1)[1] if "_" in paper_id else None,
+        date_modified="2026-03-30T00:00:00",
+        pdf_path=f"/tmp/{paper_id}.pdf",
+        pdf_size=100,
+        pdf_mtime_ns=123,
+        source_fingerprint=fingerprint,
+        extractable=extractable,
+        indexed=indexed,
+    )
+
+
+def _make_ref_db(provider: str, source_path: Path) -> SimpleNamespace:
+    return SimpleNamespace(provider=provider, source_path=source_path)
+
+
+def _save_matching_manifest(
+    orchestrator: IndexOrchestrator,
+    args: argparse.Namespace,
+    config: Config,
+    ref_db: SimpleNamespace,
+    snapshots: dict[str, PaperSnapshot],
+) -> None:
+    manifest = IndexManifest(
+        source_scope=orchestrator._source_scope_info(ref_db, args),
+        classification_policy=orchestrator._classification_policy_info(args, config),
+        extraction=orchestrator._extraction_info(args, config),
+        embedding=orchestrator._embedding_info(config),
+        chunk_schema_version=CHUNK_SCHEMA_VERSION,
+        raptor_schema_version=RAPTOR_SCHEMA_VERSION,
+        similarity_schema_version=SIMILARITY_SCHEMA_VERSION,
+        pending_work={
+            "extraction": PendingStageWork(),
+            "embeddings": PendingStageWork(),
+            "raptor": PendingStageWork(),
+            "similarity": PendingStageWork(),
+        },
+        paper_snapshots=snapshots,
+    )
+    manifest.save(orchestrator.manifest_path)
+
+
+def test_detect_snapshot_changes_is_attachment_aware():
+    previous = {
+        "ITEM_att1": _make_snapshot("ITEM_att1", "ITEM", "old-1"),
+        "ITEM_att2": _make_snapshot("ITEM_att2", "ITEM", "old-2"),
+    }
+    current = {
+        "ITEM_att2": _make_snapshot("ITEM_att2", "ITEM", "new-2"),
+        "ITEM_att3": _make_snapshot("ITEM_att3", "ITEM", "new-3"),
+    }
+
+    changes = detect_snapshot_changes(previous, current)
+
+    assert changes.new_items == ["ITEM_att3"]
+    assert changes.modified_items == ["ITEM_att2"]
+    assert changes.deleted_items == ["ITEM_att1"]
+    assert changes.unchanged_items == []
+
+
+def test_plan_sync_missing_manifest_auto_chooses_full(tmp_path):
+    config = _make_config(tmp_path)
+    orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))
+    args = _make_args(sync_mode="auto")
+    ref_db = _make_ref_db("zotero", config.get_zotero_db_path())
+    current = {"P1": _make_snapshot("P1", "Z1", "fp-1")}
+
+    plan = orchestrator.plan_sync(
+        args=args,
+        config=config,
+        ref_db=ref_db,
+        current_snapshots=current,
+        existing_papers={},
+        existing_extractions={},
+        class_index=SimpleNamespace(papers={}),
+    )
+
+    assert plan.resolved_mode == "full"
+    assert any("manifest is missing" in reason.lower() for reason in plan.reasons)
+
+
+def test_plan_sync_missing_manifest_forced_update_is_invalid(tmp_path):
+    config = _make_config(tmp_path)
+    orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))
+    args = _make_args(sync_mode="update")
+    ref_db = _make_ref_db("zotero", config.get_zotero_db_path())
+    current = {"P1": _make_snapshot("P1", "Z1", "fp-1")}
+
+    plan = orchestrator.plan_sync(
+        args=args,
+        config=config,
+        ref_db=ref_db,
+        current_snapshots=current,
+        existing_papers={},
+        existing_extractions={},
+        class_index=SimpleNamespace(papers={}),
+    )
+
+    assert plan.resolved_mode == "invalid"
+    assert any("manifest is missing" in reason.lower() for reason in plan.reasons)
+
+
+def test_plan_sync_non_zotero_auto_forces_full(tmp_path):
+    config = _make_config(tmp_path)
+    orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))
+    args = _make_args(sync_mode="auto")
+    ref_db = _make_ref_db("bibtex", tmp_path / "refs.bib")
+    current = {"P1": _make_snapshot("P1", "Z1", "fp-1")}
+
+    plan = orchestrator.plan_sync(
+        args=args,
+        config=config,
+        ref_db=ref_db,
+        current_snapshots=current,
+        existing_papers={},
+        existing_extractions={},
+        class_index=SimpleNamespace(papers={}),
+    )
+
+    assert plan.resolved_mode == "full"
+    assert any("non-zotero" in reason.lower() for reason in plan.reasons)
+
+
+def test_plan_sync_embedding_fingerprint_change_forces_full(tmp_path):
+    config = _make_config(tmp_path)
+    orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))
+    args = _make_args(sync_mode="auto")
+    ref_db = _make_ref_db("zotero", config.get_zotero_db_path())
+    snapshots = {"P1": _make_snapshot("P1", "Z1", "fp-1")}
+    _save_matching_manifest(orchestrator, args, config, ref_db, snapshots)
+
+    manifest, _ = IndexManifest.load(orchestrator.manifest_path)
+    assert manifest is not None
+    manifest.embedding["model"] = "embed-old"
+    manifest.embedding["fingerprint"] = "stale-fingerprint"
+    manifest.save(orchestrator.manifest_path)
+
+    plan = orchestrator.plan_sync(
+        args=args,
+        config=config,
+        ref_db=ref_db,
+        current_snapshots=snapshots,
+        existing_papers={"P1": {"paper_id": "P1"}},
+        existing_extractions={"P1": {"paper_id": "P1", "extraction": {}}},
+        class_index=SimpleNamespace(papers={}),
+    )
+
+    assert plan.resolved_mode == "full"
+    assert any("embedding configuration changed" in reason.lower() for reason in plan.reasons)
+
+
+def test_plan_sync_no_changes_with_matching_manifest_is_noop(tmp_path):
+    config = _make_config(tmp_path)
+    orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))
+    args = _make_args(sync_mode="auto")
+    ref_db = _make_ref_db("zotero", config.get_zotero_db_path())
+    snapshots = {"P1": _make_snapshot("P1", "Z1", "fp-1")}
+    _save_matching_manifest(orchestrator, args, config, ref_db, snapshots)
+
+    plan = orchestrator.plan_sync(
+        args=args,
+        config=config,
+        ref_db=ref_db,
+        current_snapshots=snapshots,
+        existing_papers={"P1": {"paper_id": "P1"}},
+        existing_extractions={},
+        class_index=SimpleNamespace(papers={}),
+    )
+
+    assert plan.resolved_mode == "update"
+    assert plan.noop is True

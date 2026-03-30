@@ -239,7 +239,7 @@ python scripts/export_results.py summary
 
 **Solution**: Rebuild embeddings:
 ```bash
-python scripts/build_index.py --skip-extraction --rebuild-embeddings
+python scripts/build_index.py --sync-mode full --skip-extraction
 ```
 
 ## Incremental Update Issues
@@ -250,20 +250,20 @@ python scripts/build_index.py --skip-extraction --rebuild-embeddings
 
 **Solution**: Run initial build first:
 ```bash
-python scripts/build_index.py
+python scripts/build_index.py --sync-mode full
 ```
 
 ### Stale Changes
 
 **Error**: Changes detected but not real
 
-**Solution**: Reset update state:
+**Solution**: Inspect the resolved sync plan, then force a full rebuild if needed:
 ```bash
-# View current state
-python scripts/update_index.py --detect-only
+# View the update-only plan
+python scripts/build_index.py --sync-mode update --explain-plan --dry-run
 
 # If issues persist, rebuild:
-python scripts/build_index.py --rebuild-embeddings
+python scripts/build_index.py --sync-mode full
 ```
 
 ## Performance Issues
@@ -343,7 +343,7 @@ If all else fails, rebuild from scratch:
 mv data/index data/index.bak
 
 # Full rebuild
-python scripts/build_index.py
+python scripts/build_index.py --sync-mode full
 ```
 
 ## Getting Help
