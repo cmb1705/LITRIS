@@ -10,7 +10,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config import Config
+from src.config import Config, parse_embedding_batch_size_setting
 from src.indexing.orchestrator import IndexOrchestrator
 from src.utils.logging_config import setup_logging
 
@@ -55,6 +55,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Show what would be done without making changes",
     )
+    parser.add_argument(
+        "--embedding-batch-size",
+        type=parse_embedding_batch_size_setting,
+        default=None,
+        metavar="N|auto",
+        help="Override embedding batch size (positive integer or auto)",
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")
     return parser.parse_args()
 
@@ -69,6 +76,8 @@ def main() -> int:
     except Exception as exc:
         logger.error(f"Failed to load configuration: {exc}")
         return 1
+    if args.embedding_batch_size is not None:
+        config.embeddings.batch_size = args.embedding_batch_size
 
     orchestrator = IndexOrchestrator(project_root=PROJECT_ROOT, logger=logger)
     return orchestrator.refresh_derived_artifacts(

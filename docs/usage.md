@@ -402,6 +402,7 @@ extraction:
 embeddings:
   model: "sentence-transformers/all-MiniLM-L6-v2"
   dimension: 384
+  batch_size: auto
 
 storage:
   chroma_path: "data/chroma"
@@ -413,6 +414,11 @@ processing:
   ocr_enabled: false
   min_text_length: 100
 ```
+
+`embeddings.batch_size` controls embedding request size. Use `"auto"` to probe
+Ollama upward from a safe starting point on the current machine, or set a fixed
+integer. You can override it per run with `--embedding-batch-size auto` or
+`--embedding-batch-size 64`.
 
 ## Alternative Reference Sources
 

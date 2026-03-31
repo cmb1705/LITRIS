@@ -280,7 +280,11 @@ extraction:
 embeddings:
   backend: "ollama"
   model: "qwen3-embedding:8b-q8_0"
+  batch_size: auto      # or a fixed integer, e.g. 64
 ```
+
+Use `--embedding-batch-size auto` to probe Ollama upward from a safe starting
+size on the current machine, or pass a fixed integer to override it for a run.
 
 ### LLM Provider Options
 

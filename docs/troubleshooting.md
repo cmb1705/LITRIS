@@ -294,8 +294,14 @@ python scripts/build_index.py --resume
 
 Use smaller batch size:
 ```yaml
-processing:
-  batch_size: 5  # Reduce from 10
+embeddings:
+  batch_size: 16  # Or use "auto" to probe locally
+```
+
+For one-off runs, you can also override this without editing config:
+
+```bash
+python scripts/build_index.py --embedding-batch-size 16
 ```
 
 Use lighter embedding model:

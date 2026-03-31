@@ -446,9 +446,11 @@ def run_embedding_generation(
     ollama_base_url: str = "http://localhost:11434",
     query_prefix: str | None = None,
     document_prefix: str | None = None,
+    embedding_batch_size: int | str = "auto",
     raptor_summaries: dict[str, RaptorSummaries] | None = None,
     delete_paper_ids: list[str] | None = None,
     vector_store_dir: Path | None = None,
+    run_metadata: dict | None = None,
 ) -> int:
     """Generate embeddings and populate the vector store for the scoped papers."""
     chroma_dir = vector_store_dir or (index_dir / "chroma")
@@ -463,7 +465,6 @@ def run_embedding_generation(
 
     logger.info("Initializing vector store...")
     vector_store = VectorStore(chroma_dir)
-    embedding_batch_size = 16 if embedding_backend == "ollama" else 32
 
     if rebuild:
         logger.info("Clearing existing embeddings...")
@@ -498,15 +499,24 @@ def run_embedding_generation(
     if not all_chunks and not rebuild and not delete_ids:
         return 0
 
+    resolved_batch_size = None
     if all_chunks:
+        resolved_batch_size = embedding_gen.resolve_batch_size(
+            embedding_batch_size,
+            texts=[chunk.text for chunk in all_chunks],
+        )
         logger.info(
             "Generating embeddings with batch size %d...",
-            embedding_batch_size,
+            resolved_batch_size,
         )
         all_chunks = embedding_gen.generate_embeddings(
             all_chunks,
-            batch_size=embedding_batch_size,
+            batch_size=resolved_batch_size,
         )
+
+    if run_metadata is not None:
+        run_metadata["embedding_batch_size_setting"] = embedding_batch_size
+        run_metadata["embedding_batch_size_resolved"] = resolved_batch_size
 
     logger.info("Writing embeddings to vector store...")
     if rebuild:

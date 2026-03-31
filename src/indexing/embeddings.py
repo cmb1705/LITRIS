@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import heapq
 from dataclasses import dataclass, field
 from time import sleep
 from typing import TYPE_CHECKING
@@ -52,6 +53,11 @@ for _group, _rng in _GROUP_RANGES:
         DIMENSION_GROUPS[f"dim_q{_i:02d}"] = _group
 
 SentenceTransformer = _SentenceTransformer
+
+DEFAULT_SENTENCE_TRANSFORMER_BATCH_SIZE = 32
+OLLAMA_AUTO_BATCH_START = 8
+OLLAMA_AUTO_BATCH_MAX = 128
+DEFAULT_OLLAMA_BATCH_SIZE = OLLAMA_AUTO_BATCH_START
 
 
 @dataclass
@@ -358,6 +364,45 @@ class EmbeddingGenerator:
         logger.info(f"Generated {len(chunks)} embeddings")
         return chunks
 
+    def resolve_batch_size(
+        self,
+        batch_size: int | str | None,
+        texts: list[str] | None = None,
+    ) -> int:
+        """Resolve the embedding batch size for this backend.
+
+        Args:
+            batch_size: Requested batch size setting. Accepts a positive integer,
+                ``"auto"``, or ``None``.
+            texts: Raw document texts for auto-probing. Only used for Ollama.
+
+        Returns:
+            Concrete positive batch size to use for embedding generation.
+        """
+        requested = batch_size
+        if requested is None:
+            requested = (
+                "auto" if self.backend == "ollama" else DEFAULT_SENTENCE_TRANSFORMER_BATCH_SIZE
+            )
+
+        if isinstance(requested, int):
+            return requested
+        if isinstance(requested, str) and requested.isdigit():
+            return int(requested)
+
+        if requested != "auto":
+            raise ValueError(f"Unsupported embedding batch size setting: {requested!r}")
+
+        if self.backend != "ollama":
+            logger.info(
+                "Embedding batch size auto uses default %d for backend=%s",
+                DEFAULT_SENTENCE_TRANSFORMER_BATCH_SIZE,
+                self.backend,
+            )
+            return DEFAULT_SENTENCE_TRANSFORMER_BATCH_SIZE
+
+        return self._auto_select_ollama_batch_size(texts or [])
+
     def embed_text(self, text: str) -> list[float]:
         """Generate embedding for a single query text.
 
@@ -417,6 +462,134 @@ class EmbeddingGenerator:
             batch = texts[i : i + batch_size]
             all_embeddings.extend(self._ollama_embed_with_fallback(batch))
         return all_embeddings
+
+    def _auto_select_ollama_batch_size(self, texts: list[str]) -> int:
+        """Probe Ollama upward from a safe batch size on this machine.
+
+        The probe uses the longest available texts up to the configured ceiling so
+        the selected size is conservative for the current corpus and hardware.
+        """
+        if not texts:
+            logger.info(
+                "Embedding batch size auto has no texts to probe; using safe Ollama batch size %d",
+                DEFAULT_OLLAMA_BATCH_SIZE,
+            )
+            return DEFAULT_OLLAMA_BATCH_SIZE
+
+        max_candidate = max(1, min(len(texts), OLLAMA_AUTO_BATCH_MAX))
+        sample_texts = self._select_probe_texts(texts, limit=max_candidate)
+        start = max(1, min(OLLAMA_AUTO_BATCH_START, max_candidate))
+        logger.info(
+            "Auto-probing Ollama embedding batch size from %d up to %d using %d representative chunks",
+            start,
+            max_candidate,
+            len(sample_texts),
+        )
+
+        if not self._probe_ollama_batch(sample_texts[:start]):
+            logger.warning(
+                "Ollama auto-probe failed at safe starting batch size %d; using batch size 1",
+                start,
+            )
+            return 1
+
+        best = start
+        lower_failure = max_candidate + 1
+        candidate = start
+
+        while candidate < max_candidate:
+            next_candidate = min(candidate * 2, max_candidate)
+            if next_candidate == candidate:
+                break
+            if self._probe_ollama_batch(sample_texts[:next_candidate]):
+                best = next_candidate
+                candidate = next_candidate
+                continue
+            lower_failure = next_candidate
+            break
+
+        if lower_failure == max_candidate + 1:
+            self._log_auto_probe_result(best, max_candidate, len(texts))
+            return best
+
+        low = best + 1
+        high = lower_failure - 1
+        while low <= high:
+            mid = (low + high) // 2
+            if self._probe_ollama_batch(sample_texts[:mid]):
+                best = mid
+                low = mid + 1
+            else:
+                high = mid - 1
+
+        self._log_auto_probe_result(best, max_candidate, len(texts))
+        return best
+
+    def _select_probe_texts(self, texts: list[str], limit: int) -> list[str]:
+        """Select the longest prefixed texts for conservative batch probing."""
+        heap: list[tuple[int, str]] = []
+        for text in texts:
+            prefixed = self._apply_prefix(text, self.document_prefix)
+            item = (len(prefixed), prefixed)
+            if len(heap) < limit:
+                heapq.heappush(heap, item)
+                continue
+            if item[0] > heap[0][0]:
+                heapq.heapreplace(heap, item)
+        return [text for _, text in sorted(heap, reverse=True)]
+
+    def _probe_ollama_batch(self, texts: list[str]) -> bool:
+        """Test whether Ollama can handle a batch in a single request.
+
+        Retries transient failures, but does not split the batch. That keeps the
+        probe focused on finding the largest viable request size for the current
+        backend state.
+        """
+        if not texts:
+            return True
+
+        delay = self.ollama_retry_backoff_seconds
+        last_exc: Exception | None = None
+        for attempt in range(1, self.ollama_max_retries + 1):
+            try:
+                response = self._ollama_client.embed(model=self.model_name, input=texts)
+                if len(response["embeddings"]) != len(texts):
+                    raise RuntimeError(
+                        f"Expected {len(texts)} embeddings, got {len(response['embeddings'])}"
+                    )
+                return True
+            except Exception as exc:  # noqa: BLE001 - client errors are backend-specific
+                last_exc = exc
+                if attempt < self.ollama_max_retries:
+                    sleep(delay)
+                    delay = min(delay * 2, 10.0)
+
+        logger.info(
+            "Ollama auto-probe rejected batch size %d: %s",
+            len(texts),
+            last_exc,
+        )
+        return False
+
+    def _log_auto_probe_result(
+        self,
+        selected_batch_size: int,
+        max_candidate: int,
+        total_text_count: int,
+    ) -> None:
+        """Log the resolved auto batch size and whether the probe hit its ceiling."""
+        if (
+            selected_batch_size == max_candidate
+            and max_candidate == OLLAMA_AUTO_BATCH_MAX
+            and total_text_count > OLLAMA_AUTO_BATCH_MAX
+        ):
+            logger.info(
+                "Auto-selected Ollama embedding batch size %d (hit auto-probe ceiling %d)",
+                selected_batch_size,
+                OLLAMA_AUTO_BATCH_MAX,
+            )
+            return
+        logger.info("Auto-selected Ollama embedding batch size %d", selected_batch_size)
 
     def _ollama_embed_with_fallback(self, texts: list[str]) -> list[list[float]]:
         """Embed texts via Ollama with retries and recursive batch splitting."""

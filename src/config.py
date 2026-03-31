@@ -20,6 +20,37 @@ from src.utils.secrets import get_anthropic_api_key
 logger = get_logger(__name__)
 
 
+def parse_embedding_batch_size_setting(value: Any) -> int | str:
+    """Parse an embedding batch size setting.
+
+    Accepts positive integers or the string ``"auto"``.
+
+    Args:
+        value: Raw config or CLI value.
+
+    Returns:
+        ``"auto"`` or a positive integer batch size.
+
+    Raises:
+        ValueError: If the value is not ``"auto"`` or a positive integer.
+    """
+    if value is None:
+        return "auto"
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized == "auto":
+            return "auto"
+        try:
+            value = int(normalized)
+        except ValueError as exc:
+            raise ValueError("embedding batch size must be a positive integer or 'auto'") from exc
+    if isinstance(value, int):
+        if value < 1:
+            raise ValueError("embedding batch size must be at least 1")
+        return value
+    raise ValueError("embedding batch size must be a positive integer or 'auto'")
+
+
 class ZoteroConfig(BaseModel):
     """Zotero-related configuration."""
 
@@ -240,6 +271,7 @@ class EmbeddingsConfig(BaseModel):
     ollama_base_url: str = "http://localhost:11434"
     query_prefix: str | None = None
     document_prefix: str | None = None
+    batch_size: int | str = "auto"
 
     @field_validator("backend")
     @classmethod
@@ -249,6 +281,12 @@ class EmbeddingsConfig(BaseModel):
         if v not in valid:
             raise ValueError(f"backend must be one of {valid}, got '{v}'")
         return v
+
+    @field_validator("batch_size", mode="before")
+    @classmethod
+    def validate_batch_size(cls, v: Any) -> int | str:
+        """Validate embedding batch size."""
+        return parse_embedding_batch_size_setting(v)
 
 
 class StorageConfig(BaseModel):

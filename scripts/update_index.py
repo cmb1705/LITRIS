@@ -10,7 +10,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.config import Config
+from src.config import Config, parse_embedding_batch_size_setting
 from src.indexing.orchestrator import IndexOrchestrator
 from src.utils.logging_config import setup_logging
 
@@ -47,6 +47,13 @@ def parse_args() -> argparse.Namespace:
         help="Skip embeddings and mark pending work",
     )
     parser.add_argument(
+        "--embedding-batch-size",
+        type=parse_embedding_batch_size_setting,
+        default=None,
+        metavar="N|auto",
+        help="Override embedding batch size (positive integer or auto)",
+    )
+    parser.add_argument(
         "--mode",
         choices=["api", "cli"],
         default=None,
@@ -75,6 +82,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def _augment_args(args: argparse.Namespace) -> argparse.Namespace:
+    args.embedding_batch_size = getattr(args, "embedding_batch_size", None)
     args.sync_mode = "update"
     args.explain_plan = bool(args.detect_only)
     args.dry_run = bool(args.detect_only)
@@ -123,6 +131,8 @@ def main() -> int:
     except Exception as exc:
         logger.error(f"Failed to load configuration: {exc}")
         return 1
+    if args.embedding_batch_size is not None:
+        config.embeddings.batch_size = args.embedding_batch_size
 
     orchestrator = IndexOrchestrator(project_root=project_root, logger=logger)
     try:

@@ -20,7 +20,7 @@ from src.analysis.classification_store import (
 from src.analysis.cli_executor import ClaudeCliAuthenticator
 from src.analysis.schemas import SemanticAnalysis
 from src.analysis.section_extractor import SectionExtractor
-from src.config import Config
+from src.config import Config, parse_embedding_batch_size_setting
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
 from src.indexing.embeddings import EmbeddingGenerator
@@ -110,6 +110,13 @@ def parse_args():
         "--skip-embeddings",
         action="store_true",
         help="Skip embedding generation and vector store",
+    )
+    parser.add_argument(
+        "--embedding-batch-size",
+        type=parse_embedding_batch_size_setting,
+        default=None,
+        metavar="N|auto",
+        help="Override embedding batch size (positive integer or auto)",
     )
     parser.add_argument(
         "--rebuild-embeddings",
@@ -734,6 +741,7 @@ def run_embedding_generation(
     embedding_backend: str = "sentence-transformers",
     ollama_base_url: str = "http://localhost:11434",
     document_prefix: str | None = None,
+    embedding_batch_size: int | str = "auto",
 ) -> int:
     """Generate embeddings and populate vector store.
 
@@ -827,8 +835,15 @@ def run_embedding_generation(
     logger.info(f"Created {len(all_chunks)} chunks")
 
     # Generate embeddings in batches
-    logger.info("Generating embeddings...")
-    all_chunks = embedding_gen.generate_embeddings(all_chunks, batch_size=32)
+    resolved_batch_size = embedding_gen.resolve_batch_size(
+        embedding_batch_size,
+        texts=[chunk.text for chunk in all_chunks],
+    )
+    logger.info(f"Generating embeddings with batch size {resolved_batch_size}...")
+    all_chunks = embedding_gen.generate_embeddings(
+        all_chunks,
+        batch_size=resolved_batch_size,
+    )
 
     # Add to vector store
     logger.info("Adding to vector store...")
@@ -960,6 +975,8 @@ def main():
     except Exception as e:
         logger.error(f"Failed to load configuration: {e}")
         return 1
+    if args.embedding_batch_size is not None:
+        config.embeddings.batch_size = args.embedding_batch_size
 
     orchestrator = IndexOrchestrator(project_root=project_root, logger=logger)
     try:

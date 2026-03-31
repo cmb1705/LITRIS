@@ -107,6 +107,7 @@ def test_rebuild_raptor_similarity_wrapper_forwards_to_orchestrator(monkeypatch,
             force=True,
             skip_similarity=True,
             dry_run=True,
+            embedding_batch_size=None,
             verbose=False,
         ),
     )

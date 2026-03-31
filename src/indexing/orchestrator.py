@@ -895,6 +895,7 @@ class IndexOrchestrator:
                     with self._time_stage("embeddings", stage_times):
                         if plan.clear_vector_store:
                             staged_chroma_dir = self._create_staged_chroma_dir()
+                        embedding_run_metadata: dict[str, Any] = {}
                         run_embedding_generation(
                             papers=raptor_papers,
                             extractions=final_extractions,
@@ -906,6 +907,7 @@ class IndexOrchestrator:
                             ollama_base_url=config.embeddings.ollama_base_url,
                             query_prefix=config.embeddings.query_prefix,
                             document_prefix=config.embeddings.document_prefix,
+                            embedding_batch_size=config.embeddings.batch_size,
                             raptor_summaries=raptor_summaries,
                             delete_paper_ids=(
                                 []
@@ -913,7 +915,9 @@ class IndexOrchestrator:
                                 else delete_embedding_ids
                             ),
                             vector_store_dir=staged_chroma_dir,
+                            run_metadata=embedding_run_metadata,
                         )
+                        manifest.last_run.update(embedding_run_metadata)
                         if staged_chroma_dir is not None:
                             self._commit_staged_chroma_dir(staged_chroma_dir)
                             staged_chroma_dir = None
@@ -1058,6 +1062,7 @@ class IndexOrchestrator:
             if current.paper_id in extraction_models
         ]
         staged_chroma_dir = self._create_staged_chroma_dir()
+        embedding_run_metadata: dict[str, Any] = {}
         run_embedding_generation(
             papers=raptor_papers,
             extractions=extraction_models,
@@ -1069,9 +1074,11 @@ class IndexOrchestrator:
             ollama_base_url=config.embeddings.ollama_base_url,
             query_prefix=config.embeddings.query_prefix,
             document_prefix=config.embeddings.document_prefix,
+            embedding_batch_size=config.embeddings.batch_size,
             raptor_summaries=raptor_summaries,
             delete_paper_ids=[],
             vector_store_dir=staged_chroma_dir,
+            run_metadata=embedding_run_metadata,
         )
         self._commit_staged_chroma_dir(staged_chroma_dir)
         if not skip_similarity:
@@ -1100,6 +1107,7 @@ class IndexOrchestrator:
             "resolved_mode": "maintenance",
             "completed_at": manifest.last_successful_sync,
             "reasons": ["rebuild_raptor_similarity.py wrapper"],
+            **embedding_run_metadata,
         }
         summary = generate_summary(self.index_dir, self.logger)
         self._write_metadata(
@@ -1786,14 +1794,18 @@ class IndexOrchestrator:
         return {**payload, "fingerprint": fingerprint_payload(payload)}
 
     def _embedding_info(self, config: Config) -> dict[str, Any]:
-        payload = {
+        fingerprint_payload_fields = {
             "model": config.embeddings.model,
             "dimension": config.embeddings.dimension,
             "backend": config.embeddings.backend,
             "query_prefix": config.embeddings.query_prefix,
             "document_prefix": config.embeddings.document_prefix,
         }
-        return {**payload, "fingerprint": fingerprint_payload(payload)}
+        return {
+            **fingerprint_payload_fields,
+            "batch_size": config.embeddings.batch_size,
+            "fingerprint": fingerprint_payload(fingerprint_payload_fields),
+        }
 
     def _structured_store_consistent(
         self,
@@ -1915,6 +1927,10 @@ class IndexOrchestrator:
                 "extraction_provider": manifest.extraction.get("provider"),
                 "embedding_model": manifest.embedding.get("model"),
                 "embedding_backend": manifest.embedding.get("backend"),
+                "embedding_batch_size_setting": manifest.embedding.get("batch_size"),
+                "embedding_batch_size_resolved": manifest.last_run.get(
+                    "embedding_batch_size_resolved"
+                ),
                 "stage_durations_seconds": stage_times,
             },
             "statistics": {
