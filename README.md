@@ -284,7 +284,9 @@ embeddings:
 ```
 
 Use `--embedding-batch-size auto` to probe Ollama upward from a safe starting
-size on the current machine, or pass a fixed integer to override it for a run.
+size on the current machine and choose the largest successful batch that stays
+within the per-request latency budget, or pass a fixed integer to override it
+for a run.
 
 ### LLM Provider Options
 

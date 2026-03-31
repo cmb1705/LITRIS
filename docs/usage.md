@@ -416,9 +416,10 @@ processing:
 ```
 
 `embeddings.batch_size` controls embedding request size. Use `"auto"` to probe
-Ollama upward from a safe starting point on the current machine, or set a fixed
-integer. You can override it per run with `--embedding-batch-size auto` or
-`--embedding-batch-size 64`.
+Ollama upward from a safe starting point on the current machine and choose the
+largest successful batch that stays within the per-request latency budget, or
+set a fixed integer. You can override it per run with
+`--embedding-batch-size auto` or `--embedding-batch-size 64`.
 
 ## Alternative Reference Sources
 

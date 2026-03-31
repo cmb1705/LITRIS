@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import heapq
 from dataclasses import dataclass, field
-from time import sleep
+from time import perf_counter, sleep
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -56,8 +56,10 @@ SentenceTransformer = _SentenceTransformer
 
 DEFAULT_SENTENCE_TRANSFORMER_BATCH_SIZE = 32
 OLLAMA_AUTO_BATCH_START = 8
-OLLAMA_AUTO_BATCH_MAX = 128
+OLLAMA_AUTO_BATCH_MAX = 512
 DEFAULT_OLLAMA_BATCH_SIZE = OLLAMA_AUTO_BATCH_START
+OLLAMA_AUTO_TARGET_SECONDS = 75.0
+OLLAMA_AUTO_BATCH_CANDIDATES = (8, 16, 32, 64, 128, 256, 384, 512)
 
 
 @dataclass
@@ -80,6 +82,20 @@ class EmbeddingChunk:
             "text": self.text,
             "metadata": self.metadata,
         }
+
+
+@dataclass(frozen=True)
+class OllamaProbeResult:
+    """Observed result for one Ollama embedding batch probe."""
+
+    batch_size: int
+    duration_seconds: float
+    success: bool
+
+    @property
+    def throughput(self) -> float:
+        """Return probe throughput as texts per second."""
+        return self.batch_size / max(self.duration_seconds, 1e-9)
 
 
 class EmbeddingGenerator:
@@ -467,7 +483,7 @@ class EmbeddingGenerator:
         """Probe Ollama upward from a safe batch size on this machine.
 
         The probe uses the longest available texts up to the configured ceiling so
-        the selected size is conservative for the current corpus and hardware.
+        the selected size reflects both request capability and response time.
         """
         if not texts:
             logger.info(
@@ -478,52 +494,69 @@ class EmbeddingGenerator:
 
         max_candidate = max(1, min(len(texts), OLLAMA_AUTO_BATCH_MAX))
         sample_texts = self._select_probe_texts(texts, limit=max_candidate)
-        start = max(1, min(OLLAMA_AUTO_BATCH_START, max_candidate))
+        candidate_sizes = self._candidate_ollama_batch_sizes(max_candidate)
         logger.info(
             "Auto-probing Ollama embedding batch size from %d up to %d using %d representative chunks",
-            start,
+            candidate_sizes[0],
             max_candidate,
             len(sample_texts),
         )
 
-        if not self._probe_ollama_batch(sample_texts[:start]):
-            logger.warning(
-                "Ollama auto-probe failed at safe starting batch size %d; using batch size 1",
-                start,
-            )
-            return 1
-
-        best = start
-        lower_failure = max_candidate + 1
-        candidate = start
-
-        while candidate < max_candidate:
-            next_candidate = min(candidate * 2, max_candidate)
-            if next_candidate == candidate:
+        probe_results: list[OllamaProbeResult] = []
+        for batch_size in candidate_sizes:
+            result = self._probe_ollama_batch_timed(sample_texts[:batch_size])
+            probe_results.append(result)
+            if not result.success:
+                if batch_size == candidate_sizes[0]:
+                    logger.warning(
+                        "Ollama auto-probe failed at safe starting batch size %d; using batch size 1",
+                        batch_size,
+                    )
+                    return 1
                 break
-            if self._probe_ollama_batch(sample_texts[:next_candidate]):
-                best = next_candidate
-                candidate = next_candidate
-                continue
-            lower_failure = next_candidate
-            break
+            if result.duration_seconds > OLLAMA_AUTO_TARGET_SECONDS:
+                logger.info(
+                    "Stopping Ollama auto-probe at batch size %d because %.2fs exceeded the %.2fs latency target",
+                    batch_size,
+                    result.duration_seconds,
+                    OLLAMA_AUTO_TARGET_SECONDS,
+                )
+                break
 
-        if lower_failure == max_candidate + 1:
-            self._log_auto_probe_result(best, max_candidate, len(texts))
-            return best
+        selected = self._select_auto_probe_result(probe_results)
+        self._log_auto_probe_result(selected, max_candidate, len(texts), probe_results)
+        return selected.batch_size
 
-        low = best + 1
-        high = lower_failure - 1
-        while low <= high:
-            mid = (low + high) // 2
-            if self._probe_ollama_batch(sample_texts[:mid]):
-                best = mid
-                low = mid + 1
-            else:
-                high = mid - 1
+    def _candidate_ollama_batch_sizes(self, max_candidate: int) -> list[int]:
+        """Return the ordered candidate batch sizes to probe."""
+        candidates = [size for size in OLLAMA_AUTO_BATCH_CANDIDATES if size <= max_candidate]
+        if not candidates:
+            return [max_candidate]
+        if candidates[-1] != max_candidate:
+            candidates.append(max_candidate)
+        return candidates
 
-        self._log_auto_probe_result(best, max_candidate, len(texts))
-        return best
+    def _select_auto_probe_result(
+        self,
+        probe_results: list[OllamaProbeResult],
+    ) -> OllamaProbeResult:
+        """Choose the best successful probe from measured capability and latency."""
+        successes = [result for result in probe_results if result.success]
+        if not successes:
+            return OllamaProbeResult(
+                batch_size=1,
+                duration_seconds=0.0,
+                success=True,
+            )
+
+        within_budget = [
+            result
+            for result in successes
+            if result.duration_seconds <= OLLAMA_AUTO_TARGET_SECONDS
+        ]
+        if within_budget:
+            return max(within_budget, key=lambda result: result.batch_size)
+        return min(successes, key=lambda result: result.duration_seconds)
 
     def _select_probe_texts(self, texts: list[str], limit: int) -> list[str]:
         """Select the longest prefixed texts for conservative batch probing."""
@@ -571,25 +604,57 @@ class EmbeddingGenerator:
         )
         return False
 
+    def _probe_ollama_batch_timed(self, texts: list[str]) -> OllamaProbeResult:
+        """Probe one batch size and record both success and elapsed time."""
+        start = perf_counter()
+        success = self._probe_ollama_batch(texts)
+        duration = perf_counter() - start
+        logger.info(
+            "Ollama auto-probe batch size %d %s in %.2fs",
+            len(texts),
+            "succeeded" if success else "failed",
+            duration,
+        )
+        return OllamaProbeResult(
+            batch_size=len(texts),
+            duration_seconds=duration,
+            success=success,
+        )
+
     def _log_auto_probe_result(
         self,
-        selected_batch_size: int,
+        selected_result: OllamaProbeResult,
         max_candidate: int,
         total_text_count: int,
+        probe_results: list[OllamaProbeResult],
     ) -> None:
         """Log the resolved auto batch size and whether the probe hit its ceiling."""
+        summary = ", ".join(
+            (
+                f"{result.batch_size}:{'ok' if result.success else 'fail'}@"
+                f"{result.duration_seconds:.1f}s"
+            )
+            for result in probe_results
+        )
         if (
-            selected_batch_size == max_candidate
+            selected_result.batch_size == max_candidate
             and max_candidate == OLLAMA_AUTO_BATCH_MAX
             and total_text_count > OLLAMA_AUTO_BATCH_MAX
         ):
             logger.info(
-                "Auto-selected Ollama embedding batch size %d (hit auto-probe ceiling %d)",
-                selected_batch_size,
+                "Auto-selected Ollama embedding batch size %d (hit auto-probe ceiling %d; probes: %s)",
+                selected_result.batch_size,
                 OLLAMA_AUTO_BATCH_MAX,
+                summary,
             )
             return
-        logger.info("Auto-selected Ollama embedding batch size %d", selected_batch_size)
+        logger.info(
+            "Auto-selected Ollama embedding batch size %d within %.2fs latency budget (observed throughput %.2f texts/s; probes: %s)",
+            selected_result.batch_size,
+            OLLAMA_AUTO_TARGET_SECONDS,
+            selected_result.throughput,
+            summary,
+        )
 
     def _ollama_embed_with_fallback(self, texts: list[str]) -> list[list[float]]:
         """Embed texts via Ollama with retries and recursive batch splitting."""

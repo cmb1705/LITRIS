@@ -304,6 +304,10 @@ For one-off runs, you can also override this without editing config:
 python scripts/build_index.py --embedding-batch-size 16
 ```
 
+`auto` intentionally will not target the largest batch that happens to succeed;
+it chooses the largest successful batch that stays within the latency budget for
+the current run.
+
 Use lighter embedding model:
 ```yaml
 embeddings:

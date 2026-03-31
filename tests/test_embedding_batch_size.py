@@ -80,7 +80,7 @@ def test_embedding_info_ignores_batch_size_for_fingerprint(tmp_path) -> None:
     assert fixed_info["batch_size"] == 32
 
 
-def test_ollama_auto_batch_probe_can_select_higher_than_default(
+def test_ollama_auto_batch_probe_balances_throughput_and_latency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_init_ollama(self, base_url: str) -> None:
@@ -92,21 +92,39 @@ def test_ollama_auto_batch_probe_can_select_higher_than_default(
 
     generator = EmbeddingGenerator(model_name="embed-test", backend="ollama")
     probe_calls: list[int] = []
+    probe_results = {
+        8: (True, 1.5),
+        16: (True, 2.2),
+        32: (True, 4.0),
+        64: (True, 8.2),
+        128: (True, 18.0),
+        256: (True, 34.0),
+        384: (True, 52.0),
+        512: (True, 80.0),
+    }
 
-    def fake_probe(self, texts: list[str]) -> bool:
-        probe_calls.append(len(texts))
-        return len(texts) <= 24
+    def fake_probe_timed(self, texts: list[str]):
+        batch_size = len(texts)
+        probe_calls.append(batch_size)
+        success, duration = probe_results[batch_size]
+        from src.indexing.embeddings import OllamaProbeResult
 
-    monkeypatch.setattr(EmbeddingGenerator, "_probe_ollama_batch", fake_probe)
+        return OllamaProbeResult(
+            batch_size=batch_size,
+            duration_seconds=duration,
+            success=success,
+        )
 
-    texts = [f"text {i} " + ("x" * i) for i in range(1, 80)]
+    monkeypatch.setattr(EmbeddingGenerator, "_probe_ollama_batch_timed", fake_probe_timed)
+
+    texts = [f"text {i} " + ("x" * i) for i in range(1, 1025)]
     resolved = generator.resolve_batch_size("auto", texts=texts)
 
-    assert resolved == 24
+    assert resolved == 384
     assert 8 in probe_calls
-    assert 16 in probe_calls
-    assert 32 in probe_calls
-    assert 24 in probe_calls
+    assert 256 in probe_calls
+    assert 384 in probe_calls
+    assert 512 in probe_calls
 
 
 def test_non_ollama_auto_batch_size_uses_default(
