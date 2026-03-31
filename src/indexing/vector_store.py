@@ -90,6 +90,19 @@ class VectorStore:
         self.collection = self._get_or_create_collection()
         logger.info(f"Collection '{collection_name}' ready with {self.collection.count()} documents")
 
+    def close(self) -> None:
+        """Release the underlying SQLite connection so the directory can be moved/deleted."""
+        if hasattr(self, "client") and self.client is not None:
+            self.client._system.stop()
+            self.client.clear_system_cache()
+            self.client = None
+
+    def __enter__(self) -> "VectorStore":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
     def _get_or_create_collection(self) -> chromadb.Collection:
         """Get existing collection or create new one."""
         return self.client.get_or_create_collection(

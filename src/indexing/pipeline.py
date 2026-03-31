@@ -466,70 +466,73 @@ def run_embedding_generation(
     logger.info("Initializing vector store...")
     vector_store = VectorStore(chroma_dir)
 
-    if rebuild:
-        logger.info("Clearing existing embeddings...")
-        vector_store.clear()
+    try:
+        if rebuild:
+            logger.info("Clearing existing embeddings...")
+            vector_store.clear()
 
-    normalized_extractions = _normalize_extractions(extractions)
-    papers_with_extractions = [
-        paper for paper in papers if paper.paper_id in normalized_extractions
-    ]
-    scope_paper_ids = sorted({paper.paper_id for paper in papers_with_extractions})
-    delete_ids = sorted(set(delete_paper_ids or []))
+        normalized_extractions = _normalize_extractions(extractions)
+        papers_with_extractions = [
+            paper for paper in papers if paper.paper_id in normalized_extractions
+        ]
+        scope_paper_ids = sorted({paper.paper_id for paper in papers_with_extractions})
+        delete_ids = sorted(set(delete_paper_ids or []))
 
-    if not papers_with_extractions and not rebuild and not delete_ids:
-        logger.warning("No papers with extractions found for embedding")
-        return 0
+        if not papers_with_extractions and not rebuild and not delete_ids:
+            logger.warning("No papers with extractions found for embedding")
+            return 0
 
-    logger.info("Generating embeddings for %d papers...", len(papers_with_extractions))
+        logger.info("Generating embeddings for %d papers...", len(papers_with_extractions))
 
-    all_chunks = []
-    for paper in tqdm(papers_with_extractions, desc="Creating chunks"):
-        extraction = normalized_extractions.get(paper.paper_id)
-        if not extraction:
-            continue
-        chunks = embedding_gen.create_chunks(
-            paper,
-            extraction,
-            raptor_summaries=raptor_summaries.get(paper.paper_id) if raptor_summaries else None,
-        )
-        all_chunks.extend(chunks)
+        all_chunks = []
+        for paper in tqdm(papers_with_extractions, desc="Creating chunks"):
+            extraction = normalized_extractions.get(paper.paper_id)
+            if not extraction:
+                continue
+            chunks = embedding_gen.create_chunks(
+                paper,
+                extraction,
+                raptor_summaries=raptor_summaries.get(paper.paper_id) if raptor_summaries else None,
+            )
+            all_chunks.extend(chunks)
 
-    logger.info("Created %d chunks", len(all_chunks))
-    if not all_chunks and not rebuild and not delete_ids:
-        return 0
+        logger.info("Created %d chunks", len(all_chunks))
+        if not all_chunks and not rebuild and not delete_ids:
+            return 0
 
-    resolved_batch_size = None
-    if all_chunks:
-        resolved_batch_size = embedding_gen.resolve_batch_size(
-            embedding_batch_size,
-            texts=[chunk.text for chunk in all_chunks],
-        )
-        logger.info(
-            "Generating embeddings with batch size %d...",
-            resolved_batch_size,
-        )
-        all_chunks = embedding_gen.generate_embeddings(
-            all_chunks,
-            batch_size=resolved_batch_size,
-        )
+        resolved_batch_size = None
+        if all_chunks:
+            resolved_batch_size = embedding_gen.resolve_batch_size(
+                embedding_batch_size,
+                texts=[chunk.text for chunk in all_chunks],
+            )
+            logger.info(
+                "Generating embeddings with batch size %d...",
+                resolved_batch_size,
+            )
+            all_chunks = embedding_gen.generate_embeddings(
+                all_chunks,
+                batch_size=resolved_batch_size,
+            )
 
-    if run_metadata is not None:
-        run_metadata["embedding_batch_size_setting"] = embedding_batch_size
-        run_metadata["embedding_batch_size_resolved"] = resolved_batch_size
+        if run_metadata is not None:
+            run_metadata["embedding_batch_size_setting"] = embedding_batch_size
+            run_metadata["embedding_batch_size_resolved"] = resolved_batch_size
 
-    logger.info("Writing embeddings to vector store...")
-    if rebuild:
-        added = vector_store.add_chunks(all_chunks, batch_size=100)
-    else:
-        added = vector_store.replace_papers(
-            chunks=all_chunks,
-            scope_paper_ids=scope_paper_ids,
-            delete_paper_ids=delete_ids,
-            batch_size=100,
-        )
-    logger.info("Added %d chunks to vector store", added)
-    return added
+        logger.info("Writing embeddings to vector store...")
+        if rebuild:
+            added = vector_store.add_chunks(all_chunks, batch_size=100)
+        else:
+            added = vector_store.replace_papers(
+                chunks=all_chunks,
+                scope_paper_ids=scope_paper_ids,
+                delete_paper_ids=delete_ids,
+                batch_size=100,
+            )
+        logger.info("Added %d chunks to vector store", added)
+        return added
+    finally:
+        vector_store.close()
 
 
 def generate_summary(index_dir: Path, logger) -> dict:

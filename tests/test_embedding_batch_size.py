@@ -186,6 +186,9 @@ def test_run_embedding_generation_uses_resolved_batch_size(
             captured["add_batch_size"] = batch_size
             return len(chunks)
 
+        def close(self) -> None:
+            pass
+
     monkeypatch.setattr("src.indexing.pipeline.EmbeddingGenerator", DummyEmbeddingGenerator)
     monkeypatch.setattr("src.indexing.pipeline.VectorStore", DummyVectorStore)
     monkeypatch.setattr("src.indexing.pipeline._normalize_extractions", lambda extractions: {"P1": object()})
