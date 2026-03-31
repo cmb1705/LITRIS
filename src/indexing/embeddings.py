@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from time import sleep
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -110,6 +111,8 @@ class EmbeddingGenerator:
         self.backend = backend
         self.query_prefix = query_prefix
         self.document_prefix = document_prefix
+        self.ollama_max_retries = 3
+        self.ollama_retry_backoff_seconds = 2.0
 
         logger.info(f"Loading embedding model: {model_name} (backend={backend})")
 
@@ -412,9 +415,49 @@ class EmbeddingGenerator:
         all_embeddings: list[list[float]] = []
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
-            response = self._ollama_client.embed(model=self.model_name, input=batch)
-            all_embeddings.extend(list(emb) for emb in response["embeddings"])
+            all_embeddings.extend(self._ollama_embed_with_fallback(batch))
         return all_embeddings
+
+    def _ollama_embed_with_fallback(self, texts: list[str]) -> list[list[float]]:
+        """Embed texts via Ollama with retries and recursive batch splitting."""
+        if not texts:
+            return []
+
+        last_exc: Exception | None = None
+        delay = self.ollama_retry_backoff_seconds
+        for attempt in range(1, self.ollama_max_retries + 1):
+            try:
+                response = self._ollama_client.embed(model=self.model_name, input=texts)
+                return [list(emb) for emb in response["embeddings"]]
+            except Exception as exc:  # noqa: BLE001 - client errors are backend-specific
+                last_exc = exc
+                if attempt < self.ollama_max_retries:
+                    logger.warning(
+                        "Ollama embedding batch failed on attempt %d/%d for %d texts: %s",
+                        attempt,
+                        self.ollama_max_retries,
+                        len(texts),
+                        exc,
+                    )
+                    sleep(delay)
+                    delay = min(delay * 2, 10.0)
+
+        if len(texts) == 1:
+            assert last_exc is not None
+            raise last_exc
+
+        midpoint = max(1, len(texts) // 2)
+        logger.warning(
+            "Ollama embedding batch for %d texts still failed after retries; "
+            "retrying as batches of %d and %d",
+            len(texts),
+            midpoint,
+            len(texts) - midpoint,
+        )
+        return (
+            self._ollama_embed_with_fallback(texts[:midpoint])
+            + self._ollama_embed_with_fallback(texts[midpoint:])
+        )
 
     def process_papers(
         self,

@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import tempfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -63,6 +64,15 @@ STAGE_NAMES = [
     "raptor",
     "similarity",
     "summary",
+]
+LIVE_INDEX_ARTIFACTS = [
+    "papers.json",
+    "semantic_analyses.json",
+    "metadata.json",
+    "summary.json",
+    "similarity_pairs.json",
+    "raptor_summaries.json",
+    MANIFEST_FILENAME,
 ]
 
 
@@ -202,6 +212,50 @@ class ChangeSet:
         if self.deleted_items:
             parts.append(f"{len(self.deleted_items)} deleted")
         return ", ".join(parts) if parts else "No changes detected"
+
+
+@dataclass
+class IndexArtifactSnapshot:
+    """Filesystem snapshot of live index artifacts for rollback."""
+
+    index_dir: Path
+    backup_dir: Path
+    artifact_names: list[str]
+
+    @classmethod
+    def capture(cls, index_dir: Path, artifact_names: list[str]) -> "IndexArtifactSnapshot":
+        backup_dir = Path(tempfile.mkdtemp(prefix="index_snapshot_", dir=index_dir))
+        snapshot = cls(index_dir=index_dir, backup_dir=backup_dir, artifact_names=artifact_names)
+        for name in artifact_names:
+            source = index_dir / name
+            target = backup_dir / name
+            if not source.exists():
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if source.is_dir():
+                shutil.copytree(source, target)
+            else:
+                shutil.copy2(source, target)
+        return snapshot
+
+    def restore(self) -> None:
+        for name in self.artifact_names:
+            source = self.backup_dir / name
+            target = self.index_dir / name
+            if target.exists():
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+            if source.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if source.is_dir():
+                    shutil.copytree(source, target)
+                else:
+                    shutil.copy2(source, target)
+
+    def cleanup(self) -> None:
+        shutil.rmtree(self.backup_dir, ignore_errors=True)
 
 
 @dataclass
@@ -754,119 +808,153 @@ class IndexOrchestrator:
                 if paper_id in updated_extractions:
                     final_extractions[paper_id] = updated_extractions[paper_id]
 
-        self.store.save_papers(final_papers)
-        self.store.save_extractions(final_extractions)
-        valid_index_ids = set(final_papers)
-        prune_raptor_cache(self.index_dir, valid_index_ids)
-
-        embedding_scope_ids = self._embedding_scope_ids(
-            args=args,
-            plan=plan,
-            final_papers=final_papers,
-            final_extractions=final_extractions,
-            failed_extraction_ids=failed_extraction_ids,
+        artifact_snapshot = IndexArtifactSnapshot.capture(
+            self.index_dir,
+            LIVE_INDEX_ARTIFACTS,
         )
-        delete_embedding_ids = sorted(
-            (set(plan.change_set.deleted_items) | removed_from_index_ids)
-        )
+        staged_chroma_dir: Path | None = None
+        try:
+            self.store.save_papers(final_papers)
+            self.store.save_extractions(final_extractions)
+            valid_index_ids = set(final_papers)
+            prune_raptor_cache(self.index_dir, valid_index_ids)
 
-        if getattr(args, "skip_embeddings", False):
-            with self._time_stage("embeddings", stage_times):
-                self._clear_or_delete_vectors_for_pending(
-                    plan=plan,
-                    delete_paper_ids=delete_embedding_ids + sorted(embedding_scope_ids),
-                )
-                manifest.pending_work["embeddings"].all = (
-                    plan.full_rebuild and not getattr(args, "paper", [])
-                )
-                if not manifest.pending_work["embeddings"].all:
-                    manifest.pending_work["embeddings"].extend(
-                        sorted(embedding_scope_ids)
-                    )
-                manifest.pending_work["raptor"] = PendingStageWork.from_dict(
-                    manifest.pending_work["embeddings"].to_dict()
-                )
-                manifest.pending_work["similarity"].all = True
-                manifest.stage_health["embeddings"] = "pending"
-                manifest.stage_health["raptor"] = "pending"
-        else:
-            extraction_models = self._normalize_extractions(final_extractions)
-            if embedding_scope_ids or plan.clear_vector_store:
-                with self._time_stage("raptor", stage_times):
-                    raptor_papers = (
-                        [
-                            current_papers_by_id[paper_id]
-                            for paper_id in sorted(valid_index_ids)
-                            if paper_id in current_papers_by_id
-                        ]
-                        if plan.clear_vector_store
-                        else [
-                            current_papers_by_id[paper_id]
-                            for paper_id in sorted(embedding_scope_ids)
-                            if paper_id in current_papers_by_id
-                        ]
-                    )
-                    raptor_scope_ids = {
-                        paper.paper_id for paper in raptor_papers if paper.paper_id in extraction_models
-                    }
-                    raptor_summaries = generate_scoped_raptor_summaries(
-                        papers=raptor_papers,
-                        extractions={
-                            paper_id: extraction_models[paper_id]
-                            for paper_id in raptor_scope_ids
-                        },
-                        index_dir=self.index_dir,
-                        mode="template",
-                        force=True,
-                    )
-                    manifest.stage_health["raptor"] = "ok"
-                with self._time_stage("embeddings", stage_times):
-                    run_embedding_generation(
-                        papers=raptor_papers,
-                        extractions=final_extractions,
-                        index_dir=self.index_dir,
-                        embedding_model=config.embeddings.model,
-                        rebuild=plan.clear_vector_store,
-                        logger=self.logger,
-                        embedding_backend=config.embeddings.backend,
-                        ollama_base_url=config.embeddings.ollama_base_url,
-                        query_prefix=config.embeddings.query_prefix,
-                        document_prefix=config.embeddings.document_prefix,
-                        raptor_summaries=raptor_summaries,
-                        delete_paper_ids=(
-                            []
-                            if plan.clear_vector_store
-                            else delete_embedding_ids + sorted(embedding_scope_ids)
-                        ),
-                    )
-                    manifest.pending_work["embeddings"].clear()
-                    manifest.pending_work["raptor"].clear()
-                    manifest.stage_health["embeddings"] = "ok"
-
-        similarity_needed = (
-            manifest.pending_work["similarity"].has_work()
-            or bool(embedding_scope_ids)
-            or bool(delete_embedding_ids)
-            or plan.clear_vector_store
-        )
-        if getattr(args, "skip_similarity", False):
-            manifest.pending_work["similarity"].all = (
-                similarity_needed or manifest.pending_work["similarity"].all
+            embedding_scope_ids = self._embedding_scope_ids(
+                args=args,
+                plan=plan,
+                final_papers=final_papers,
+                final_extractions=final_extractions,
+                failed_extraction_ids=failed_extraction_ids,
             )
-            manifest.stage_health["similarity"] = "pending"
-        elif similarity_needed and not getattr(args, "skip_embeddings", False):
-            with self._time_stage("similarity", stage_times):
-                compute_similarity_pairs(
-                    index_dir=self.index_dir,
-                    embedding_model=config.embeddings.model,
-                    top_n=20,
-                    logger=self.logger,
-                )
-                manifest.pending_work["similarity"].clear()
-                manifest.stage_health["similarity"] = "ok"
+            delete_embedding_ids = sorted(
+                (set(plan.change_set.deleted_items) | removed_from_index_ids)
+            )
 
-        with self._time_stage("summary", stage_times):
-            summary = generate_summary(self.index_dir, self.logger)
+            if getattr(args, "skip_embeddings", False):
+                with self._time_stage("embeddings", stage_times):
+                    self._clear_or_delete_vectors_for_pending(
+                        plan=plan,
+                        delete_paper_ids=delete_embedding_ids + sorted(embedding_scope_ids),
+                    )
+                    manifest.pending_work["embeddings"].all = (
+                        plan.full_rebuild and not getattr(args, "paper", [])
+                    )
+                    if not manifest.pending_work["embeddings"].all:
+                        manifest.pending_work["embeddings"].extend(
+                            sorted(embedding_scope_ids)
+                        )
+                    manifest.pending_work["raptor"] = PendingStageWork.from_dict(
+                        manifest.pending_work["embeddings"].to_dict()
+                    )
+                    manifest.pending_work["similarity"].all = True
+                    manifest.stage_health["embeddings"] = "pending"
+                    manifest.stage_health["raptor"] = "pending"
+            else:
+                extraction_models = self._normalize_extractions(final_extractions)
+                if embedding_scope_ids or delete_embedding_ids or plan.clear_vector_store:
+                    with self._time_stage("raptor", stage_times):
+                        raptor_papers = (
+                            [
+                                current_papers_by_id[paper_id]
+                                for paper_id in sorted(valid_index_ids)
+                                if paper_id in current_papers_by_id
+                            ]
+                            if plan.clear_vector_store
+                            else [
+                                current_papers_by_id[paper_id]
+                                for paper_id in sorted(embedding_scope_ids)
+                                if paper_id in current_papers_by_id
+                            ]
+                        )
+                        raptor_scope_ids = {
+                            paper.paper_id
+                            for paper in raptor_papers
+                            if paper.paper_id in extraction_models
+                        }
+                        raptor_summaries = generate_scoped_raptor_summaries(
+                            papers=raptor_papers,
+                            extractions={
+                                paper_id: extraction_models[paper_id]
+                                for paper_id in raptor_scope_ids
+                            },
+                            index_dir=self.index_dir,
+                            mode="template",
+                            force=True,
+                        )
+                        manifest.stage_health["raptor"] = "ok"
+                    with self._time_stage("embeddings", stage_times):
+                        if plan.clear_vector_store:
+                            staged_chroma_dir = self._create_staged_chroma_dir()
+                        run_embedding_generation(
+                            papers=raptor_papers,
+                            extractions=final_extractions,
+                            index_dir=self.index_dir,
+                            embedding_model=config.embeddings.model,
+                            rebuild=plan.clear_vector_store,
+                            logger=self.logger,
+                            embedding_backend=config.embeddings.backend,
+                            ollama_base_url=config.embeddings.ollama_base_url,
+                            query_prefix=config.embeddings.query_prefix,
+                            document_prefix=config.embeddings.document_prefix,
+                            raptor_summaries=raptor_summaries,
+                            delete_paper_ids=(
+                                []
+                                if plan.clear_vector_store
+                                else delete_embedding_ids
+                            ),
+                            vector_store_dir=staged_chroma_dir,
+                        )
+                        if staged_chroma_dir is not None:
+                            self._commit_staged_chroma_dir(staged_chroma_dir)
+                            staged_chroma_dir = None
+                        manifest.pending_work["embeddings"].clear()
+                        manifest.pending_work["raptor"].clear()
+                        manifest.stage_health["embeddings"] = "ok"
+
+            similarity_needed = (
+                manifest.pending_work["similarity"].has_work()
+                or bool(embedding_scope_ids)
+                or bool(delete_embedding_ids)
+                or plan.clear_vector_store
+            )
+            if getattr(args, "skip_similarity", False):
+                manifest.pending_work["similarity"].all = (
+                    similarity_needed or manifest.pending_work["similarity"].all
+                )
+                manifest.stage_health["similarity"] = "pending"
+            elif similarity_needed and not getattr(args, "skip_embeddings", False):
+                with self._time_stage("similarity", stage_times):
+                    try:
+                        compute_similarity_pairs(
+                            index_dir=self.index_dir,
+                            embedding_model=config.embeddings.model,
+                            top_n=20,
+                            logger=self.logger,
+                        )
+                    except Exception as exc:
+                        self.logger.error(
+                            "similarity stage failed; keeping index usable and marking similarity pending: %s",
+                            exc,
+                        )
+                        manifest.pending_work["similarity"].all = True
+                        manifest.stage_health["similarity"] = "pending"
+                    else:
+                        manifest.pending_work["similarity"].clear()
+                        manifest.stage_health["similarity"] = "ok"
+
+            with self._time_stage("summary", stage_times):
+                try:
+                    summary = generate_summary(self.index_dir, self.logger)
+                except Exception as exc:
+                    self.logger.error(
+                        "summary stage failed; continuing with existing summary metadata: %s",
+                        exc,
+                    )
+                    manifest.stage_health["summary"] = "failed"
+                    summary = safe_read_json(self.index_dir / "summary.json", default={}) or {}
+                else:
+                    manifest.stage_health["summary"] = "ok"
+
             self._write_metadata(
                 manifest=manifest,
                 final_papers=final_papers,
@@ -875,7 +963,15 @@ class IndexOrchestrator:
                 failed_paper_ids=run_failed_ids,
                 summary=summary,
             )
-            manifest.stage_health["summary"] = "ok"
+        except Exception:
+            if staged_chroma_dir is not None:
+                shutil.rmtree(staged_chroma_dir, ignore_errors=True)
+            artifact_snapshot.restore()
+            self.store = StructuredStore(self.index_dir)
+            self.logger.error("Rolled back live index artifacts after persist-stage failure")
+            raise
+        finally:
+            artifact_snapshot.cleanup()
 
         for paper_id, snapshot in current_snapshots.items():
             if paper_id in class_index.papers:
@@ -951,20 +1047,23 @@ class IndexOrchestrator:
             )
             if current.paper_id in extraction_models
         ]
+        staged_chroma_dir = self._create_staged_chroma_dir()
         run_embedding_generation(
             papers=raptor_papers,
             extractions=extraction_models,
             index_dir=self.index_dir,
             embedding_model=config.embeddings.model,
-            rebuild=False,
+            rebuild=True,
             logger=self.logger,
             embedding_backend=config.embeddings.backend,
             ollama_base_url=config.embeddings.ollama_base_url,
             query_prefix=config.embeddings.query_prefix,
             document_prefix=config.embeddings.document_prefix,
             raptor_summaries=raptor_summaries,
-            delete_paper_ids=list(extraction_models.keys()),
+            delete_paper_ids=[],
+            vector_store_dir=staged_chroma_dir,
         )
+        self._commit_staged_chroma_dir(staged_chroma_dir)
         if not skip_similarity:
             compute_similarity_pairs(
                 index_dir=self.index_dir,
@@ -1483,6 +1582,30 @@ class IndexOrchestrator:
             return
         if delete_paper_ids:
             vector_store.delete_papers(delete_paper_ids)
+
+    def _create_staged_chroma_dir(self) -> Path:
+        """Create a temporary Chroma directory for a staged full rebuild."""
+        return Path(tempfile.mkdtemp(prefix="chroma_staging_", dir=self.index_dir))
+
+    def _commit_staged_chroma_dir(self, staged_dir: Path) -> None:
+        """Replace the live Chroma directory with a staged rebuild."""
+        target_dir = self.index_dir / "chroma"
+        backup_dir = Path(tempfile.mkdtemp(prefix="chroma_backup_", dir=self.index_dir))
+        shutil.rmtree(backup_dir)
+        try:
+            if target_dir.exists():
+                shutil.move(str(target_dir), str(backup_dir))
+            shutil.move(str(staged_dir), str(target_dir))
+        except Exception:
+            if target_dir.exists():
+                shutil.rmtree(target_dir, ignore_errors=True)
+            if backup_dir.exists():
+                shutil.move(str(backup_dir), str(target_dir))
+            raise
+        finally:
+            if staged_dir.exists():
+                shutil.rmtree(staged_dir, ignore_errors=True)
+        shutil.rmtree(backup_dir, ignore_errors=True)
 
     def _print_plan(
         self,

@@ -25,6 +25,10 @@ from src.utils.checkpoint import CheckpointManager
 from src.utils.file_utils import safe_write_json
 from src.zotero.models import PaperMetadata
 
+CHECKPOINT_PAPERS_FILENAME = "papers.checkpoint.json"
+CHECKPOINT_EXTRACTIONS_FILENAME = "semantic_analyses.checkpoint.json"
+CHECKPOINT_METADATA_FILENAME = "metadata.checkpoint.json"
+
 
 def save_checkpoint(
     index_dir: Path,
@@ -39,7 +43,7 @@ def save_checkpoint(
         "paper_count": len(papers),
         "papers": papers,
     }
-    safe_write_json(index_dir / "papers.json", papers_data)
+    safe_write_json(index_dir / CHECKPOINT_PAPERS_FILENAME, papers_data)
 
     extractions_data = {
         "schema_version": "1.0",
@@ -47,8 +51,8 @@ def save_checkpoint(
         "extraction_count": len(extractions),
         "extractions": extractions,
     }
-    safe_write_json(index_dir / "semantic_analyses.json", extractions_data)
-    safe_write_json(index_dir / "metadata.json", metadata)
+    safe_write_json(index_dir / CHECKPOINT_EXTRACTIONS_FILENAME, extractions_data)
+    safe_write_json(index_dir / CHECKPOINT_METADATA_FILENAME, metadata)
 
 
 def get_platform_unset_command() -> str:
@@ -444,9 +448,10 @@ def run_embedding_generation(
     document_prefix: str | None = None,
     raptor_summaries: dict[str, RaptorSummaries] | None = None,
     delete_paper_ids: list[str] | None = None,
+    vector_store_dir: Path | None = None,
 ) -> int:
     """Generate embeddings and populate the vector store for the scoped papers."""
-    chroma_dir = index_dir / "chroma"
+    chroma_dir = vector_store_dir or (index_dir / "chroma")
     logger.info("Initializing embedding generator...")
     embedding_gen = EmbeddingGenerator(
         model_name=embedding_model,
@@ -458,21 +463,20 @@ def run_embedding_generation(
 
     logger.info("Initializing vector store...")
     vector_store = VectorStore(chroma_dir)
+    embedding_batch_size = 16 if embedding_backend == "ollama" else 32
 
     if rebuild:
         logger.info("Clearing existing embeddings...")
         vector_store.clear()
-    elif delete_paper_ids:
-        deleted = vector_store.delete_papers(delete_paper_ids)
-        logger.info("Deleted %d existing chunks prior to refresh", deleted)
 
-    paper_lookup = {paper.paper_id: paper for paper in papers}
     normalized_extractions = _normalize_extractions(extractions)
     papers_with_extractions = [
         paper for paper in papers if paper.paper_id in normalized_extractions
     ]
+    scope_paper_ids = sorted({paper.paper_id for paper in papers_with_extractions})
+    delete_ids = sorted(set(delete_paper_ids or []))
 
-    if not papers_with_extractions:
+    if not papers_with_extractions and not rebuild and not delete_ids:
         logger.warning("No papers with extractions found for embedding")
         return 0
 
@@ -491,14 +495,29 @@ def run_embedding_generation(
         all_chunks.extend(chunks)
 
     logger.info("Created %d chunks", len(all_chunks))
-    if not all_chunks:
+    if not all_chunks and not rebuild and not delete_ids:
         return 0
 
-    logger.info("Generating embeddings...")
-    all_chunks = embedding_gen.generate_embeddings(all_chunks, batch_size=32)
+    if all_chunks:
+        logger.info(
+            "Generating embeddings with batch size %d...",
+            embedding_batch_size,
+        )
+        all_chunks = embedding_gen.generate_embeddings(
+            all_chunks,
+            batch_size=embedding_batch_size,
+        )
 
-    logger.info("Adding to vector store...")
-    added = vector_store.add_chunks(all_chunks, batch_size=100)
+    logger.info("Writing embeddings to vector store...")
+    if rebuild:
+        added = vector_store.add_chunks(all_chunks, batch_size=100)
+    else:
+        added = vector_store.replace_papers(
+            chunks=all_chunks,
+            scope_paper_ids=scope_paper_ids,
+            delete_paper_ids=delete_ids,
+            batch_size=100,
+        )
     logger.info("Added %d chunks to vector store", added)
     return added
 

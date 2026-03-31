@@ -340,6 +340,73 @@ class VectorStore:
 
         return chunks
 
+    def export_paper_chunks(self, paper_ids: list[str]) -> list[EmbeddingChunk]:
+        """Export chunks, including embeddings, for transactional restore."""
+        exported: list[EmbeddingChunk] = []
+        for paper_id in paper_ids:
+            results = self.collection.get(
+                where={"paper_id": paper_id},
+                include=["documents", "metadatas", "embeddings"],
+            )
+            if not results["ids"]:
+                continue
+            for idx, chunk_id in enumerate(results["ids"]):
+                metadata = dict(results["metadatas"][idx] or {}) if results["metadatas"] else {}
+                chunk_paper_id = metadata.pop("paper_id", paper_id)
+                chunk_type = metadata.pop("chunk_type", "raptor_overview")
+                embeddings = results["embeddings"]
+                embedding = embeddings[idx] if embeddings is not None else []
+                exported.append(
+                    EmbeddingChunk(
+                        paper_id=chunk_paper_id,
+                        chunk_id=chunk_id,
+                        chunk_type=chunk_type,
+                        text=results["documents"][idx] if results["documents"] else "",
+                        embedding=list(embedding) if embedding is not None else [],
+                        metadata=metadata,
+                    )
+                )
+        return exported
+
+    def replace_papers(
+        self,
+        chunks: list[EmbeddingChunk],
+        scope_paper_ids: list[str],
+        delete_paper_ids: list[str] | None = None,
+        batch_size: int = 100,
+    ) -> int:
+        """Replace a paper scope transactionally.
+
+        If the delete+add sequence fails, the original chunks are restored.
+        """
+        affected_paper_ids = sorted(set(scope_paper_ids) | set(delete_paper_ids or []))
+        backup_chunks = self.export_paper_chunks(affected_paper_ids)
+
+        try:
+            if affected_paper_ids:
+                deleted = self.delete_papers(affected_paper_ids)
+                logger.info(
+                    "Deleted %d existing chunks prior to transactional refresh",
+                    deleted,
+                )
+            return self.add_chunks(chunks, batch_size=batch_size)
+        except Exception as exc:
+            logger.error(
+                "Vector store write failed for %d papers; restoring previous chunks",
+                len(affected_paper_ids),
+            )
+            try:
+                if affected_paper_ids:
+                    self.delete_papers(affected_paper_ids)
+                if backup_chunks:
+                    self.add_chunks(backup_chunks, batch_size=batch_size)
+            except Exception as restore_exc:
+                logger.exception("Vector store restore failed after write error")
+                raise RuntimeError(
+                    "Vector store write failed and restore did not complete"
+                ) from restore_exc
+            raise exc
+
     def count(self) -> int:
         """Get total number of documents in the collection."""
         return self.collection.count()
