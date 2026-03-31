@@ -217,6 +217,63 @@ def test_plan_sync_embedding_fingerprint_change_forces_full(tmp_path):
     assert any("embedding configuration changed" in reason.lower() for reason in plan.reasons)
 
 
+def test_plan_sync_extraction_drift_stays_incremental_in_auto_mode(tmp_path):
+    config = _make_config(tmp_path)
+    orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))
+    ref_db = _make_ref_db("zotero", config.get_zotero_db_path())
+    snapshots = {"P1": _make_snapshot("P1", "Z1", "fp-1")}
+    _save_matching_manifest(orchestrator, _make_args(sync_mode="auto"), config, ref_db, snapshots)
+
+    plan = orchestrator.plan_sync(
+        args=_make_args(
+            sync_mode="auto",
+            provider="openai",
+            mode="cli",
+            model="gpt-5.4",
+        ),
+        config=config,
+        ref_db=ref_db,
+        current_snapshots=snapshots,
+        existing_papers={"P1": {"paper_id": "P1"}},
+        existing_extractions={"P1": {"paper_id": "P1", "extraction": {}}},
+        class_index=SimpleNamespace(papers={}),
+    )
+
+    assert plan.resolved_mode == "update"
+    assert plan.noop is True
+    assert not any("extraction configuration changed" in reason.lower() for reason in plan.reasons)
+    assert len(plan.advisories) == 1
+    assert "baseline: anthropic/api/claude-test" in plan.advisories[0]
+    assert "requested: openai/cli/gpt-5.4" in plan.advisories[0]
+
+
+def test_plan_sync_update_mode_allows_extraction_drift(tmp_path):
+    config = _make_config(tmp_path)
+    orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))
+    ref_db = _make_ref_db("zotero", config.get_zotero_db_path())
+    snapshots = {"P1": _make_snapshot("P1", "Z1", "fp-1")}
+    _save_matching_manifest(orchestrator, _make_args(sync_mode="auto"), config, ref_db, snapshots)
+
+    plan = orchestrator.plan_sync(
+        args=_make_args(
+            sync_mode="update",
+            provider="openai",
+            mode="cli",
+            model="gpt-5.4",
+        ),
+        config=config,
+        ref_db=ref_db,
+        current_snapshots=snapshots,
+        existing_papers={"P1": {"paper_id": "P1"}},
+        existing_extractions={"P1": {"paper_id": "P1", "extraction": {}}},
+        class_index=SimpleNamespace(papers={}),
+    )
+
+    assert plan.resolved_mode == "update"
+    assert plan.noop is True
+    assert plan.advisories
+
+
 def test_plan_sync_no_changes_with_matching_manifest_is_noop(tmp_path):
     config = _make_config(tmp_path)
     orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))

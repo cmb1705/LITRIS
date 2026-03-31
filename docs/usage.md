@@ -28,7 +28,7 @@ python scripts/build_index.py --sync-mode full
 
 `scripts/build_index.py` is the normal entrypoint for both initial builds and updates.
 
-- `auto` (default): Use incremental sync when the existing index is compatible; otherwise upgrade to a full rebuild.
+- `auto` (default): Use incremental sync when the existing index is compatible; otherwise upgrade to a full rebuild. Provider/model drift is reported as an advisory and does not re-extract unchanged papers.
 - `full`: Rebuild the vector store for the full scope. Existing extractions are reused unless they are missing or incompatible.
 - `update`: Force incremental sync for compatible Zotero indexes only. If compatibility checks fail, the command exits with an error.
 
@@ -261,7 +261,9 @@ python scripts/build_index.py
 Notes:
 
 - `--sync-mode update` is currently supported for Zotero-backed indexes only.
+- Extraction provider/model drift does not trigger re-extraction in `auto` or `update`; unchanged papers keep their existing extractions until you run `--sync-mode full`.
 - If the index configuration changed in a way that makes incremental sync unsafe, `--sync-mode update` fails loudly and `--sync-mode auto` upgrades to a full rebuild.
+- `--gap-fill` only evaluates papers extracted in the current `build_index.py` run. Use `python scripts/run_gap_fill.py --threshold 0.90` for a corpus-wide low-coverage sweep.
 - `scripts/update_index.py` remains available as a deprecated compatibility wrapper during the transition.
 
 ## Exporting Results

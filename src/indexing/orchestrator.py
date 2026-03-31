@@ -399,6 +399,7 @@ class SyncPlan:
     resolved_mode: str
     reasons: list[str]
     change_set: ChangeSet
+    advisories: list[str] = field(default_factory=list)
     forced_paper_ids: list[str] = field(default_factory=list)
     pending_work: dict[str, PendingStageWork] = field(default_factory=dict)
     clear_vector_store: bool = False
@@ -459,6 +460,32 @@ class IndexOrchestrator:
         self.logger = logger
         self.store = StructuredStore(self.index_dir)
         self.manifest_path = self.index_dir / MANIFEST_FILENAME
+
+    @staticmethod
+    def _format_extraction_config(extraction_info: dict[str, Any]) -> str:
+        provider = extraction_info.get("provider") or "unknown-provider"
+        mode = extraction_info.get("mode") or "default-mode"
+        model = extraction_info.get("model") or "<provider default>"
+        return f"{provider}/{mode}/{model}"
+
+    def _build_extraction_drift_advisory(
+        self,
+        previous_info: dict[str, Any],
+        requested_info: dict[str, Any],
+    ) -> str:
+        previous_label = self._format_extraction_config(previous_info)
+        requested_label = self._format_extraction_config(requested_info)
+        return (
+            "Extraction defaults differ from the existing corpus "
+            f"(baseline: {previous_label}; requested: {requested_label}). "
+            "Auto/update preserves existing extractions and applies the current "
+            "provider only to new, modified, pending, or explicitly targeted papers. "
+            "Use --sync-mode full to re-extract unchanged papers."
+        )
+
+    def _log_plan_advisories(self, plan: SyncPlan) -> None:
+        for advisory in plan.advisories:
+            self.logger.warning(advisory)
 
     def run(self, args: argparse.Namespace, config: Config) -> int:
         start_time = datetime.now()
@@ -538,6 +565,8 @@ class IndexOrchestrator:
                 self.logger.error(reason)
             return 1
 
+        self._log_plan_advisories(plan)
+
         if plan.noop:
             self.logger.info("No changes detected and no pending work")
             return 0
@@ -556,6 +585,7 @@ class IndexOrchestrator:
             "resolved_mode": plan.resolved_mode,
             "started_at": start_time.isoformat(),
             "reasons": plan.reasons,
+            "advisories": plan.advisories,
         }
 
         stage_times: dict[str, float] = {}
@@ -1134,6 +1164,7 @@ class IndexOrchestrator:
         requested_mode = self._requested_sync_mode(args)
         manifest, manifest_error = IndexManifest.load(self.manifest_path)
         reasons: list[str] = []
+        advisories: list[str] = []
 
         if requested_mode == "update" and ref_db.provider != "zotero":
             return SyncPlan(
@@ -1172,8 +1203,12 @@ class IndexOrchestrator:
             ):
                 compatibility_reasons.append("Classification policy changed")
             if manifest.extraction.get("fingerprint") != extraction_info["fingerprint"]:
-                compatibility_reasons.append("Extraction configuration changed")
-                requires_full_extraction = True
+                advisories.append(
+                    self._build_extraction_drift_advisory(
+                        previous_info=manifest.extraction,
+                        requested_info=extraction_info,
+                    )
+                )
             if manifest.embedding.get("fingerprint") != embedding_info["fingerprint"]:
                 compatibility_reasons.append("Embedding configuration changed")
             if manifest.chunk_schema_version != CHUNK_SCHEMA_VERSION:
@@ -1240,6 +1275,7 @@ class IndexOrchestrator:
                 resolved_mode="invalid",
                 reasons=[*compatibility_reasons, *reasons],
                 change_set=change_set,
+                advisories=advisories,
                 forced_paper_ids=sorted(target_current_ids),
                 pending_work=pending_work,
             )
@@ -1274,6 +1310,7 @@ class IndexOrchestrator:
             resolved_mode=resolved_mode,
             reasons=reasons,
             change_set=change_set,
+            advisories=advisories,
             forced_paper_ids=sorted(target_current_ids),
             pending_work=pending_work,
             clear_vector_store=clear_vector_store,
@@ -1687,12 +1724,12 @@ class IndexOrchestrator:
         plan: SyncPlan,
         delete_paper_ids: list[str],
     ) -> None:
-        vector_store = VectorStore(self.index_dir / "chroma")
-        if plan.clear_vector_store:
-            vector_store.clear()
-            return
-        if delete_paper_ids:
-            vector_store.delete_papers(delete_paper_ids)
+        with VectorStore(self.index_dir / "chroma") as vector_store:
+            if plan.clear_vector_store:
+                vector_store.clear()
+                return
+            if delete_paper_ids:
+                vector_store.delete_papers(delete_paper_ids)
 
     def _create_staged_chroma_dir(self) -> Path:
         """Create a temporary Chroma directory for a staged full rebuild."""
@@ -1730,6 +1767,10 @@ class IndexOrchestrator:
         print(f"  Changes: {plan.change_set.summary()}")
         if plan.forced_paper_ids:
             print(f"  Forced targets: {len(plan.forced_paper_ids)}")
+        if plan.advisories:
+            print("  Advisories:")
+            for advisory in plan.advisories:
+                print(f"    - {advisory}")
         if plan.reasons:
             print("  Reasons:")
             for reason in plan.reasons:
@@ -1824,17 +1865,17 @@ class IndexOrchestrator:
     def _validate_vector_store(self) -> str | None:
         chroma_dir = self.index_dir / "chroma"
         try:
-            vector_store = VectorStore(chroma_dir)
-            vector_store.count()
+            with VectorStore(chroma_dir) as vector_store:
+                vector_store.count()
         except Exception as exc:
             return f"Vector store is unreadable: {exc}"
         return None
 
     def _validate_chunk_types(self) -> str | None:
         chroma_dir = self.index_dir / "chroma"
-        vector_store = VectorStore(chroma_dir)
         try:
-            results = vector_store.collection.get(include=["metadatas"])
+            with VectorStore(chroma_dir) as vector_store:
+                results = vector_store.collection.get(include=["metadatas"])
         except Exception as exc:
             return f"Could not inspect chunk types: {exc}"
         observed = {
@@ -1918,6 +1959,7 @@ class IndexOrchestrator:
                 "requested_mode": manifest.last_run.get("requested_mode"),
                 "resolved_mode": manifest.last_run.get("resolved_mode"),
                 "reasons": manifest.last_run.get("reasons", []),
+                "advisories": manifest.last_run.get("advisories", []),
             },
             "source_scope": manifest.source_scope,
             "classification_policy": manifest.classification_policy,

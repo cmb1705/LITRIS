@@ -626,18 +626,20 @@ def main():
             document_prefix=config.embeddings.document_prefix,
         )
         vector_store = VectorStore(chroma_dir)
-
-        export_search_results(
-            query=args.query,
-            num_results=args.num_results,
-            output_format=args.format,
-            output_path=args.output,
-            store=store,
-            vector_store=vector_store,
-            embedding_gen=embedding_gen,
-            year_min=args.year_min,
-            year_max=args.year_max,
-        )
+        try:
+            export_search_results(
+                query=args.query,
+                num_results=args.num_results,
+                output_format=args.format,
+                output_path=args.output,
+                store=store,
+                vector_store=vector_store,
+                embedding_gen=embedding_gen,
+                year_min=args.year_min,
+                year_max=args.year_max,
+            )
+        finally:
+            vector_store.close()
 
     elif args.command == "full":
         export_all_papers(

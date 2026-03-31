@@ -60,7 +60,7 @@ def parse_args():
         "--provider",
         choices=["anthropic", "openai"],
         default=None,
-        help="LLM provider: anthropic (Claude), openai (GPT-5.2)",
+        help="LLM provider: anthropic (Claude), openai (GPT-5.4)",
     )
     parser.add_argument(
         "--mode",
@@ -239,13 +239,16 @@ def parse_args():
         "--gap-fill",
         action="store_true",
         help="After extraction, fill missing dimensions using a secondary provider. "
-        "Uses the opposite provider (anthropic<->openai) in CLI mode.",
+        "Only applies to papers extracted in this run. Uses the opposite provider "
+        "(anthropic<->openai) in CLI mode. Use scripts/run_gap_fill.py for a "
+        "corpus-wide sweep.",
     )
     parser.add_argument(
         "--gap-fill-threshold",
         type=float,
         default=0.85,
-        help="Coverage threshold below which gap-filling runs (default: 0.85 = 85%%).",
+        help="Coverage threshold below which current-run gap-filling runs "
+        "(default: 0.85 = 85%%).",
     )
     parser.add_argument(
         "--gap-fill-provider",
@@ -760,97 +763,101 @@ def run_embedding_generation(
 
     logger.info("Initializing vector store...")
     vector_store = VectorStore(chroma_dir)
+    try:
+        if rebuild:
+            logger.info("Clearing existing embeddings...")
+            vector_store.clear()
 
-    if rebuild:
-        logger.info("Clearing existing embeddings...")
-        vector_store.clear()
+        # Build paper lookups - by full paper_id and by zotero_key for backward compat
+        paper_lookup = {p.paper_id: p for p in papers}
+        paper_by_zotero_key: dict[str, list[PaperMetadata]] = {}
+        for p in papers:
+            paper_by_zotero_key.setdefault(p.zotero_key, []).append(p)
 
-    # Build paper lookups - by full paper_id and by zotero_key for backward compat
-    paper_lookup = {p.paper_id: p for p in papers}
-    paper_by_zotero_key: dict[str, list[PaperMetadata]] = {}
-    for p in papers:
-        paper_by_zotero_key.setdefault(p.zotero_key, []).append(p)
+        # Filter to papers with extractions
+        # Handle both old-style (zotero_key) and new-style (zotero_key_attachment_key) IDs
+        papers_with_extractions = []
+        extraction_lookup = {}
+        skipped_ambiguous = 0
 
-    # Filter to papers with extractions
-    # Handle both old-style (zotero_key) and new-style (zotero_key_attachment_key) IDs
-    papers_with_extractions = []
-    extraction_lookup = {}
-    skipped_ambiguous = 0
+        for paper_id, ext_data in extractions.items():
+            paper = None
+            # Try exact match first (new-style ID)
+            if paper_id in paper_lookup:
+                paper = paper_lookup[paper_id]
+            # Fall back to zotero_key match (old-style ID) -- only safe for
+            # single-attachment items. Multi-attachment items are ambiguous
+            # because we cannot determine which PDF was actually extracted.
+            elif "_" not in paper_id and paper_id in paper_by_zotero_key:
+                candidates = paper_by_zotero_key[paper_id]
+                if len(candidates) == 1:
+                    paper = candidates[0]
+                else:
+                    skipped_ambiguous += 1
+                    logger.warning(
+                        f"Skipping old-style extraction '{paper_id}': "
+                        f"{len(candidates)} attachments for this zotero_key. "
+                        f"Re-extract with new-style IDs to resolve ambiguity."
+                    )
 
-    for paper_id, ext_data in extractions.items():
-        paper = None
-        # Try exact match first (new-style ID)
-        if paper_id in paper_lookup:
-            paper = paper_lookup[paper_id]
-        # Fall back to zotero_key match (old-style ID) -- only safe for
-        # single-attachment items. Multi-attachment items are ambiguous
-        # because we cannot determine which PDF was actually extracted.
-        elif "_" not in paper_id and paper_id in paper_by_zotero_key:
-            candidates = paper_by_zotero_key[paper_id]
-            if len(candidates) == 1:
-                paper = candidates[0]
-            else:
-                skipped_ambiguous += 1
+            if paper:
+                papers_with_extractions.append(paper)
+                # Extract the actual extraction data
+                ext = ext_data.get("extraction", ext_data)
+                extraction_lookup[paper.paper_id] = SemanticAnalysis(**ext)
+
+        if skipped_ambiguous > 0:
+            logger.warning(
+                f"Skipped {skipped_ambiguous} old-style extractions with ambiguous "
+                f"multi-attachment zotero_keys. Re-extract these papers to fix."
+            )
+
+        if not papers_with_extractions:
+            # Provide diagnostic info to help debug matching issues
+            logger.warning("No papers with extractions found for embedding")
+            logger.warning(f"  Papers provided: {len(papers)}")
+            logger.warning(f"  Extractions available: {len(extractions)}")
+            if papers and extractions:
+                sample_paper_ids = [p.paper_id for p in papers[:3]]
+                sample_extraction_ids = list(extractions.keys())[:3]
+                logger.warning(f"  Sample paper IDs: {sample_paper_ids}")
+                logger.warning(f"  Sample extraction IDs: {sample_extraction_ids}")
                 logger.warning(
-                    f"Skipping old-style extraction '{paper_id}': "
-                    f"{len(candidates)} attachments for this zotero_key. "
-                    f"Re-extract with new-style IDs to resolve ambiguity."
+                    "  Check if ID formats match (old: zotero_key, new: zotero_key_attachment)"
                 )
+            return 0
 
-        if paper:
-            papers_with_extractions.append(paper)
-            # Extract the actual extraction data
-            ext = ext_data.get("extraction", ext_data)
-            extraction_lookup[paper.paper_id] = SemanticAnalysis(**ext)
+        logger.info(f"Generating embeddings for {len(papers_with_extractions)} papers...")
 
-    if skipped_ambiguous > 0:
-        logger.warning(
-            f"Skipped {skipped_ambiguous} old-style extractions with ambiguous "
-            f"multi-attachment zotero_keys. Re-extract these papers to fix."
+        # Create chunks
+        all_chunks = []
+        for paper in tqdm(papers_with_extractions, desc="Creating chunks"):
+            extraction = extraction_lookup.get(paper.paper_id)
+            if extraction:
+                chunks = embedding_gen.create_chunks(paper, extraction)
+                all_chunks.extend(chunks)
+
+        logger.info(f"Created {len(all_chunks)} chunks")
+
+        # Generate embeddings in batches
+        resolved_batch_size = embedding_gen.resolve_batch_size(
+            embedding_batch_size,
+            texts=[chunk.text for chunk in all_chunks],
+        )
+        logger.info(f"Generating embeddings with batch size {resolved_batch_size}...")
+        all_chunks = embedding_gen.generate_embeddings(
+            all_chunks,
+            batch_size=resolved_batch_size,
         )
 
-    if not papers_with_extractions:
-        # Provide diagnostic info to help debug matching issues
-        logger.warning("No papers with extractions found for embedding")
-        logger.warning(f"  Papers provided: {len(papers)}")
-        logger.warning(f"  Extractions available: {len(extractions)}")
-        if papers and extractions:
-            sample_paper_ids = [p.paper_id for p in papers[:3]]
-            sample_extraction_ids = list(extractions.keys())[:3]
-            logger.warning(f"  Sample paper IDs: {sample_paper_ids}")
-            logger.warning(f"  Sample extraction IDs: {sample_extraction_ids}")
-            logger.warning("  Check if ID formats match (old: zotero_key, new: zotero_key_attachment)")
-        return 0
+        # Add to vector store
+        logger.info("Adding to vector store...")
+        added = vector_store.add_chunks(all_chunks, batch_size=100)
 
-    logger.info(f"Generating embeddings for {len(papers_with_extractions)} papers...")
-
-    # Create chunks
-    all_chunks = []
-    for paper in tqdm(papers_with_extractions, desc="Creating chunks"):
-        extraction = extraction_lookup.get(paper.paper_id)
-        if extraction:
-            chunks = embedding_gen.create_chunks(paper, extraction)
-            all_chunks.extend(chunks)
-
-    logger.info(f"Created {len(all_chunks)} chunks")
-
-    # Generate embeddings in batches
-    resolved_batch_size = embedding_gen.resolve_batch_size(
-        embedding_batch_size,
-        texts=[chunk.text for chunk in all_chunks],
-    )
-    logger.info(f"Generating embeddings with batch size {resolved_batch_size}...")
-    all_chunks = embedding_gen.generate_embeddings(
-        all_chunks,
-        batch_size=resolved_batch_size,
-    )
-
-    # Add to vector store
-    logger.info("Adding to vector store...")
-    added = vector_store.add_chunks(all_chunks, batch_size=100)
-
-    logger.info(f"Added {added} chunks to vector store")
-    return added
+        logger.info(f"Added {added} chunks to vector store")
+        return added
+    finally:
+        vector_store.close()
 
 
 def generate_summary(index_dir: Path, logger):
@@ -886,13 +893,12 @@ def compute_similarity_pairs(
 
     chroma_dir = index_dir / "chroma"
     store = StructuredStore(index_dir)
-    vector_store = VectorStore(chroma_dir)
-
-    # Get all raptor_overview chunks with embeddings
-    results = vector_store.collection.get(
-        where={"chunk_type": "raptor_overview"},
-        include=["embeddings", "metadatas"],
-    )
+    with VectorStore(chroma_dir) as vector_store:
+        # Get all raptor_overview chunks with embeddings
+        results = vector_store.collection.get(
+            where={"chunk_type": "raptor_overview"},
+            include=["embeddings", "metadatas"],
+        )
 
     if not results["ids"]:
         if logger:

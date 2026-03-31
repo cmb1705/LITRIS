@@ -90,6 +90,16 @@ class SearchEngine:
             document_prefix=document_prefix,
         )
 
+    def close(self) -> None:
+        """Release vector-store resources owned by this engine."""
+        self.vector_store.close()
+
+    def __enter__(self) -> "SearchEngine":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
     def search(
         self,
         query: str,

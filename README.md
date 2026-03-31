@@ -486,9 +486,13 @@ python scripts/build_index.py --paper ABC123_DEF456 --use-subscription
 `scripts/build_index.py` is now the primary indexing entrypoint. The default
 `--sync-mode auto` chooses the safest path automatically:
 
-- `auto`: Use incremental sync when the index is compatible, otherwise upgrade to a full rebuild.
+- `auto`: Use incremental sync when the index is compatible, otherwise upgrade to a full rebuild. Provider/model drift is logged as an advisory and does not re-extract unchanged papers.
 - `full`: Rebuild the vector store for the full scope. Existing extractions are reused unless they are missing or incompatible.
 - `update`: Force incremental sync for compatible Zotero indexes only. If compatibility checks fail, the command exits with an error instead of silently rebuilding.
+
+`auto` and `update` preserve existing extractions even if you switch extraction providers or models. In that case, only new, modified, pending, or explicitly targeted papers use the currently requested provider. Use `--sync-mode full` when you intentionally want a corpus-wide re-extraction.
+
+`--gap-fill` only runs against papers extracted in the current `build_index.py` invocation. For a corpus-wide low-coverage sweep, use `python scripts/run_gap_fill.py --threshold 0.90`.
 
 For the first run after upgrading to the unified sync flow, run an explicit full rebuild once:
 

@@ -168,6 +168,18 @@ class FederatedSearchEngine:
                     label, engine, weight = result
                     self.federated_engines[label] = (engine, weight)
 
+    def close(self) -> None:
+        """Release vector-store resources across all loaded search engines."""
+        self.primary_engine.close()
+        for engine, _weight in self.federated_engines.values():
+            engine.close()
+
+    def __enter__(self) -> "FederatedSearchEngine":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
     def search(
         self,
         query: str,

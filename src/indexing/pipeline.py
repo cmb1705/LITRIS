@@ -555,12 +555,11 @@ def compute_similarity_pairs(
 
     chroma_dir = index_dir / "chroma"
     store = StructuredStore(index_dir)
-    vector_store = VectorStore(chroma_dir)
-
-    results = vector_store.collection.get(
-        where={"chunk_type": "raptor_overview"},
-        include=["embeddings", "metadatas"],
-    )
+    with VectorStore(chroma_dir) as vector_store:
+        results = vector_store.collection.get(
+            where={"chunk_type": "raptor_overview"},
+            include=["embeddings", "metadatas"],
+        )
     if not results["ids"]:
         if logger:
             logger.warning("No raptor_overview chunks found for similarity computation")

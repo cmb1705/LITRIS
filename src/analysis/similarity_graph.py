@@ -386,11 +386,13 @@ def load_and_build_similarity_graph(
         return _empty_graph(len(paper_ids))
 
     vector_store = VectorStore(persist_directory=chroma_dir)
-
-    return build_similarity_graph(
-        paper_ids=paper_ids,
-        vector_store=vector_store,
-        config=config,
-        paper_metadata=papers,
-        compute_jaccard=compute_jaccard,
-    )
+    try:
+        return build_similarity_graph(
+            paper_ids=paper_ids,
+            vector_store=vector_store,
+            config=config,
+            paper_metadata=papers,
+            compute_jaccard=compute_jaccard,
+        )
+    finally:
+        vector_store.close()
