@@ -263,7 +263,7 @@ Notes:
 - `--sync-mode update` is currently supported for Zotero-backed indexes only.
 - Extraction provider/model drift does not trigger re-extraction in `auto` or `update`; unchanged papers keep their existing extractions until you run `--sync-mode full`.
 - If the index configuration changed in a way that makes incremental sync unsafe, `--sync-mode update` fails loudly and `--sync-mode auto` upgrades to a full rebuild.
-- `--gap-fill` only evaluates papers extracted in the current `build_index.py` run. Use `python scripts/run_gap_fill.py --threshold 0.90` for a corpus-wide low-coverage sweep.
+- `--gap-fill` only evaluates papers extracted in the current `build_index.py` run. Use `python scripts/run_gap_fill.py --threshold 0.90` for a corpus-wide low-coverage sweep. By default, that script auto-selects the opposite provider of each paper's original extraction; pass `--provider` to force an override.
 - `scripts/update_index.py` remains available as a deprecated compatibility wrapper during the transition.
 
 ## Exporting Results

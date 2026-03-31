@@ -492,7 +492,7 @@ python scripts/build_index.py --paper ABC123_DEF456 --use-subscription
 
 `auto` and `update` preserve existing extractions even if you switch extraction providers or models. In that case, only new, modified, pending, or explicitly targeted papers use the currently requested provider. Use `--sync-mode full` when you intentionally want a corpus-wide re-extraction.
 
-`--gap-fill` only runs against papers extracted in the current `build_index.py` invocation. For a corpus-wide low-coverage sweep, use `python scripts/run_gap_fill.py --threshold 0.90`.
+`--gap-fill` only runs against papers extracted in the current `build_index.py` invocation. For a corpus-wide low-coverage sweep, use `python scripts/run_gap_fill.py --threshold 0.90`. By default, that script auto-selects the opposite provider of each paper's original extraction; pass `--provider` to force an override.
 
 For the first run after upgrading to the unified sync flow, run an explicit full rebuild once:
 

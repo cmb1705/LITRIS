@@ -1,18 +1,21 @@
 #!/usr/bin/env python
 """Run gap-fill across the full corpus for papers below a coverage threshold.
 
-Uses Anthropic CLI to fill missing dimensions on papers already extracted
-by OpenAI batch. Only runs the specific passes containing gaps.
+By default, the script auto-selects the opposite provider for each paper based
+on its existing extraction model. Pass ``--provider`` to override that behavior
+and force a single provider across the whole sweep.
 
 Usage:
-    python scripts/run_gap_fill.py                          # Default 90% threshold
-    python scripts/run_gap_fill.py --threshold 0.85         # Custom threshold
-    python scripts/run_gap_fill.py --threshold 0.90 --limit 50  # First 50
+    python scripts/run_gap_fill.py                                 # Default 90% threshold
+    python scripts/run_gap_fill.py --threshold 0.85                # Custom threshold
+    python scripts/run_gap_fill.py --threshold 0.90 --limit 50     # First 50
+    python scripts/run_gap_fill.py --provider anthropic --limit 50 # Force Anthropic
 """
 
 import argparse
 import json
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +27,12 @@ from src.analysis.llm_council import (
     ProviderConfig,
     identify_gap_passes,
 )
+from src.analysis.constants import (
+    ANTHROPIC_MODELS,
+    DEFAULT_MODELS,
+    GEMINI_MODELS,
+    OPENAI_MODELS,
+)
 from src.analysis.schemas import SemanticAnalysis
 from src.config import Config
 from src.extraction.cascade import ExtractionCascade
@@ -32,12 +41,95 @@ from src.extraction.text_cleaner import TextCleaner
 from src.utils.logging_config import setup_logging
 from src.zotero.database import ZoteroDatabase
 
+PROVIDER_OPPOSITES = {
+    "anthropic": "openai",
+    "openai": "anthropic",
+}
+MODEL_PROVIDER_MAP = {
+    "anthropic": set(ANTHROPIC_MODELS) | {DEFAULT_MODELS["anthropic"]},
+    "openai": set(OPENAI_MODELS) | {DEFAULT_MODELS["openai"]},
+    "google": set(GEMINI_MODELS) | {DEFAULT_MODELS["google"]},
+}
+LOWER_MODEL_PROVIDER_MAP = {
+    provider: {model.lower() for model in models}
+    for provider, models in MODEL_PROVIDER_MAP.items()
+}
+
+
+def infer_provider_from_model(model_name: str | None) -> str | None:
+    """Infer provider name from a stored extraction model string."""
+    if not model_name:
+        return None
+
+    normalized = model_name.strip().lower()
+    if not normalized:
+        return None
+
+    if normalized.startswith("synthesis:"):
+        provider = normalized.split(":", 1)[1]
+        return (
+            provider
+            if provider in LOWER_MODEL_PROVIDER_MAP or provider in PROVIDER_OPPOSITES
+            else None
+        )
+
+    for provider, known_models in LOWER_MODEL_PROVIDER_MAP.items():
+        if normalized in known_models:
+            return provider
+
+    if normalized.startswith("claude"):
+        return "anthropic"
+    if normalized.startswith(("gpt-", "o1", "o3", "o4")):
+        return "openai"
+    if normalized.startswith("gemini"):
+        return "google"
+    if normalized.startswith(("llama", "qwen", "mistral")):
+        return "ollama"
+    return None
+
+
+def resolve_gap_fill_provider(
+    extraction_entry: dict,
+    provider_override: str | None = None,
+) -> str:
+    """Resolve the provider to use for a corpus-wide gap-fill target.
+
+    By default, picks the opposite of the original extraction provider for
+    Anthropic/OpenAI papers. Unknown origins fall back to Anthropic so the
+    script remains usable on mixed or partially migrated corpora.
+    """
+    if provider_override:
+        return provider_override
+
+    extraction = extraction_entry.get("extraction")
+    original_model = None
+    if isinstance(extraction, dict):
+        original_model = extraction.get("extraction_model")
+    if not isinstance(original_model, str):
+        model = extraction_entry.get("model")
+        original_model = model if isinstance(model, str) else None
+
+    original_provider = infer_provider_from_model(original_model)
+    if original_provider in PROVIDER_OPPOSITES:
+        return PROVIDER_OPPOSITES[original_provider]
+
+    prior_gap_provider = extraction_entry.get("gap_filled_by")
+    if isinstance(prior_gap_provider, str) and prior_gap_provider in PROVIDER_OPPOSITES:
+        return PROVIDER_OPPOSITES[prior_gap_provider]
+
+    return "anthropic"
+
 
 def main():
     parser = argparse.ArgumentParser(description="Gap-fill across full corpus")
     parser.add_argument("--threshold", type=float, default=0.90)
     parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--provider", default="anthropic")
+    parser.add_argument(
+        "--provider",
+        default=None,
+        help="Optional provider override. Default: auto-select the opposite "
+        "provider of each paper's existing extraction.",
+    )
     parser.add_argument("--parallel", type=int, default=1, help="Number of parallel workers")
     parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -102,15 +194,23 @@ def main():
         print("Nothing to gap-fill.")
         return
 
+    provider_counts = Counter(
+        resolve_gap_fill_provider(extractions[pid], args.provider)
+        for pid, _filled, _coverage in candidates
+    )
+    if args.provider:
+        print(f"Provider override: {args.provider} ({len(candidates)} papers)")
+    else:
+        selection_summary = ", ".join(
+            f"{provider}={count}" for provider, count in sorted(provider_counts.items())
+        )
+        print(f"Auto-selected providers: {selection_summary}")
+
     # Setup
     council_config = CouncilConfig(
         providers=[
-            ProviderConfig(
-                name=args.provider,
-                weight=1.0,
-                timeout=600,
-                mode="cli",
-            ),
+            ProviderConfig(name="anthropic", weight=1.0, timeout=600, mode="cli"),
+            ProviderConfig(name="openai", weight=1.0, timeout=600, mode="cli"),
         ],
         aggregation_strategy="quality_weighted",
     )
@@ -190,8 +290,9 @@ def main():
             # Each thread gets its own council instance to avoid shared client state
             thread_council = LLMCouncil(council_config)
             analysis = SemanticAnalysis(**extractions[pid]["extraction"])
+            gap_provider_name = resolve_gap_fill_provider(extractions[pid], args.provider)
             gap_provider = ProviderConfig(
-                name=args.provider, weight=1.0, timeout=600, mode="cli",
+                name=gap_provider_name, weight=1.0, timeout=600, mode="cli",
             )
 
             merged, gaps_filled = thread_council.fill_gaps(
@@ -215,7 +316,7 @@ def main():
                     print(f"  [{idx}] Filled {gaps_filled} gaps ({filled}/40 -> {new_filled}/40)")
 
                     extractions[pid]["extraction"] = merged.to_index_dict()
-                    extractions[pid]["gap_filled_by"] = args.provider
+                    extractions[pid]["gap_filled_by"] = gap_provider_name
                     extractions[pid]["gap_filled_count"] = gaps_filled
                 else:
                     print(f"  [{idx}] No new content from gap-fill")
