@@ -682,11 +682,21 @@ class IndexOrchestrator:
         run_failed_ids: list[str],
         start_perf: float,
     ) -> int:
+        extraction_requirements = self._describe_extraction_requirements(
+            args=args,
+            plan=plan,
+            desired_index_ids=desired_index_ids,
+            existing_extractions=existing_extractions,
+            current_papers_by_id=current_papers_by_id,
+        )
+
         if getattr(args, "skip_extraction", False) and extraction_required_ids:
             self.logger.error(
                 "--skip-extraction is unsafe for %d scoped papers that need fresh extraction",
                 len(extraction_required_ids),
             )
+            for line in self._format_extraction_requirement_lines(extraction_requirements):
+                self.logger.error("  %s", line)
             return 1
 
         extraction_results: list = []
@@ -1465,6 +1475,78 @@ class IndexOrchestrator:
             required &= set(desired_index_ids)
         required |= pending_ids & set(desired_index_ids)
         return required
+
+    def _describe_extraction_requirements(
+        self,
+        args: argparse.Namespace,
+        plan: SyncPlan,
+        desired_index_ids: set[str],
+        existing_extractions: dict[str, dict],
+        current_papers_by_id: dict[str, PaperMetadata],
+    ) -> list[dict[str, str]]:
+        """Describe which papers require extraction and why."""
+        required_ids = sorted(
+            self._extraction_required_ids(
+                args=args,
+                plan=plan,
+                desired_index_ids=desired_index_ids,
+                existing_extractions=existing_extractions,
+            )
+        )
+        pending_ids = set(plan.pending_work["extraction"].paper_ids)
+        if plan.pending_work["extraction"].all:
+            pending_ids = set(desired_index_ids)
+
+        described: list[dict[str, str]] = []
+        for paper_id in required_ids:
+            paper = current_papers_by_id.get(paper_id)
+            if paper_id in pending_ids:
+                reason = "pending extraction work from a previous incomplete run"
+            elif plan.resolved_mode == "full" and not getattr(args, "paper", []):
+                if plan.requires_full_extraction:
+                    reason = "full extraction required because extraction compatibility changed"
+                else:
+                    reason = "missing stored extraction for full rebuild"
+            elif paper_id in plan.forced_paper_ids:
+                reason = "explicitly targeted via --paper"
+            elif paper_id in plan.change_set.new_items:
+                reason = "new paper"
+            elif paper_id in plan.change_set.modified_items:
+                reason = "modified paper"
+            else:
+                reason = "fresh extraction required"
+
+            described.append(
+                {
+                    "paper_id": paper_id,
+                    "title": paper.title if paper else paper_id,
+                    "zotero_key": paper.zotero_key if paper else "",
+                    "reason": reason,
+                }
+            )
+        return described
+
+    @staticmethod
+    def _format_extraction_requirement_lines(
+        requirements: list[dict[str, str]],
+        limit: int = 10,
+    ) -> list[str]:
+        """Format extraction requirement descriptions for logs."""
+        lines: list[str] = []
+        for requirement in requirements[:limit]:
+            suffix = (
+                f" (zotero_key={requirement['zotero_key']})"
+                if requirement.get("zotero_key")
+                else ""
+            )
+            lines.append(
+                f"{requirement['paper_id']}: {requirement['title']}{suffix} "
+                f"[{requirement['reason']}]"
+            )
+        remaining = len(requirements) - limit
+        if remaining > 0:
+            lines.append(f"... and {remaining} more")
+        return lines
 
     def _embedding_scope_ids(
         self,

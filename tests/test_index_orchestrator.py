@@ -237,3 +237,46 @@ def test_plan_sync_no_changes_with_matching_manifest_is_noop(tmp_path):
 
     assert plan.resolved_mode == "update"
     assert plan.noop is True
+
+
+def test_describe_extraction_requirements_reports_missing_full_rebuild_items(tmp_path):
+    config = _make_config(tmp_path)
+    orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))
+    args = _make_args(sync_mode="full")
+    plan = SimpleNamespace(
+        resolved_mode="full",
+        requires_full_extraction=False,
+        forced_paper_ids=[],
+        change_set=ChangeSet(),
+        pending_work={
+            "extraction": PendingStageWork(),
+        },
+    )
+    desired_index_ids = {"P1"}
+    current_papers_by_id = {
+        "P1": SimpleNamespace(
+            paper_id="P1",
+            title="Missing Extraction Paper",
+            zotero_key="Z1",
+        )
+    }
+
+    requirements = orchestrator._describe_extraction_requirements(
+        args=args,
+        plan=plan,
+        desired_index_ids=desired_index_ids,
+        existing_extractions={},
+        current_papers_by_id=current_papers_by_id,
+    )
+
+    assert requirements == [
+        {
+            "paper_id": "P1",
+            "title": "Missing Extraction Paper",
+            "zotero_key": "Z1",
+            "reason": "missing stored extraction for full rebuild",
+        }
+    ]
+    assert orchestrator._format_extraction_requirement_lines(requirements) == [
+        "P1: Missing Extraction Paper (zotero_key=Z1) [missing stored extraction for full rebuild]"
+    ]
