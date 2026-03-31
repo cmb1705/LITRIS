@@ -1412,6 +1412,12 @@ class IndexOrchestrator:
         class_index: ClassificationIndex,
         config: Config,
     ) -> list[str]:
+        if getattr(args, "paper", []):
+            return sorted(
+                paper_id
+                for paper_id in plan.forced_paper_ids
+                if paper_id in current_papers_by_id
+            )
         if getattr(args, "reclassify", False):
             return sorted(current_papers_by_id.keys())
         if plan.full_rebuild or not class_index.papers:
@@ -1443,6 +1449,8 @@ class IndexOrchestrator:
         plan: SyncPlan,
         desired_index_ids: set[str],
     ) -> set[str]:
+        if getattr(args, "paper", []):
+            return set(plan.forced_paper_ids) & set(desired_index_ids)
         if plan.resolved_mode == "full" and not getattr(args, "paper", []):
             return set(desired_index_ids)
         scoped_ids = set(plan.change_set.new_items + plan.change_set.modified_items)
@@ -1456,6 +1464,13 @@ class IndexOrchestrator:
         desired_index_ids: set[str],
         existing_extractions: dict[str, dict],
     ) -> set[str]:
+        if getattr(args, "paper", []):
+            forced_ids = set(plan.forced_paper_ids) & set(desired_index_ids)
+            pending_ids = set(plan.pending_work["extraction"].paper_ids) & forced_ids
+            if plan.pending_work["extraction"].all:
+                pending_ids = set(forced_ids)
+            return forced_ids | pending_ids
+
         pending_ids = set(plan.pending_work["extraction"].paper_ids)
         if plan.pending_work["extraction"].all:
             pending_ids = set(desired_index_ids)
@@ -1556,8 +1571,14 @@ class IndexOrchestrator:
         final_extractions: dict[str, dict],
         failed_extraction_ids: set[str],
     ) -> set[str]:
-        del args  # Scope is derived from plan + stored state.
         desired_ids = set(final_papers) & set(final_extractions)
+        if getattr(args, "paper", []):
+            pending_ids = set(plan.pending_work["embeddings"].paper_ids) & set(plan.forced_paper_ids)
+            if plan.pending_work["embeddings"].all:
+                pending_ids = set(plan.forced_paper_ids)
+            forced_ids = set(plan.forced_paper_ids) & desired_ids
+            forced_ids -= failed_extraction_ids
+            return forced_ids | pending_ids
         pending_ids = set(plan.pending_work["embeddings"].paper_ids)
         if plan.pending_work["embeddings"].all:
             pending_ids = set(desired_ids)

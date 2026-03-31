@@ -280,3 +280,51 @@ def test_describe_extraction_requirements_reports_missing_full_rebuild_items(tmp
     assert orchestrator._format_extraction_requirement_lines(requirements) == [
         "P1: Missing Extraction Paper (zotero_key=Z1) [missing stored extraction for full rebuild]"
     ]
+
+
+def test_targeted_full_refresh_scopes_only_forced_paper_when_manifest_missing(tmp_path):
+    config = _make_config(tmp_path)
+    orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))
+    args = _make_args(sync_mode="full", paper=["P1"])
+    plan = SimpleNamespace(
+        resolved_mode="full",
+        full_rebuild=True,
+        requires_full_extraction=False,
+        forced_paper_ids=["P1"],
+        change_set=ChangeSet(new_items=["P1", "P2"], modified_items=[], deleted_items=[]),
+        pending_work={
+            "extraction": PendingStageWork(),
+            "embeddings": PendingStageWork(),
+        },
+    )
+    desired_index_ids = {"P1", "P2"}
+    current_papers_by_id = {
+        "P1": SimpleNamespace(paper_id="P1", title="Paper 1", zotero_key="Z1"),
+        "P2": SimpleNamespace(paper_id="P2", title="Paper 2", zotero_key="Z2"),
+    }
+
+    assert orchestrator._classification_scope_ids(
+        args=args,
+        plan=plan,
+        current_papers_by_id=current_papers_by_id,
+        class_index=SimpleNamespace(papers={}),
+        config=config,
+    ) == ["P1"]
+    assert orchestrator._scoped_current_ids(
+        args=args,
+        plan=plan,
+        desired_index_ids=desired_index_ids,
+    ) == {"P1"}
+    assert orchestrator._extraction_required_ids(
+        args=args,
+        plan=plan,
+        desired_index_ids=desired_index_ids,
+        existing_extractions={},
+    ) == {"P1"}
+    assert orchestrator._embedding_scope_ids(
+        args=args,
+        plan=plan,
+        final_papers={"P1": {"paper_id": "P1"}, "P2": {"paper_id": "P2"}},
+        final_extractions={"P1": {"paper_id": "P1"}, "P2": {"paper_id": "P2"}},
+        failed_extraction_ids=set(),
+    ) == {"P1"}
