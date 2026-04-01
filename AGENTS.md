@@ -74,6 +74,8 @@ bd sync --flush-only  # Sync to JSONL
 
 This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
 
+LITRIS uses the global shared Dolt server at `C:\Users\cmb17\.beads\shared-server\dolt` on `127.0.0.1:3308`. Repo `.beads/config.yaml` expects `dolt.shared-server: true` and database name `LITRIS`.
+
 ### Quick Reference
 
 ```bash
