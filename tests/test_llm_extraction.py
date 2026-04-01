@@ -240,6 +240,44 @@ class TestSectionExtractorConfig:
         assert captured["enable_ocr"] is True
         assert captured["ocr_config"] == {"lang": "deu", "dpi": 400}
 
+    def test_section_extractor_uses_smaller_cli_cap_for_anthropic(self, tmp_path, monkeypatch):
+        """Anthropic CLI should use a smaller prompt cap than API-mode providers."""
+        from src.analysis import section_extractor as se_module
+
+        class DummyPDFExtractor:
+            def __init__(self, cache_dir=None, enable_ocr=False, ocr_config=None):
+                pass
+
+        class DummyLLMClient:
+            def __init__(self, mode=None, model=None, max_tokens=None, **kwargs):
+                pass
+
+            @property
+            def model(self):
+                return "test-model"
+
+        monkeypatch.setattr(se_module, "PDFExtractor", DummyPDFExtractor)
+        monkeypatch.setattr(se_module, "create_llm_client", lambda **kwargs: DummyLLMClient())
+
+        cli_extractor = se_module.SectionExtractor(
+            cache_dir=tmp_path,
+            provider="anthropic",
+            mode="cli",
+        )
+        api_extractor = se_module.SectionExtractor(
+            cache_dir=tmp_path,
+            provider="openai",
+            mode="api",
+        )
+
+        long_text = "x" * 800000
+        cli_text = cli_extractor._truncate_text_for_provider(long_text)
+        api_text = api_extractor._truncate_text_for_provider(long_text)
+
+        assert len(cli_text) < len(api_text)
+        assert len(cli_text) <= 500100
+        assert api_text == long_text
+
 
 class TestLLMClientMocked:
     """Tests for LLMClient with mocked API."""

@@ -669,7 +669,7 @@ class SectionExtractor:
 
             # Truncate only the LLM input view if needed. The canonical stored
             # snapshot remains the full cleaned text.
-            text = self.text_cleaner.truncate_for_llm(full_text)
+            text = self._truncate_text_for_provider(full_text)
 
             # Run 6-pass extraction
             result = self._extract_6_pass(
@@ -917,6 +917,23 @@ class SectionExtractor:
             answers[field] = value
 
         return answers
+
+    def _truncate_text_for_provider(self, text: str) -> str:
+        """Apply provider-aware truncation for LLM input.
+
+        Anthropic CLI has stricter practical prompt limits than the API path,
+        so use a smaller input cap there while keeping canonical stored text
+        complete on disk.
+        """
+
+        if self.provider == "anthropic" and self.mode == "cli":
+            return self.text_cleaner.truncate_for_llm(
+                text,
+                max_chars=500000,
+                preserve_start=30000,
+                preserve_end=15000,
+            )
+        return self.text_cleaner.truncate_for_llm(text)
 
     def extract_batch(
         self,
@@ -1409,7 +1426,7 @@ class SectionExtractor:
             try:
                 text = self.pdf_extractor.extract_text(paper.pdf_path)
                 text = self.text_cleaner.clean(text)
-                text = self.text_cleaner.truncate_for_llm(text)
+                text = self._truncate_text_for_provider(text)
                 sample_lengths.append(len(text))
             except Exception:
                 continue
