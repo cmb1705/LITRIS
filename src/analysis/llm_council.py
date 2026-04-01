@@ -25,6 +25,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from src.analysis.dimensions import get_default_dimension_registry, get_dimension_value
 from src.analysis.schemas import SemanticAnalysis
 
 if TYPE_CHECKING:
@@ -256,14 +257,14 @@ def identify_gap_passes(analysis: SemanticAnalysis) -> dict[int, list[str]]:
         Dict mapping pass number (1-6) to the list of field names that
         are None in that pass. Passes with no gaps are omitted.
     """
-    from src.analysis.semantic_prompts import PASS_DEFINITIONS
+    from src.analysis.semantic_prompts import get_pass_definitions
 
     gap_passes: dict[int, list[str]] = {}
-    for pass_idx, (_pass_label, questions) in enumerate(PASS_DEFINITIONS, start=1):
+    for pass_idx, (_pass_label, questions) in enumerate(get_pass_definitions(), start=1):
         missing = [
             field_name
             for field_name, _question_text in questions
-            if getattr(analysis, field_name, None) is None
+            if get_dimension_value(analysis, field_name) is None
         ]
         if missing:
             gap_passes[pass_idx] = missing
@@ -320,10 +321,17 @@ def aggregate_analyses(
 
     # Use first analysis for metadata fields
     base = analyses[0]
+    registry = get_default_dimension_registry()
+    profile_id = getattr(base, "profile_id", None)
+    dimension_ids = registry.get_dimension_ids(profile_id=profile_id)
+    normalized_strategies: dict[str, str] = {}
+    for field_name, strategy_name in field_strategies.items():
+        resolved = registry.resolve_optional_dimension(field_name, profile_id=profile_id)
+        normalized_strategies[resolved.id if resolved else field_name] = strategy_name
 
     q_values: dict[str, str | None] = {}
-    for field_name in SemanticAnalysis.DIMENSION_FIELDS:
-        strategy_name = field_strategies.get(field_name, default_strategy)
+    for field_name in dimension_ids:
+        strategy_name = normalized_strategies.get(field_name, default_strategy)
         strategy_fn = STRATEGY_REGISTRY.get(strategy_name)
         if strategy_fn is None:
             logger.warning(
@@ -333,13 +341,16 @@ def aggregate_analyses(
             )
             strategy_fn = strategy_longest
         pairs = [
-            (getattr(a, field_name, None), w)
+            (get_dimension_value(a, field_name), w)
             for a, w in zip(analyses, effective_weights, strict=False)
         ]
         q_values[field_name] = strategy_fn(pairs)
 
     return SemanticAnalysis(
         paper_id=base.paper_id,
+        profile_id=base.profile_id,
+        profile_version=base.profile_version,
+        profile_fingerprint=base.profile_fingerprint,
         prompt_version=base.prompt_version,
         extraction_model=base.extraction_model,
         extracted_at=base.extracted_at,
@@ -375,13 +386,13 @@ def calculate_consensus_confidence(
     response_rate = n_responses / n_providers if n_providers > 0 else 0
 
     # Agreement on research_core fields (q01-q05) via word overlap
-    core_fields = SemanticAnalysis.DIMENSION_GROUPS.get(
-        "research_core", SemanticAnalysis.CORE_FIELDS
-    )
+    registry = get_default_dimension_registry()
+    profile_id = getattr(analyses[0], "profile_id", None)
+    core_fields = registry.get_core_dimension_ids(profile_id=profile_id)
     agreement_scores: list[float] = []
 
     for field_name in core_fields:
-        values = [getattr(a, field_name, None) for a in analyses]
+        values = [get_dimension_value(a, field_name) for a in analyses]
         non_none = [v for v in values if v]
         if len(non_none) < 2:
             continue
@@ -399,13 +410,15 @@ def calculate_consensus_confidence(
 
     # Coverage spread: how consistent are providers on which fields are filled
     if len(analyses) >= 2:
+        dimension_ids = registry.get_dimension_ids(profile_id=profile_id)
         fill_counts = [
-            sum(1 for f in SemanticAnalysis.DIMENSION_FIELDS if getattr(a, f, None))
+            sum(1 for f in dimension_ids if get_dimension_value(a, f))
             for a in analyses
         ]
         max_fill = max(fill_counts)
         min_fill = min(fill_counts)
-        spread = 1 - (max_fill - min_fill) / 40 if max_fill > 0 else 0.5
+        total_dimensions = max(len(dimension_ids), 1)
+        spread = 1 - (max_fill - min_fill) / total_dimensions if max_fill > 0 else 0.5
         agreement_scores.append(spread)
 
     avg_agreement = (
@@ -515,11 +528,12 @@ class LLMCouncil:
         from datetime import datetime
 
         from src.analysis.semantic_prompts import (
-            PASS_DEFINITIONS,
             build_pass_user_prompt,
+            get_pass_definitions,
         )
 
-        NUM_PASSES = len(PASS_DEFINITIONS)
+        pass_definitions = get_pass_definitions()
+        num_passes = len(pass_definitions)
 
         start = time.time()
 
@@ -531,8 +545,8 @@ class LLMCouncil:
             total_cost = 0.0
             errors: list[str] = []
 
-            for pass_num in range(1, NUM_PASSES + 1):
-                pass_label, pass_questions = PASS_DEFINITIONS[pass_num - 1]
+            for pass_num in range(1, num_passes + 1):
+                pass_label, pass_questions = pass_definitions[pass_num - 1]
                 pass_fields = [q[0] for q in pass_questions]
 
                 # Build pass-specific prompt with q-field instructions
@@ -580,12 +594,12 @@ class LLMCouncil:
                 )
 
             # If all passes failed, return error
-            if len(errors) == NUM_PASSES:
+            if len(errors) == num_passes:
                 return ProviderResponse(
                     provider=provider.name,
                     extraction=None,
                     success=False,
-                    error=f"All {NUM_PASSES} passes failed: " + "; ".join(errors),
+                    error=f"All {num_passes} passes failed: " + "; ".join(errors),
                     duration_seconds=duration,
                     cost=total_cost,
                 )
@@ -933,8 +947,8 @@ class LLMCouncil:
         from datetime import datetime
 
         from src.analysis.semantic_prompts import (
-            PASS_DEFINITIONS,
             build_pass_user_prompt,
+            get_pass_definitions,
         )
 
         gap_passes = identify_gap_passes(analysis)
@@ -959,7 +973,8 @@ class LLMCouncil:
         # Run only the passes that have gaps
         gap_answers: dict[str, str | None] = {}
         for pass_num, missing_fields in gap_passes.items():
-            _pass_label, _pass_questions = PASS_DEFINITIONS[pass_num - 1]
+            pass_definitions = get_pass_definitions()
+            _pass_label, _pass_questions = pass_definitions[pass_num - 1]
 
             prompt = build_pass_user_prompt(
                 pass_number=pass_num,
@@ -983,7 +998,9 @@ class LLMCouncil:
 
                 if result.success and result.extraction:
                     for field_name in missing_fields:
-                        value = getattr(result.extraction, field_name, None)
+                        value = get_dimension_value(result.extraction, field_name)
+                        if value is None:
+                            value = getattr(result.extraction, field_name, None)
                         if value is not None:
                             gap_answers[field_name] = value
 
@@ -1036,7 +1053,7 @@ class LLMCouncil:
         gaps_filled = sum(
             1
             for field_name in gap_answers
-            if getattr(merged, field_name, None) is not None
+            if get_dimension_value(merged, field_name) is not None
         )
 
         return merged, gaps_filled

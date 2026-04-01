@@ -23,53 +23,22 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.analysis.schemas import SemanticAnalysis
 
+from src.analysis.dimensions import get_default_dimension_registry
+
 logger = logging.getLogger(__name__)
 
-# All 40 question field names in order
-QUESTION_FIELDS: tuple[str, ...] = tuple(f"q{i:02d}" for i in range(1, 41))
+_LEGACY_PROFILE = get_default_dimension_registry().get_profile()
 
-# Question field names with their attribute suffixes on SemanticAnalysis
-QUESTION_ATTRS: tuple[str, ...] = (
-    "q01_research_question",
-    "q02_thesis",
-    "q03_key_claims",
-    "q04_evidence",
-    "q05_limitations",
-    "q06_paradigm",
-    "q07_methods",
-    "q08_data",
-    "q09_reproducibility",
-    "q10_framework",
-    "q11_traditions",
-    "q12_key_citations",
-    "q13_assumptions",
-    "q14_counterarguments",
-    "q15_novelty",
-    "q16_stance",
-    "q17_field",
-    "q18_audience",
-    "q19_implications",
-    "q20_future_work",
-    "q21_quality",
-    "q22_contribution",
-    "q23_source_type",
-    "q24_other",
-    "q25_institutional_context",
-    "q26_historical_timing",
-    "q27_paradigm_influence",
-    "q28_disciplines_bridged",
-    "q29_cross_domain_insights",
-    "q30_cultural_scope",
-    "q31_philosophical_assumptions",
-    "q32_deployment_gap",
-    "q33_infrastructure_contribution",
-    "q34_power_dynamics",
-    "q35_gaps_and_omissions",
-    "q36_dual_use_concerns",
-    "q37_emergence_claims",
-    "q38_remaining_other",
-    "q39_network_properties",
-    "q40_policy_recommendations",
+# Legacy compatibility constants retained for callers and tests.
+QUESTION_FIELDS: tuple[str, ...] = tuple(
+    dimension.legacy_short_name
+    for dimension in _LEGACY_PROFILE.ordered_dimensions
+    if dimension.legacy_short_name
+)
+QUESTION_ATTRS: tuple[str, ...] = tuple(
+    dimension.legacy_field_name
+    for dimension in _LEGACY_PROFILE.ordered_dimensions
+    if dimension.legacy_field_name
 )
 
 TOTAL_DIMENSIONS = len(QUESTION_ATTRS)  # 40
@@ -113,6 +82,39 @@ class CoverageResult:
         }
 
 
+def _get_dimension_spec(
+    analysis: SemanticAnalysis,
+) -> tuple[list[tuple[str, str | None]], list[tuple[str, str | None]]]:
+    """Return active and core dimensions as ``(canonical_id, legacy_field)`` pairs."""
+
+    registry = get_default_dimension_registry()
+    profile = registry.profiles.get(getattr(analysis, "profile_id", None))
+    if profile is None:
+        active = [(field_name, field_name) for field_name in QUESTION_ATTRS]
+        core = [(field_name, field_name) for field_name in CORE_ATTRS]
+        return active, core
+
+    active = [
+        (dimension.id, dimension.legacy_field_name)
+        for dimension in profile.enabled_dimensions
+    ]
+    core = [
+        (dimension.id, dimension.legacy_field_name)
+        for dimension in profile.core_dimensions
+    ]
+    return active, core
+
+
+def _dimension_value(analysis: SemanticAnalysis, dimension_id: str, legacy_field: str | None) -> str | None:
+    value = None
+    get_dimension = getattr(type(analysis), "get_dimension", None)
+    if callable(get_dimension):
+        value = analysis.get_dimension(dimension_id)
+    if value is None and legacy_field:
+        value = getattr(analysis, legacy_field, None)
+    return value
+
+
 def score_coverage(analysis: SemanticAnalysis) -> CoverageResult:
     """Compute coverage score and flags for a SemanticAnalysis.
 
@@ -122,12 +124,15 @@ def score_coverage(analysis: SemanticAnalysis) -> CoverageResult:
     Returns:
         CoverageResult with coverage fraction, tier, and flags.
     """
-    answered = 0
-    for attr in QUESTION_ATTRS:
-        if getattr(analysis, attr, None) is not None:
-            answered += 1
+    active_dimensions, core_dimensions = _get_dimension_spec(analysis)
+    total_dimensions = len(active_dimensions) or TOTAL_DIMENSIONS
+    answered = sum(
+        1
+        for dimension_id, legacy_field in active_dimensions
+        if _dimension_value(analysis, dimension_id, legacy_field) is not None
+    )
 
-    coverage = answered / TOTAL_DIMENSIONS
+    coverage = answered / total_dimensions if total_dimensions else 0.0
 
     # Determine tier
     if coverage >= TIER_FULL:
@@ -150,9 +155,9 @@ def score_coverage(analysis: SemanticAnalysis) -> CoverageResult:
 
     # Check core dimensions (q01-q05)
     missing_core: list[str] = []
-    for attr in CORE_ATTRS:
-        if getattr(analysis, attr, None) is None:
-            missing_core.append(attr)
+    for dimension_id, legacy_field in core_dimensions:
+        if _dimension_value(analysis, dimension_id, legacy_field) is None:
+            missing_core.append(legacy_field or dimension_id)
 
     if missing_core:
         flags.append(FLAG_CORE_GAPS)
@@ -160,7 +165,7 @@ def score_coverage(analysis: SemanticAnalysis) -> CoverageResult:
     return CoverageResult(
         paper_id=analysis.paper_id,
         answered=answered,
-        total=TOTAL_DIMENSIONS,
+        total=total_dimensions,
         coverage=coverage,
         tier=tier,
         flags=flags,

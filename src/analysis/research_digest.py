@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from src.analysis.dimensions import get_dimension_value
 from src.utils.file_utils import safe_read_json, safe_write_json
 
 logger = logging.getLogger(__name__)
@@ -123,26 +124,20 @@ def build_paper_highlight(
     Returns:
         PaperHighlight with summary information.
     """
-    ext_data = {}
-    if extraction:
-        ext_data = extraction.get("extraction", extraction)
-
-    # Build summary from q02_thesis or abstract
     summary = (
-        ext_data.get("q02_thesis")
-        or ext_data.get("q22_contribution")
+        get_dimension_value(extraction, "thesis")
+        or get_dimension_value(extraction, "contribution")
         or paper.get("abstract", "")
         or "No summary available."
     )
 
     methodology = None
     if config.include_methodology:
-        methodology = ext_data.get("q07_methods") or None
+        methodology = get_dimension_value(extraction, "methods") or None
 
     key_findings = []
     if config.include_key_findings:
-        # q04_evidence is prose; include as a single finding entry if present
-        evidence = ext_data.get("q04_evidence")
+        evidence = get_dimension_value(extraction, "evidence")
         if evidence:
             key_findings.append(evidence)
 

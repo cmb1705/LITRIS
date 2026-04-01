@@ -122,11 +122,16 @@ def validate_chunk_types(chunk_types: list[str]) -> list[str]:
     if not chunk_types:
         return []
 
-    invalid_types = [ct for ct in chunk_types if ct not in CHUNK_TYPES]
+    valid_static = {"abstract", "raptor_overview", "raptor_core"}
+    invalid_types = [
+        ct
+        for ct in chunk_types
+        if ct not in valid_static and not ct.startswith("dim_")
+    ]
     if invalid_types:
         raise ValidationError(
             f"Invalid chunk types: {invalid_types}. "
-            f"Valid types are: {CHUNK_TYPES}"
+            f"Valid types are: {CHUNK_TYPES} plus profile-defined dim_* chunk types"
         )
 
     return chunk_types

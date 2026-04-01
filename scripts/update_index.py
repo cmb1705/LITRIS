@@ -10,6 +10,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from src.analysis.dimensions import load_dimension_profile
 from src.config import Config, parse_embedding_batch_size_setting
 from src.indexing.orchestrator import IndexOrchestrator
 from src.utils.logging_config import setup_logging
@@ -21,6 +22,12 @@ def parse_args() -> argparse.Namespace:
         description="Deprecated wrapper around build_index update mode",
     )
     parser.add_argument("--config", type=Path, default=None, help="Path to config.yaml")
+    parser.add_argument(
+        "--dimension-profile",
+        type=Path,
+        default=None,
+        help="Path to a YAML/JSON dimension profile to activate for this run",
+    )
     parser.add_argument(
         "--detect-only",
         action="store_true",
@@ -131,6 +138,13 @@ def main() -> int:
     except Exception as exc:
         logger.error(f"Failed to load configuration: {exc}")
         return 1
+    if args.dimension_profile is not None:
+        profile = load_dimension_profile(args.dimension_profile)
+        profile_paths = [Path(path) for path in config.dimensions.profile_paths]
+        if args.dimension_profile not in profile_paths:
+            config.dimensions.profile_paths = [*profile_paths, args.dimension_profile]
+        config.dimensions.active_profile = profile.profile_id
+        config.configure_dimension_registry()
     if args.embedding_batch_size is not None:
         config.embeddings.batch_size = args.embedding_batch_size
 

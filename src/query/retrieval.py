@@ -5,12 +5,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+from src.analysis.dimensions import get_dimension_value
 from src.query.search import EnrichedResult
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 OutputFormat = Literal["json", "markdown", "brief", "pdf"]
+
+
+def _dim(extraction_data: dict, identifier: str) -> str:
+    """Resolve a semantic dimension from raw extraction data."""
+
+    return get_dimension_value(extraction_data, identifier) or ""
 
 
 def format_results(
@@ -148,32 +155,35 @@ def format_markdown(
         if include_extraction and result.extraction_data:
             ext = result.extraction_data.get("extraction", result.extraction_data)
 
-            if ext.get("q02_thesis"):
+            thesis = _dim(ext, "thesis")
+            if thesis:
                 lines.extend(
                     [
                         "### Thesis",
                         "",
-                        ext["q02_thesis"],
+                        thesis,
                         "",
                     ]
                 )
 
-            if ext.get("q22_contribution"):
+            contribution = _dim(ext, "contribution")
+            if contribution:
                 lines.extend(
                     [
                         "### Contribution",
                         "",
-                        ext["q22_contribution"],
+                        contribution,
                         "",
                     ]
                 )
 
-            if ext.get("q03_key_claims"):
+            key_claims = _dim(ext, "key_claims")
+            if key_claims:
                 lines.extend(
                     [
                         "### Key Claims",
                         "",
-                        ext["q03_key_claims"],
+                        key_claims,
                         "",
                     ]
                 )
@@ -374,8 +384,9 @@ def _results_to_html(
 
         if include_extraction and result.extraction_data:
             ext = result.extraction_data.get("extraction", result.extraction_data)
-            if ext.get("q02_thesis"):
-                html.append(f'<div class="matched"><b>Thesis:</b> {ext["q02_thesis"][:400]}</div>')
+            thesis = _dim(ext, "thesis")
+            if thesis:
+                html.append(f'<div class="matched"><b>Thesis:</b> {thesis[:400]}</div>')
 
         html.append("</div>")
 
@@ -727,45 +738,58 @@ def format_paper_detail(
         ext = extraction_data.get("extraction", extraction_data)
 
         # Pass 1: Research Core
-        if ext.get("q01_research_question"):
-            lines.extend(["## Research Question", "", ext["q01_research_question"], ""])
+        research_question = _dim(ext, "research_question")
+        thesis = _dim(ext, "thesis")
+        key_claims = _dim(ext, "key_claims")
+        evidence = _dim(ext, "evidence")
+        limitations = _dim(ext, "limitations")
+        methods = _dim(ext, "methods")
+        data_value = _dim(ext, "data")
+        novelty = _dim(ext, "novelty")
+        field_value = _dim(ext, "field")
+        implications = _dim(ext, "implications")
+        future_work = _dim(ext, "future_work")
+        contribution = _dim(ext, "contribution")
 
-        if ext.get("q02_thesis"):
-            lines.extend(["## Thesis", "", ext["q02_thesis"], ""])
+        if research_question:
+            lines.extend(["## Research Question", "", research_question, ""])
 
-        if ext.get("q03_key_claims"):
-            lines.extend(["## Key Claims", "", ext["q03_key_claims"], ""])
+        if thesis:
+            lines.extend(["## Thesis", "", thesis, ""])
 
-        if ext.get("q04_evidence"):
-            lines.extend(["## Evidence", "", ext["q04_evidence"], ""])
+        if key_claims:
+            lines.extend(["## Key Claims", "", key_claims, ""])
 
-        if ext.get("q05_limitations"):
-            lines.extend(["## Limitations", "", ext["q05_limitations"], ""])
+        if evidence:
+            lines.extend(["## Evidence", "", evidence, ""])
+
+        if limitations:
+            lines.extend(["## Limitations", "", limitations, ""])
 
         # Pass 2: Methodology
-        if ext.get("q07_methods"):
-            lines.extend(["## Methods", "", ext["q07_methods"], ""])
+        if methods:
+            lines.extend(["## Methods", "", methods, ""])
 
-        if ext.get("q08_data"):
-            lines.extend(["## Data", "", ext["q08_data"], ""])
+        if data_value:
+            lines.extend(["## Data", "", data_value, ""])
 
         # Pass 3: Context & Discourse
-        if ext.get("q15_novelty"):
-            lines.extend(["## Novelty", "", ext["q15_novelty"], ""])
+        if novelty:
+            lines.extend(["## Novelty", "", novelty, ""])
 
         # Pass 4: Meta & Audience
-        if ext.get("q17_field"):
-            lines.append(f"**Field:** {ext['q17_field']}")
+        if field_value:
+            lines.append(f"**Field:** {field_value}")
             lines.append("")
 
-        if ext.get("q19_implications"):
-            lines.extend(["## Implications", "", ext["q19_implications"], ""])
+        if implications:
+            lines.extend(["## Implications", "", implications, ""])
 
-        if ext.get("q20_future_work"):
-            lines.extend(["## Future Directions", "", ext["q20_future_work"], ""])
+        if future_work:
+            lines.extend(["## Future Directions", "", future_work, ""])
 
-        if ext.get("q22_contribution"):
-            lines.extend(["## Contribution", "", ext["q22_contribution"], ""])
+        if contribution:
+            lines.extend(["## Contribution", "", contribution, ""])
 
     return "\n".join(lines)
 

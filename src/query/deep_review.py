@@ -11,6 +11,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from src.analysis.dimensions import get_dimension_value
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -188,17 +189,25 @@ def read_papers(
             title=result.title,
             authors=result.authors,
             year=result.year,
-            thesis=extraction.get("q02_thesis", ""),
-            methodology=extraction.get("q07_methods", ""),
+            thesis=get_dimension_value(extraction, "thesis") or "",
+            methodology=get_dimension_value(extraction, "methods") or "",
             key_findings=[
                 claim for claim in [
-                    extraction.get("q03_key_claims", ""),
-                    extraction.get("q04_evidence", ""),
+                    get_dimension_value(extraction, "key_claims") or "",
+                    get_dimension_value(extraction, "evidence") or "",
                 ] if claim
             ],
-            conclusions=extraction.get("q19_implications", ""),
-            limitations=[lim for lim in [extraction.get("q05_limitations", "")] if lim],
-            disciplines=[f for f in [extraction.get("q17_field", "")] if f],
+            conclusions=get_dimension_value(extraction, "implications") or "",
+            limitations=[
+                lim
+                for lim in [get_dimension_value(extraction, "limitations") or ""]
+                if lim
+            ],
+            disciplines=[
+                discipline
+                for discipline in [get_dimension_value(extraction, "field") or ""]
+                if discipline
+            ],
         ))
 
     logger.info(f"Read {len(readings)} papers for synthesis")

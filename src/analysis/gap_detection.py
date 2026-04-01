@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from src.analysis.dimensions import get_dimension_value
 from src.utils.file_utils import safe_read_json, safe_write_json
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]{3,}")
@@ -323,7 +324,7 @@ def _count_topics(
     config: GapDetectionConfig,
 ) -> None:
     # q17_field is prose; split on commas/semicolons to extract topic labels
-    field_text = extraction.get("q17_field") or ""
+    field_text = get_dimension_value(extraction, "field") or ""
     labels = [s.strip() for s in re.split(r"[,;]", field_text) if s.strip()]
     for value in labels:
         label = _normalize_label(value)
@@ -341,9 +342,9 @@ def _count_methods(
     config: GapDetectionConfig,
 ) -> None:
     # q07_methods and q06_paradigm are prose strings
-    methods_text = extraction.get("q07_methods") or ""
-    paradigm_text = extraction.get("q06_paradigm") or ""
-    data_text = extraction.get("q08_data") or ""
+    methods_text = get_dimension_value(extraction, "methods") or ""
+    paradigm_text = get_dimension_value(extraction, "paradigm") or ""
+    data_text = get_dimension_value(extraction, "data") or ""
 
     # Parse prose into labels by splitting on commas/semicolons
     for prefix, text in [("methods", methods_text), ("paradigm", paradigm_text), ("data", data_text)]:
@@ -531,9 +532,7 @@ def _build_token_index(
         if include_abstracts:
             text_parts.append(paper.get("abstract", ""))
         extraction = extractions.get(paper_id, {})
-        ext_data = extraction.get("extraction", extraction)
-        # Use q17_field (discipline/field) for topic tokens
-        field_text = ext_data.get("q17_field") or ""
+        field_text = get_dimension_value(extraction, "field") or ""
         if field_text:
             text_parts.append(field_text)
         tokens = set(_tokenize(" ".join(map(str, text_parts)), token_min_len))
@@ -553,9 +552,7 @@ def _collect_future_directions(
         if not paper_id:
             continue
         extraction = extractions.get(paper_id, {})
-        ext_data = extraction.get("extraction", extraction)
-        # q20_future_work is a prose string; split on sentence boundaries
-        future_text = ext_data.get("q20_future_work") or ""
+        future_text = get_dimension_value(extraction, "future_work") or ""
         if not future_text.strip():
             continue
         # Split on periods followed by space or end, filtering empty

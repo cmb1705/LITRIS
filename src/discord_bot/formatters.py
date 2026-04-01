@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.analysis.dimensions import get_dimension_value
+
 MAX_EMBED_DESCRIPTION = 4096
 MAX_FIELD_VALUE = 1024
 RESULTS_PER_PAGE = 5
@@ -57,7 +59,7 @@ def format_paper_embed(paper: dict[str, Any]) -> dict[str, Any]:
             "inline": False,
         })
 
-    thesis = extraction.get("q02_thesis", "") if extraction else ""
+    thesis = get_dimension_value(extraction, "thesis") if extraction else ""
     if thesis:
         fields.append({
             "name": "Thesis",
@@ -65,7 +67,7 @@ def format_paper_embed(paper: dict[str, Any]) -> dict[str, Any]:
             "inline": False,
         })
 
-    methods = extraction.get("q07_methods", "") if extraction else ""
+    methods = get_dimension_value(extraction, "methods") if extraction else ""
     if methods:
         fields.append({
             "name": "Methods",
@@ -73,7 +75,7 @@ def format_paper_embed(paper: dict[str, Any]) -> dict[str, Any]:
             "inline": False,
         })
 
-    key_claims = extraction.get("q03_key_claims", "") if extraction else ""
+    key_claims = get_dimension_value(extraction, "key_claims") if extraction else ""
     if key_claims:
         fields.append({
             "name": "Key Claims",
@@ -139,7 +141,7 @@ def format_search_result_embed(
 
     extraction = result.get("extraction", {})
     if extraction:
-        thesis = extraction.get("q02_thesis", "")
+        thesis = get_dimension_value(extraction, "thesis") or ""
         if thesis:
             description_parts.append(
                 f"**Thesis:** {_truncate(thesis, 200)}"

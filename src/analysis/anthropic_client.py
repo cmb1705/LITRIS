@@ -8,6 +8,11 @@ from pydantic import ValidationError
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode, LLMProvider
 from src.analysis.cli_executor import ClaudeCliExecutor, CliExecutionError
+from src.analysis.dimensions import (
+    EXTRACTION_METADATA_KEYS,
+    is_dimension_payload,
+    normalize_dimension_payload,
+)
 from src.analysis.constants import (
     ANTHROPIC_BATCH_PRICING,
     ANTHROPIC_MODELS,
@@ -292,22 +297,26 @@ class AnthropicLLMClient(BaseLLMClient):
         # Parse JSON
         data = json.loads(text)
 
-        # Detect 6-pass pipeline response by checking for q-field keys
-        has_q_fields = any(k.startswith("q") and k[1:3].isdigit() for k in data)
-
-        if has_q_fields:
+        if is_dimension_payload(data):
             # 6-pass pipeline: build SemanticAnalysis with placeholder metadata.
             # The caller (section_extractor._extract_6_pass) builds the final
             # SemanticAnalysis from merged answers; these placeholders are
             # only used by _extract_pass_answers via getattr.
+            profile_id = data.get("profile_id")
             return SemanticAnalysis(
                 paper_id=data.get("paper_id", "pending"),
+                profile_id=profile_id,
+                profile_version=data.get("profile_version", ""),
+                profile_fingerprint=data.get("profile_fingerprint", ""),
                 prompt_version=data.get("prompt_version", "2.0.0"),
                 extraction_model=data.get("extraction_model", self.model),
                 extracted_at=data.get("extracted_at", ""),
-                **{k: v for k, v in data.items()
-                   if k not in ("paper_id", "prompt_version",
-                                "extraction_model", "extracted_at")},
+                dimensions=normalize_dimension_payload(data, profile_id=profile_id),
+                **{
+                    k: v
+                    for k, v in data.items()
+                    if k not in EXTRACTION_METADATA_KEYS
+                },
             )
 
         # Legacy single-pass: handle nested models

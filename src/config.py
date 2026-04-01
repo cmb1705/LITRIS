@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
 from src.analysis.constants import DEFAULT_MODELS
+from src.analysis.dimensions import DEFAULT_DIMENSION_PROFILE, configure_dimension_registry
 from src.config_migration import (
     CURRENT_VERSION,
     migrate_config,
@@ -289,6 +290,33 @@ class EmbeddingsConfig(BaseModel):
         return parse_embedding_batch_size_setting(v)
 
 
+class DimensionsConfig(BaseModel):
+    """Dimension profile and suggestion configuration."""
+
+    active_profile: str = DEFAULT_DIMENSION_PROFILE
+    profile_paths: list[Path] = Field(default_factory=list)
+    approval_required: bool = True
+    suggestion_sample_size: int = 25
+
+    @field_validator("profile_paths", mode="before")
+    @classmethod
+    def convert_profile_paths(cls, value: Any) -> list[Path]:
+        """Convert profile path inputs into ``Path`` objects."""
+        if value is None:
+            return []
+        if isinstance(value, (str, Path)):
+            return [Path(value)]
+        return [Path(item) if isinstance(item, str) else item for item in value]
+
+    @field_validator("suggestion_sample_size")
+    @classmethod
+    def validate_suggestion_sample_size(cls, value: int) -> int:
+        """Require a positive suggestion sample size."""
+        if value < 1:
+            raise ValueError("suggestion_sample_size must be at least 1")
+        return value
+
+
 class StorageConfig(BaseModel):
     """Storage paths configuration."""
 
@@ -410,6 +438,7 @@ class Config(BaseModel):
     version: str = CURRENT_VERSION
     zotero: ZoteroConfig
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
+    dimensions: DimensionsConfig = Field(default_factory=DimensionsConfig)
     embeddings: EmbeddingsConfig = Field(default_factory=EmbeddingsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
@@ -473,6 +502,7 @@ class Config(BaseModel):
         # Create config instance
         config = cls(**yaml_config)
         config._project_root = config_path.parent
+        config.configure_dimension_registry()
 
         # Ensure output directories exist
         config._ensure_directories()
@@ -516,6 +546,9 @@ class Config(BaseModel):
             config.setdefault("extraction", {})["mode"] = extraction_mode
         if extraction_model := os.getenv("EXTRACTION_MODEL"):
             config.setdefault("extraction", {})["model"] = extraction_model
+
+        if active_profile := os.getenv("LITRIS_DIMENSION_PROFILE"):
+            config.setdefault("dimensions", {})["active_profile"] = active_profile
 
         return config
 
@@ -597,6 +630,25 @@ class Config(BaseModel):
         if not path.is_absolute() and self._project_root:
             path = self._project_root / path
         return path
+
+    def resolve_dimension_profile_paths(self) -> list[Path]:
+        """Return absolute paths for configured external dimension profiles."""
+
+        resolved: list[Path] = []
+        for path in self.dimensions.profile_paths:
+            candidate = path
+            if not candidate.is_absolute() and self._project_root:
+                candidate = self._project_root / candidate
+            resolved.append(candidate)
+        return resolved
+
+    def configure_dimension_registry(self) -> None:
+        """Configure the process-wide dimension registry from this config."""
+
+        configure_dimension_registry(
+            active_profile_id=self.dimensions.active_profile,
+            profile_paths=self.resolve_dimension_profile_paths(),
+        )
 
     def get_cache_path(self) -> Path:
         """Get path to cache directory."""

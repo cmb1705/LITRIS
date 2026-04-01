@@ -16,6 +16,7 @@ from typing import Any
 from tqdm import tqdm
 
 from src.analysis.classification_store import ClassificationIndex, ClassificationStore
+from src.analysis.dimensions import get_default_dimension_registry
 from src.analysis.schemas import SemanticAnalysis
 from src.analysis.semantic_prompts import SEMANTIC_PROMPT_VERSION
 from src.config import Config
@@ -68,6 +69,7 @@ STAGE_NAMES = [
 LIVE_INDEX_ARTIFACTS = [
     "papers.json",
     "semantic_analyses.json",
+    "dimension_profile.json",
     "metadata.json",
     "summary.json",
     "similarity_pairs.json",
@@ -855,6 +857,9 @@ class IndexOrchestrator:
         staged_chroma_dir: Path | None = None
         try:
             self.store.save_papers(final_papers)
+            self.store.save_dimension_profile(
+                get_default_dimension_registry().active_profile.model_dump(mode="json")
+            )
             self.store.save_extractions(final_extractions)
             valid_index_ids = set(final_papers)
             prune_raptor_cache(self.index_dir, valid_index_ids)
@@ -1820,6 +1825,7 @@ class IndexOrchestrator:
     def _extraction_info(self, args: argparse.Namespace, config: Config) -> dict[str, Any]:
         provider = getattr(args, "provider", None) or config.extraction.provider
         provider_settings = config.extraction.get_provider_settings(provider)
+        active_profile = get_default_dimension_registry().active_profile
         payload = {
             "schema_version": EXTRACTION_SCHEMA_VERSION,
             "provider": provider,
@@ -1831,6 +1837,9 @@ class IndexOrchestrator:
             or config.extraction.model,
             "summary_model": getattr(args, "summary_model", None),
             "methodology_model": getattr(args, "methodology_model", None),
+            "profile_id": active_profile.profile_id,
+            "profile_version": active_profile.version,
+            "profile_fingerprint": active_profile.fingerprint,
         }
         return {**payload, "fingerprint": fingerprint_payload(payload)}
 
@@ -1886,7 +1895,7 @@ class IndexOrchestrator:
         invalid = sorted(
             chunk_type
             for chunk_type in observed
-            if chunk_type not in set(CHUNK_TYPES)
+            if chunk_type not in set(CHUNK_TYPES) and not chunk_type.startswith("dim_")
         )
         if invalid:
             return f"Vector store contains legacy chunk types: {', '.join(invalid[:8])}"
@@ -1967,6 +1976,9 @@ class IndexOrchestrator:
                 "extraction_model": manifest.extraction.get("model"),
                 "extraction_mode": manifest.extraction.get("mode"),
                 "extraction_provider": manifest.extraction.get("provider"),
+                "dimension_profile_id": manifest.extraction.get("profile_id"),
+                "dimension_profile_version": manifest.extraction.get("profile_version"),
+                "dimension_profile_fingerprint": manifest.extraction.get("profile_fingerprint"),
                 "embedding_model": manifest.embedding.get("model"),
                 "embedding_backend": manifest.embedding.get("backend"),
                 "embedding_batch_size_setting": manifest.embedding.get("batch_size"),

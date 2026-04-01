@@ -6,6 +6,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from src.analysis.dimensions import (
+    DimensionProfile,
+    DimensionRegistry,
+    build_legacy_dimension_profile,
+    get_default_dimension_registry,
+)
 from src.indexing.embeddings import ChunkType, EmbeddingGenerator
 
 if TYPE_CHECKING:
@@ -81,6 +87,15 @@ class SearchEngine:
 
         # Initialize components
         self.structured_store = StructuredStore(self.index_dir)
+        profile_snapshot = self.structured_store.load_dimension_profile()
+        if not isinstance(profile_snapshot, dict) or "profile_id" not in profile_snapshot:
+            profile_snapshot = build_legacy_dimension_profile().model_dump(mode="json")
+        self.dimension_profile = DimensionProfile(**profile_snapshot)
+        self.dimension_registry = DimensionRegistry()
+        self.dimension_registry.register_profile(self.dimension_profile)
+        self.dimension_registry.set_active_profile(self.dimension_profile.profile_id)
+        global_registry = get_default_dimension_registry()
+        global_registry.register_profile(self.dimension_profile)
         self.vector_store = VectorStore(self.chroma_dir)
         self.embedding_generator = EmbeddingGenerator(
             model_name=embedding_model,
@@ -254,10 +269,22 @@ class SearchEngine:
                 return []
 
         # Search using the summary text
+        summary_chunk_types = ["raptor_overview"]
+        for role_name in ("thesis", "contribution"):
+            dimension = self.dimension_registry.resolve_role(
+                role_name,
+                profile_id=self.dimension_profile.profile_id,
+            )
+            if not dimension:
+                continue
+            for chunk_type in (dimension.chunk_type, dimension.legacy_chunk_type):
+                if chunk_type and chunk_type not in summary_chunk_types:
+                    summary_chunk_types.append(chunk_type)
+
         results = self.search(
             query=summary_chunk.get("text", ""),
             top_k=top_k + (1 if exclude_self else 0),
-            chunk_types=["raptor_overview", "dim_q02", "dim_q22"],
+            chunk_types=summary_chunk_types,
             deduplicate_papers=True,
         )
 

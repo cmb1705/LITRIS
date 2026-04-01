@@ -16,8 +16,13 @@ import time
 from pydantic import ValidationError
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode
+from src.analysis.dimensions import (
+    EXTRACTION_METADATA_KEYS,
+    is_dimension_payload,
+    normalize_dimension_payload,
+)
 from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
-from src.analysis.schemas import ExtractionResult, PaperExtraction
+from src.analysis.schemas import ExtractionResult, PaperExtraction, SemanticAnalysis
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -247,8 +252,8 @@ class OllamaLLMClient(BaseLLMClient):
 
         return response["message"]["content"]
 
-    def _parse_response(self, response_text: str) -> PaperExtraction:
-        """Parse JSON response into PaperExtraction.
+    def _parse_response(self, response_text: str) -> SemanticAnalysis | PaperExtraction:
+        """Parse JSON response into SemanticAnalysis or PaperExtraction.
 
         Args:
             response_text: Raw response text.
@@ -272,6 +277,24 @@ class OllamaLLMClient(BaseLLMClient):
 
         # Parse JSON
         data = json.loads(text)
+
+        if is_dimension_payload(data):
+            profile_id = data.get("profile_id")
+            return SemanticAnalysis(
+                paper_id=data.get("paper_id", "pending"),
+                profile_id=profile_id,
+                profile_version=data.get("profile_version", ""),
+                profile_fingerprint=data.get("profile_fingerprint", ""),
+                prompt_version=data.get("prompt_version", "2.0.0"),
+                extraction_model=data.get("extraction_model", self.model),
+                extracted_at=data.get("extracted_at", ""),
+                dimensions=normalize_dimension_payload(data, profile_id=profile_id),
+                **{
+                    k: v
+                    for k, v in data.items()
+                    if k not in EXTRACTION_METADATA_KEYS
+                },
+            )
 
         # Handle nested methodology
         if "methodology" in data and isinstance(data["methodology"], dict):

@@ -432,29 +432,24 @@ class VectorStore:
         """
         total_count = self.collection.count()
 
-        # Get chunk type distribution
-        chunk_type_counts = {}
-        for chunk_type in CHUNK_TYPES:
-            try:
-                results = self.collection.get(
-                    where={"chunk_type": chunk_type},
-                    include=[],
-                )
-                chunk_type_counts[chunk_type] = len(results["ids"]) if results["ids"] else 0
-            except Exception:
-                chunk_type_counts[chunk_type] = 0
-
-        # Get unique paper count using metadatas only (no documents/embeddings)
+        # Get chunk type distribution and unique paper count from metadatas only.
         try:
             all_results = self.collection.get(include=["metadatas"])
             paper_ids = set()
+            chunk_type_counts = {chunk_type: 0 for chunk_type in CHUNK_TYPES}
             metadatas = all_results.get("metadatas") if isinstance(all_results, dict) else None
             if metadatas:
                 for meta in metadatas:
-                    if meta and "paper_id" in meta:
+                    if not meta:
+                        continue
+                    if "paper_id" in meta:
                         paper_ids.add(meta["paper_id"])
+                    chunk_type = meta.get("chunk_type")
+                    if chunk_type:
+                        chunk_type_counts[chunk_type] = chunk_type_counts.get(chunk_type, 0) + 1
             unique_papers = len(paper_ids)
         except Exception:
+            chunk_type_counts = {}
             unique_papers = 0
 
         return {

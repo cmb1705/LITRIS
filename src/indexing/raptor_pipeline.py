@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.analysis.dimensions import get_dimension_value
 from src.analysis.raptor import RaptorSummaries, generate_raptor_summaries
 from src.analysis.schemas import SemanticAnalysis
 from src.utils.file_utils import safe_read_json, safe_write_json
@@ -19,22 +20,29 @@ RAPTOR_CACHE_FILENAME = "raptor_summaries.json"
 def _synthesize_overview(analysis: SemanticAnalysis) -> str:
     """Synthesize a concise overview from semantic dimensions without an LLM."""
     parts = []
-    if analysis.q01_research_question:
-        parts.append(analysis.q01_research_question.strip().rstrip(".") + ".")
-    elif analysis.q02_thesis:
-        parts.append(analysis.q02_thesis.strip().rstrip(".") + ".")
+    research_question = get_dimension_value(analysis, "research_question")
+    thesis = get_dimension_value(analysis, "thesis")
+    methods = get_dimension_value(analysis, "methods")
+    contribution = get_dimension_value(analysis, "contribution")
+    implications = get_dimension_value(analysis, "implications")
+    field_value = get_dimension_value(analysis, "field")
 
-    if analysis.q07_methods:
-        sentences = analysis.q07_methods.split(". ")
+    if research_question:
+        parts.append(research_question.strip().rstrip(".") + ".")
+    elif thesis:
+        parts.append(thesis.strip().rstrip(".") + ".")
+
+    if methods:
+        sentences = methods.split(". ")
         parts.append(". ".join(sentences[:2]).strip().rstrip(".") + ".")
-    if analysis.q22_contribution:
-        sentences = analysis.q22_contribution.split(". ")
+    if contribution:
+        sentences = contribution.split(". ")
         parts.append(". ".join(sentences[:2]).strip().rstrip(".") + ".")
-    if analysis.q19_implications:
-        sentences = analysis.q19_implications.split(". ")
+    if implications:
+        sentences = implications.split(". ")
         parts.append(sentences[0].strip().rstrip(".") + ".")
-    if analysis.q17_field:
-        parts.append(f"Field: {analysis.q17_field.strip()}.")
+    if field_value:
+        parts.append(f"Field: {field_value.strip()}.")
 
     overview = " ".join(parts)
     words = overview.split()
@@ -45,19 +53,23 @@ def _synthesize_overview(analysis: SemanticAnalysis) -> str:
 
 def _synthesize_core(analysis: SemanticAnalysis) -> str:
     """Synthesize a one-sentence core contribution without an LLM."""
-    if analysis.q22_contribution:
-        first_sentence = analysis.q22_contribution.split(". ")[0].strip().rstrip(".") + "."
+    contribution = get_dimension_value(analysis, "contribution")
+    thesis = get_dimension_value(analysis, "thesis")
+    field_value = get_dimension_value(analysis, "field")
+
+    if contribution:
+        first_sentence = contribution.split(". ")[0].strip().rstrip(".") + "."
         words = first_sentence.split()
         if len(words) > 45:
             first_sentence = " ".join(words[:40]) + "..."
         return first_sentence
-    if analysis.q02_thesis:
-        first_sentence = analysis.q02_thesis.split(". ")[0].strip().rstrip(".") + "."
+    if thesis:
+        first_sentence = thesis.split(". ")[0].strip().rstrip(".") + "."
         words = first_sentence.split()
         if len(words) > 45:
             first_sentence = " ".join(words[:40]) + "..."
         return first_sentence
-    return f"Study in {analysis.q17_field or 'unspecified field'}."
+    return f"Study in {field_value or 'unspecified field'}."
 
 
 def load_raptor_cache(index_dir: Path) -> dict[str, dict]:

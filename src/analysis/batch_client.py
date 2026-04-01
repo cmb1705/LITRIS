@@ -14,19 +14,16 @@ from src.analysis.constants import ANTHROPIC_BATCH_PRICING, DEFAULT_MODELS
 from src.analysis.coverage import score_coverage
 from src.analysis.schemas import ExtractionResult, SemanticAnalysis
 from src.analysis.semantic_prompts import (
-    PASS_DEFINITIONS,
     SEMANTIC_PROMPT_VERSION,
     SEMANTIC_SYSTEM_PROMPT,
     build_pass_user_prompt,
+    get_pass_definitions,
 )
 from src.utils.logging_config import get_logger
 from src.utils.secrets import get_anthropic_api_key
 from src.zotero.models import PaperMetadata
 
 logger = get_logger(__name__)
-
-NUM_PASSES = 6
-
 
 @dataclass
 class BatchRequest:
@@ -130,12 +127,13 @@ class BatchExtractionClient:
             List of BatchRequest objects (6 per paper).
         """
         requests = []
+        num_passes = len(get_pass_definitions())
 
         for paper in papers:
             try:
                 text = text_getter(paper)
 
-                for pass_num in range(1, NUM_PASSES + 1):
+                for pass_num in range(1, num_passes + 1):
                     prompt = build_pass_user_prompt(
                         pass_number=pass_num,
                         title=paper.title,
@@ -313,8 +311,9 @@ class BatchExtractionClient:
                     pass_data = self._parse_pass_response(response_text)
 
                     # Get expected fields for this pass
-                    if 1 <= pass_num <= NUM_PASSES:
-                        _, pass_questions = PASS_DEFINITIONS[pass_num - 1]
+                    pass_definitions = get_pass_definitions()
+                    if 1 <= pass_num <= len(pass_definitions):
+                        _, pass_questions = pass_definitions[pass_num - 1]
                         expected_fields = [q[0] for q in pass_questions]
 
                         for field_name in expected_fields:
@@ -336,11 +335,12 @@ class BatchExtractionClient:
 
         # Reassemble each paper's passes into a SemanticAnalysis
         for paper_id, acc in paper_results.items():
-            if len(acc.errors) == NUM_PASSES:
+            num_passes = len(get_pass_definitions())
+            if len(acc.errors) == num_passes:
                 yield ExtractionResult(
                     paper_id=paper_id,
                     success=False,
-                    error=f"All {NUM_PASSES} passes failed: "
+                    error=f"All {num_passes} passes failed: "
                     + "; ".join(acc.errors),
                     model_used=self.model,
                     input_tokens=acc.total_input_tokens,
@@ -364,7 +364,7 @@ class BatchExtractionClient:
 
                 logger.info(
                     f"Reassembled {paper_id}: "
-                    f"{NUM_PASSES - len(acc.errors)}/{NUM_PASSES} passes, "
+                    f"{num_passes - len(acc.errors)}/{num_passes} passes, "
                     f"coverage: {analysis.dimension_coverage:.0%}"
                 )
 
@@ -439,7 +439,7 @@ class BatchExtractionClient:
             "pipeline": "semantic_6pass",
             "paper_ids": paper_ids,
             "total_requests": len(requests),
-            "passes_per_paper": NUM_PASSES,
+            "passes_per_paper": len(get_pass_definitions()),
         }
 
         state_file = self.batch_dir / f"{batch_id}.json"
@@ -484,8 +484,9 @@ class BatchExtractionClient:
         input_tokens_per_pass = avg_text_length // 4 + 500
         output_tokens_per_pass = 2000
 
-        total_input = input_tokens_per_pass * num_papers * NUM_PASSES
-        total_output = output_tokens_per_pass * num_papers * NUM_PASSES
+        num_passes = len(get_pass_definitions())
+        total_input = input_tokens_per_pass * num_papers * num_passes
+        total_output = output_tokens_per_pass * num_papers * num_passes
 
         # Get batch pricing for model (default to Opus 4.6 pricing)
         input_cost_per_million, output_cost_per_million = self.BATCH_PRICING.get(
@@ -497,8 +498,8 @@ class BatchExtractionClient:
 
         return {
             "num_papers": num_papers,
-            "passes_per_paper": NUM_PASSES,
-            "total_requests": num_papers * NUM_PASSES,
+            "passes_per_paper": num_passes,
+            "total_requests": num_papers * num_passes,
             "estimated_input_tokens": total_input,
             "estimated_output_tokens": total_output,
             "estimated_cost": round(input_cost + output_cost, 2),

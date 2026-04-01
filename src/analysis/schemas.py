@@ -1,10 +1,21 @@
+from __future__ import annotations
+
 """Pydantic schemas for LLM extraction results."""
 
 from datetime import datetime
 from enum import Enum
 from typing import ClassVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from src.analysis.dimensions import (
+    DEFAULT_DIMENSION_PROFILE,
+    LEGACY_PROFILE_ID,
+    build_legacy_dimension_profile,
+    get_default_dimension_registry,
+)
+
+_LEGACY_PROFILE = build_legacy_dimension_profile()
 
 
 class EvidenceType(str, Enum):
@@ -246,16 +257,146 @@ class PaperExtraction(BaseModel):
         }
 
 
-class SemanticAnalysis(BaseModel):
-    """40-dimension semantic analysis of an academic paper.
+class DimensionedExtraction(BaseModel):
+    """Canonical extraction model keyed by stable dimension IDs."""
 
-    Each paper is analyzed across 40 questions organized into 6 passes.
-    Each dimension produces a prose answer (str | None) and gets its own
-    embedding vector. Null means the dimension does not apply to this paper.
+    paper_id: str = Field(description="Zotero item key")
+    profile_id: str = Field(
+        default=DEFAULT_DIMENSION_PROFILE,
+        description="Active dimension profile identifier",
+    )
+    profile_version: str = Field(
+        default=_LEGACY_PROFILE.version,
+        description="Version of the dimension profile used for extraction",
+    )
+    profile_fingerprint: str = Field(
+        default=_LEGACY_PROFILE.fingerprint,
+        description="Stable fingerprint of the exact profile snapshot used",
+    )
+    prompt_version: str = Field(
+        description="Semantic analysis prompt version, e.g. '2.0.0'",
+    )
+    extraction_model: str = Field(description="LLM model used for extraction")
+    extracted_at: str = Field(description="ISO 8601 timestamp of extraction")
+    dimensions: dict[str, str | None] = Field(
+        default_factory=dict,
+        description="Canonical dimension values keyed by stable dimension ID",
+    )
+    dimension_coverage: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of active dimensions with non-None answers",
+    )
+    coverage_flags: list[str] = Field(
+        default_factory=list,
+        description="Coverage flags derived from the active profile",
+    )
+
+    @model_validator(mode="after")
+    def _populate_profile_defaults(self) -> "DimensionedExtraction":
+        registry = get_default_dimension_registry()
+        normalized = dict(self.dimensions)
+        profile = registry.profiles.get(self.profile_id)
+        if profile is not None:
+            self.profile_id = profile.profile_id
+            if not self.profile_version:
+                self.profile_version = profile.version
+            if not self.profile_fingerprint:
+                self.profile_fingerprint = profile.fingerprint
+            for dimension in profile.dimensions:
+                normalized.setdefault(dimension.id, None)
+        self.dimensions = normalized
+        return self
+
+    @property
+    def dimension_map(self) -> dict[str, str | None]:
+        return dict(self.dimensions)
+
+    def get_dimension(self, identifier: str) -> str | None:
+        if identifier in self.dimensions:
+            return self.dimensions.get(identifier)
+
+        registry = get_default_dimension_registry()
+        profile = registry.profiles.get(self.profile_id)
+        if profile is not None:
+            resolved = registry.resolve_optional_dimension(
+                identifier,
+                profile_id=profile.profile_id,
+            )
+            if resolved:
+                return self.dimensions.get(resolved.id)
+        return None
+
+    def get_role(self, role_name: str) -> str | None:
+        registry = get_default_dimension_registry()
+        resolved = registry.resolve_role(role_name, profile_id=self.profile_id)
+        if resolved:
+            return self.dimensions.get(resolved.id)
+        return None
+
+    def non_none_dimensions(self) -> dict[str, str]:
+        return {
+            dimension_id: value
+            for dimension_id, value in self.dimensions.items()
+            if value is not None
+        }
+
+    def to_index_dict(self) -> dict:
+        return {
+            "paper_id": self.paper_id,
+            "profile_id": self.profile_id,
+            "profile_version": self.profile_version,
+            "profile_fingerprint": self.profile_fingerprint,
+            "prompt_version": self.prompt_version,
+            "extraction_model": self.extraction_model,
+            "extracted_at": self.extracted_at,
+            "dimensions": dict(self.dimensions),
+            "dimension_coverage": self.dimension_coverage,
+            "coverage_flags": list(self.coverage_flags),
+        }
+
+    @classmethod
+    def from_record(
+        cls,
+        record: dict | "SemanticAnalysis" | "DimensionedExtraction",
+    ) -> "DimensionedExtraction":
+        if isinstance(record, cls):
+            return record
+        if hasattr(record, "to_dimensioned_extraction"):
+            return record.to_dimensioned_extraction()
+        if isinstance(record, dict) and "extraction" in record and isinstance(record["extraction"], dict):
+            record = record["extraction"]
+        if isinstance(record, dict):
+            dimensions = record.get("dimensions")
+            if isinstance(dimensions, dict):
+                return cls(**record)
+            return SemanticAnalysis(**record).to_dimensioned_extraction()
+        raise TypeError(f"Unsupported extraction record type: {type(record)!r}")
+
+
+class SemanticAnalysis(BaseModel):
+    """Legacy adapter over the canonical map-based dimension model.
+
+    This model preserves the original ``qNN_*`` fields for backward
+    compatibility while also carrying canonical profile metadata and the
+    portable ``dimensions`` mapping used by the new storage model.
     """
 
     # Identification & metadata
     paper_id: str = Field(description="Zotero item key")
+    profile_id: str = Field(
+        default=DEFAULT_DIMENSION_PROFILE,
+        description="Active dimension profile identifier",
+    )
+    profile_version: str = Field(
+        default=_LEGACY_PROFILE.version,
+        description="Version of the dimension profile used for extraction",
+    )
+    profile_fingerprint: str = Field(
+        default=_LEGACY_PROFILE.fingerprint,
+        description="Stable fingerprint of the exact profile snapshot used",
+    )
     prompt_version: str = Field(
         description="Semantic analysis prompt version, e.g. '2.0.0'",
     )
@@ -449,57 +590,179 @@ class SemanticAnalysis(BaseModel):
         default_factory=list,
         description="Coverage flags: PARTIAL_COVERAGE, SPARSE_COVERAGE, CRITICAL_GAPS, CORE_GAPS",
     )
+    dimensions: dict[str, str | None] = Field(
+        default_factory=dict,
+        description="Canonical dimension map keyed by stable dimension ID",
+    )
 
     # Dimension field names for iteration
+    @model_validator(mode="before")
+    @classmethod
+    def _expand_dimensions_map(cls, data: dict | "SemanticAnalysis") -> dict | "SemanticAnalysis":
+        if not isinstance(data, dict):
+            return data
+
+        dimensions = data.get("dimensions")
+        profile_id = data.get("profile_id", DEFAULT_DIMENSION_PROFILE)
+        registry = get_default_dimension_registry()
+        profile = registry.profiles.get(profile_id, _LEGACY_PROFILE)
+        dimension_map = (
+            {str(key): value for key, value in dimensions.items()}
+            if isinstance(dimensions, dict)
+            else {}
+        )
+
+        if isinstance(dimensions, dict):
+            for dimension in profile.dimensions:
+                if dimension.id in dimensions and dimension.legacy_field_name:
+                    data.setdefault(dimension.legacy_field_name, dimensions.get(dimension.id))
+                if (
+                    dimension.legacy_short_name
+                    and dimension.legacy_short_name in dimensions
+                    and dimension.legacy_field_name
+                ):
+                    data.setdefault(
+                        dimension.legacy_field_name,
+                        dimensions.get(dimension.legacy_short_name),
+                    )
+
+        for dimension in profile.dimensions:
+            if dimension.id in data:
+                dimension_map.setdefault(dimension.id, data[dimension.id])
+                if dimension.legacy_field_name:
+                    data.setdefault(dimension.legacy_field_name, data[dimension.id])
+            if (
+                dimension.legacy_short_name
+                and dimension.legacy_short_name in data
+                and dimension.id not in dimension_map
+            ):
+                dimension_map[dimension.id] = data[dimension.legacy_short_name]
+
+        if dimension_map:
+            data["dimensions"] = dimension_map
+        return data
+
+    @model_validator(mode="after")
+    def _sync_dimensions_map(self) -> "SemanticAnalysis":
+        registry = get_default_dimension_registry()
+        dimension_map = dict(self.dimensions)
+        profile = registry.profiles.get(self.profile_id)
+        if profile is not None:
+            self.profile_id = profile.profile_id
+            if not self.profile_version:
+                self.profile_version = profile.version
+            if not self.profile_fingerprint:
+                self.profile_fingerprint = profile.fingerprint
+
+            for dimension in profile.dimensions:
+                value = dimension_map.get(dimension.id)
+                if value is None and dimension.legacy_field_name:
+                    value = getattr(self, dimension.legacy_field_name, None)
+                dimension_map[dimension.id] = value
+                if (
+                    dimension.legacy_field_name
+                    and value is not None
+                    and getattr(self, dimension.legacy_field_name, None) is None
+                ):
+                    setattr(self, dimension.legacy_field_name, value)
+        else:
+            for field_name in self.DIMENSION_FIELDS:
+                value = getattr(self, field_name, None)
+                if value is not None:
+                    dimension_map.setdefault(field_name, value)
+        self.dimensions = dimension_map
+        return self
+
     DIMENSION_FIELDS: ClassVar[list[str]] = [
-        "q01_research_question", "q02_thesis", "q03_key_claims", "q04_evidence",
-        "q05_limitations", "q06_paradigm", "q07_methods", "q08_data",
-        "q09_reproducibility", "q10_framework", "q11_traditions", "q12_key_citations",
-        "q13_assumptions", "q14_counterarguments", "q15_novelty", "q16_stance",
-        "q17_field", "q18_audience", "q19_implications", "q20_future_work",
-        "q21_quality", "q22_contribution", "q23_source_type", "q24_other",
-        "q25_institutional_context", "q26_historical_timing", "q27_paradigm_influence",
-        "q28_disciplines_bridged", "q29_cross_domain_insights", "q30_cultural_scope",
-        "q31_philosophical_assumptions", "q32_deployment_gap",
-        "q33_infrastructure_contribution", "q34_power_dynamics",
-        "q35_gaps_and_omissions", "q36_dual_use_concerns", "q37_emergence_claims",
-        "q38_remaining_other", "q39_network_properties", "q40_policy_recommendations",
+        dimension.legacy_field_name
+        for dimension in _LEGACY_PROFILE.ordered_dimensions
+        if dimension.legacy_field_name
     ]
 
     CORE_FIELDS: ClassVar[list[str]] = [
-        "q01_research_question", "q02_thesis", "q03_key_claims",
-        "q04_evidence", "q05_limitations",
+        dimension.legacy_field_name
+        for dimension in _LEGACY_PROFILE.core_dimensions
+        if dimension.legacy_field_name
     ]
 
     DIMENSION_GROUPS: ClassVar[dict[str, list[str]]] = {
-        "research_core": ["q01_research_question", "q02_thesis", "q03_key_claims", "q04_evidence", "q05_limitations"],
-        "methodology": ["q06_paradigm", "q07_methods", "q08_data", "q09_reproducibility", "q10_framework"],
-        "context": ["q11_traditions", "q12_key_citations", "q13_assumptions", "q14_counterarguments", "q15_novelty", "q16_stance"],
-        "meta": ["q17_field", "q18_audience", "q19_implications", "q20_future_work", "q21_quality", "q22_contribution", "q23_source_type", "q24_other"],
-        "scholarly": ["q25_institutional_context", "q26_historical_timing", "q27_paradigm_influence", "q28_disciplines_bridged", "q29_cross_domain_insights", "q30_cultural_scope", "q31_philosophical_assumptions"],
-        "impact": ["q32_deployment_gap", "q33_infrastructure_contribution", "q34_power_dynamics", "q35_gaps_and_omissions", "q36_dual_use_concerns", "q37_emergence_claims", "q38_remaining_other", "q39_network_properties", "q40_policy_recommendations"],
+        group_name: [
+            _LEGACY_PROFILE.dimension_map[dimension_id].legacy_field_name
+            for dimension_id in dimension_ids
+            if _LEGACY_PROFILE.dimension_map[dimension_id].legacy_field_name
+        ]
+        for group_name, dimension_ids in get_default_dimension_registry().get_dimension_groups(
+            profile_id=LEGACY_PROFILE_ID
+        ).items()
     }
 
     def get_dimension_value(self, field_name: str) -> str | None:
         """Get the value of a dimension field by name."""
-        return getattr(self, field_name, None)
+        return self.get_dimension(field_name)
+
+    @property
+    def dimension_map(self) -> dict[str, str | None]:
+        """Return canonical dimension values keyed by stable IDs."""
+        return dict(self.dimensions)
+
+    def get_dimension(self, identifier: str) -> str | None:
+        """Resolve a canonical, legacy, or role-based identifier."""
+        if identifier in self.dimensions:
+            return self.dimensions.get(identifier)
+
+        registry = get_default_dimension_registry()
+        profile = registry.profiles.get(self.profile_id)
+        if profile is not None:
+            resolved = registry.resolve_optional_dimension(
+                identifier,
+                profile_id=profile.profile_id,
+            )
+            if resolved:
+                return self.dimensions.get(resolved.id)
+
+        return getattr(self, identifier, None)
+
+    def get_role(self, role_name: str) -> str | None:
+        """Resolve the value for a downstream semantic role."""
+        registry = get_default_dimension_registry()
+        resolved = registry.resolve_role(role_name, profile_id=self.profile_id)
+        if resolved:
+            return self.dimensions.get(resolved.id)
+        return None
 
     def non_none_dimensions(self) -> dict[str, str]:
         """Return dict of dimension field name -> value for non-None dimensions."""
         return {
-            f: v
-            for f in self.DIMENSION_FIELDS
-            if (v := getattr(self, f)) is not None
+            dimension_id: value
+            for dimension_id, value in self.dimensions.items()
+            if value is not None
+        }
+
+    def to_dimensioned_extraction(self) -> DimensionedExtraction:
+        """Convert to the canonical map-based extraction model."""
+        return DimensionedExtraction(
+            paper_id=self.paper_id,
+            profile_id=self.profile_id,
+            profile_version=self.profile_version,
+            profile_fingerprint=self.profile_fingerprint,
+            prompt_version=self.prompt_version,
+            extraction_model=self.extraction_model,
+            extracted_at=self.extracted_at,
+            dimensions=dict(self.dimensions),
+            dimension_coverage=self.dimension_coverage,
+            coverage_flags=list(self.coverage_flags),
+        )
+
+    def to_legacy_q_dict(self) -> dict[str, str | None]:
+        """Return legacy q-field answers for backward-compatible consumers."""
+        return {
+            field_name: getattr(self, field_name, None)
+            for field_name in self.DIMENSION_FIELDS
         }
 
     def to_index_dict(self) -> dict:
-        """Convert to dictionary for indexing/storage."""
-        data = self.model_dump()
-        # Exclude class-level constants from serialization
-        data.pop("DIMENSION_FIELDS", None)
-        data.pop("CORE_FIELDS", None)
-        data.pop("DIMENSION_GROUPS", None)
-        return data
+        """Convert to the canonical storage dictionary."""
+        return self.to_dimensioned_extraction().to_index_dict()
 
 
 class ExtractionResult(BaseModel):
@@ -507,7 +770,7 @@ class ExtractionResult(BaseModel):
 
     paper_id: str = Field(description="ID of the paper")
     success: bool = Field(description="Whether extraction succeeded")
-    extraction: SemanticAnalysis | None = Field(
+    extraction: SemanticAnalysis | DimensionedExtraction | None = Field(
         default=None,
         description="Extracted content if successful",
     )

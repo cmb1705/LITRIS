@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from src.analysis.dimensions import get_dimension_map, get_dimension_value
 from src.utils.file_utils import safe_read_json, safe_write_json
 
 logger = logging.getLogger(__name__)
@@ -100,14 +101,11 @@ def _extract_text_fields(extraction: dict) -> str:
 
     Concatenates all non-None q-fields into a single search string.
     """
-    ext_data = extraction.get("extraction", extraction)
-    parts = []
-
-    # Collect all q-fields (q01 through q40)
-    for key, value in ext_data.items():
-        if key.startswith("q") and len(key) >= 4 and key[1:3].isdigit() and value:
-            parts.append(str(value))
-
+    parts = [
+        str(value)
+        for value in get_dimension_map(extraction).values()
+        if value
+    ]
     return " ".join(parts)
 
 
@@ -171,8 +169,7 @@ def _find_part_of_relationships(
             if not pid:
                 continue
             ext = extractions.get(pid, {})
-            ext_data = ext.get("extraction", ext)
-            thesis = ext_data.get("q02_thesis") or ""
+            thesis = get_dimension_value(ext, "thesis") or ""
             if thesis.strip():
                 statements.add(thesis.strip())
         if len(statements) < 2:

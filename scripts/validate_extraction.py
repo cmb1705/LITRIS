@@ -13,6 +13,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from src.analysis.dimensions import get_default_dimension_registry, get_dimension_value
 from src.analysis.document_types import get_recommended_fields, get_required_fields
 from src.utils.file_utils import safe_read_json, safe_write_json
 from src.utils.logging_config import setup_logging
@@ -178,7 +179,7 @@ class ExtractionValidator:
 
         # Check required fields
         for field_name in required_fields:
-            value = extraction_data.get(field_name)
+            value = get_dimension_value(extraction_data, field_name)
             has_value = self._has_meaningful_value(value)
             result.field_coverage[field_name] = has_value
 
@@ -198,7 +199,7 @@ class ExtractionValidator:
         for field_name in recommended_fields:
             if field_name == "key_claims" and doc_type is None and self.require_claims:
                 continue
-            value = extraction_data.get(field_name)
+            value = get_dimension_value(extraction_data, field_name)
             has_value = self._has_meaningful_value(value)
             result.field_coverage[field_name] = has_value
 
@@ -206,18 +207,17 @@ class ExtractionValidator:
                 result.warnings.append(f"Missing recommended field: {field_name}")
 
         # Check dimension coverage across all q-fields
-        dim_fields = [f"q{i:02d}" for i in range(1, 41)]
+        registry = get_default_dimension_registry()
+        profile_id = extraction_data.get("profile_id")
+        dim_fields = registry.get_dimension_ids(profile_id=profile_id)
         populated_dims = sum(
-            1 for d in dim_fields
-            if any(
-                self._has_meaningful_value(extraction_data.get(k))
-                for k in extraction_data
-                if k.startswith(f"{d}_")
-            )
+            1
+            for d in dim_fields
+            if self._has_meaningful_value(get_dimension_value(extraction_data, d))
         )
         if populated_dims < 5:
             result.warnings.append(
-                f"Low dimension coverage: {populated_dims}/40 q-fields populated"
+                f"Low dimension coverage: {populated_dims}/{len(dim_fields)} dimensions populated"
             )
 
         return result

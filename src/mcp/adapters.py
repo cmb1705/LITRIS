@@ -216,16 +216,25 @@ class LitrisAdapter:
         if "extraction" in extraction and isinstance(extraction["extraction"], dict):
             extraction = extraction["extraction"]
 
-        # Group q-field dimensions by pass (matching SemanticAnalysis schema)
-        from src.analysis.schemas import SemanticAnalysis
-
         groups = {}
-        for group_name, field_names in SemanticAnalysis.DIMENSION_GROUPS.items():
+        registry = getattr(self.engine, "dimension_registry", None)
+        if registry is None:
+            from src.analysis.dimensions import get_default_dimension_registry
+
+            registry = get_default_dimension_registry()
+        for group_name, dimension_ids in registry.get_dimension_groups().items():
             group_data = {}
-            for field_name in field_names:
-                value = extraction.get(field_name)
+            for dimension_id in dimension_ids:
+                value = extraction.get("dimensions", {}).get(dimension_id)
+                if value is None:
+                    value = extraction.get(dimension_id)
+                if value is None:
+                    # Legacy fallback
+                    dimension = registry.resolve_optional_dimension(dimension_id)
+                    if dimension and dimension.legacy_field_name:
+                        value = extraction.get(dimension.legacy_field_name)
                 if value is not None:
-                    group_data[field_name] = value
+                    group_data[dimension_id] = value
             if group_data:
                 groups[group_name] = group_data
 

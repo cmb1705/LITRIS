@@ -20,6 +20,7 @@ except ModuleNotFoundError:  # Optional dependencies may be unavailable in tests
     LLMClient = None
 
 from src.analysis.schemas import (
+    DimensionedExtraction,
     EvidenceType,
     ExtractionResult,
     KeyClaim,
@@ -40,6 +41,7 @@ except ImportError:  # Optional dependencies may be unavailable in tests
 __all__ = [
     # Schemas (SemanticAnalysis is the primary analysis type)
     "SemanticAnalysis",
+    "DimensionedExtraction",
     "PaperExtraction",  # retained for backward compatibility
     "ExtractionResult",
     "Methodology",

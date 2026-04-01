@@ -31,6 +31,7 @@ except ImportError:
     pass
 
 from src.analysis.citation_graph import GraphConfig, load_and_build_graph
+from src.analysis.dimensions import NON_DIMENSION_CHUNK_TYPES
 from src.analysis.gap_detection import GapDetectionConfig, load_gap_report
 from src.analysis.research_questions import (
     QuestionScope,
@@ -418,10 +419,35 @@ def load_filter_options(engine: SearchEngine) -> dict[str, object]:
         Dictionary with collections, item types, and year range.
     """
     if "filter_options" not in st.session_state:
+        profile_engine = (
+            engine.primary_engine
+            if isinstance(engine, FederatedSearchEngine)
+            else engine
+        )
+        chunk_type_groups = {"Non-dimension": list(NON_DIMENSION_CHUNK_TYPES)}
+        chunk_types = list(CHUNK_TYPES)
+        if hasattr(profile_engine, "dimension_registry"):
+            profile_id = profile_engine.dimension_profile.profile_id
+            chunk_types = profile_engine.dimension_registry.get_chunk_types(
+                profile_id=profile_id,
+                include_legacy_aliases=False,
+            )
+            for section in profile_engine.dimension_registry.get_sections(profile_id=profile_id):
+                section_chunk_types = [
+                    dimension.chunk_type
+                    for dimension in profile_engine.dimension_registry.get_section_dimensions(
+                        section.id,
+                        profile_id=profile_id,
+                    )
+                ]
+                if section_chunk_types:
+                    chunk_type_groups[section.display_label] = section_chunk_types
         st.session_state.filter_options = {
             "collections": sorted(engine.get_collections()),
             "item_types": sorted(engine.get_item_types()),
             "year_range": engine.get_year_range(),
+            "chunk_types": chunk_types,
+            "chunk_type_groups": chunk_type_groups,
         }
     return st.session_state.filter_options
 
@@ -534,10 +560,14 @@ def execute_metadata_search(
     return metadata_results_to_enriched(results[:top_k], match_label)
 
 
-def normalize_chunk_filter(selected: Iterable[str]) -> list[ChunkType] | None:
+def normalize_chunk_filter(
+    selected: Iterable[str],
+    available_chunk_types: Iterable[str],
+) -> list[ChunkType] | None:
     """Normalize chunk type selections into a search filter."""
-    selected_list = [c for c in selected if c in CHUNK_TYPES]
-    if not selected_list or len(selected_list) == len(CHUNK_TYPES):
+    available = list(dict.fromkeys(available_chunk_types))
+    selected_list = [c for c in selected if c in available]
+    if not selected_list or len(selected_list) == len(available):
         return None
     return cast(list[ChunkType], selected_list)
 
@@ -1397,7 +1427,11 @@ def render_active_filters(
     active_filters = []
 
     # Check if chunk types are restricted (not all selected) - skip in metadata-only mode
-    if not metadata_only and chunk_types and len(chunk_types) < len(CHUNK_TYPES):
+    available_chunk_types = st.session_state.get("filter_options", {}).get(
+        "chunk_types",
+        CHUNK_TYPES,
+    )
+    if not metadata_only and chunk_types and len(chunk_types) < len(available_chunk_types):
         active_filters.append(f"Chunks: {', '.join(chunk_types)}")
 
     # Check collections
@@ -2085,34 +2119,30 @@ def main() -> None:
         # Only show chunk type filter for semantic search (not metadata-only)
         if not st.session_state.get("metadata_only", False):
             with st.expander("Chunk types", expanded=False):
-                _dim_research = [f"dim_q{i:02d}" for i in range(1, 6)]
-                _dim_methods = [f"dim_q{i:02d}" for i in range(6, 11)]
-                _dim_context = [f"dim_q{i:02d}" for i in range(11, 17)]
-                _dim_meta = [f"dim_q{i:02d}" for i in range(17, 25)]
-                _dim_synthesis = [f"dim_q{i:02d}" for i in range(25, 33)]
-                _dim_impact = [f"dim_q{i:02d}" for i in range(33, 41)]
-                _non_dim = ["abstract", "raptor_overview", "raptor_core"]
+                chunk_type_groups = filter_options.get("chunk_type_groups", {})
+                available_chunk_types = filter_options.get("chunk_types", CHUNK_TYPES)
+                _default = st.session_state.get(
+                    "filter_chunk_types",
+                    available_chunk_types,
+                )
 
-                _default = st.session_state.get("filter_chunk_types", CHUNK_TYPES)
-                st.caption("Non-dimension")
-                sel_non_dim = st.multiselect("Non-dim", _non_dim, default=[c for c in _default if c in _non_dim], label_visibility="collapsed", key="_ct_nondim")
-                st.caption("Pass 1: Research Core (q01-q05)")
-                sel_p1 = st.multiselect("P1", _dim_research, default=[c for c in _default if c in _dim_research], label_visibility="collapsed", key="_ct_p1")
-                st.caption("Pass 2: Methodology (q06-q10)")
-                sel_p2 = st.multiselect("P2", _dim_methods, default=[c for c in _default if c in _dim_methods], label_visibility="collapsed", key="_ct_p2")
-                st.caption("Pass 3: Context & Discourse (q11-q16)")
-                sel_p3 = st.multiselect("P3", _dim_context, default=[c for c in _default if c in _dim_context], label_visibility="collapsed", key="_ct_p3")
-                st.caption("Pass 4: Meta & Audience (q17-q24)")
-                sel_p4 = st.multiselect("P4", _dim_meta, default=[c for c in _default if c in _dim_meta], label_visibility="collapsed", key="_ct_p4")
-                st.caption("Pass 5: Synthesis (q25-q32)")
-                sel_p5 = st.multiselect("P5", _dim_synthesis, default=[c for c in _default if c in _dim_synthesis], label_visibility="collapsed", key="_ct_p5")
-                st.caption("Pass 6: Impact & Legacy (q33-q40)")
-                sel_p6 = st.multiselect("P6", _dim_impact, default=[c for c in _default if c in _dim_impact], label_visibility="collapsed", key="_ct_p6")
+                selected_groups: list[str] = []
+                for idx, (group_label, group_chunk_types) in enumerate(chunk_type_groups.items(), start=1):
+                    st.caption(group_label)
+                    selected_groups.extend(
+                        st.multiselect(
+                            f"Chunk group {idx}",
+                            group_chunk_types,
+                            default=[c for c in _default if c in group_chunk_types],
+                            label_visibility="collapsed",
+                            key=f"_ct_group_{idx}",
+                        )
+                    )
 
-                chunk_types = sel_non_dim + sel_p1 + sel_p2 + sel_p3 + sel_p4 + sel_p5 + sel_p6
+                chunk_types = selected_groups
                 st.session_state["filter_chunk_types"] = chunk_types
         else:
-            chunk_types = CHUNK_TYPES  # Use all types, but don't show filter
+            chunk_types = filter_options.get("chunk_types", CHUNK_TYPES)
         sort_label = st.selectbox(
             "Sort results",
             options=list(SORT_OPTIONS.keys()),
@@ -2367,7 +2397,10 @@ def main() -> None:
                                 engine=engine,
                                 query=query_text,
                                 top_k=top_k,
-                                chunk_types=normalize_chunk_filter(chunk_types),
+                                chunk_types=normalize_chunk_filter(
+                                    chunk_types,
+                                    filter_options.get("chunk_types", CHUNK_TYPES),
+                                ),
                                 year_min=year_range[0] if use_year_filter else None,
                                 year_max=year_range[1] if use_year_filter else None,
                                 collections=collections or None,
@@ -2446,7 +2479,10 @@ def main() -> None:
                             engine=engine,
                             query=last_query,
                             top_k=top_k,
-                            chunk_types=normalize_chunk_filter(chunk_types),
+                            chunk_types=normalize_chunk_filter(
+                                chunk_types,
+                                filter_options.get("chunk_types", CHUNK_TYPES),
+                            ),
                             year_min=year_range[0] if use_year_filter else None,
                             year_max=year_range[1] if use_year_filter else None,
                             collections=collections or None,

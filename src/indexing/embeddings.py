@@ -20,37 +20,49 @@ try:
 except Exception:  # noqa: BLE001 - handle missing or broken optional dependency
     _OllamaClient = None
 
-from src.analysis.schemas import SemanticAnalysis
+from src.analysis.dimensions import get_default_dimension_registry
+from src.analysis.schemas import DimensionedExtraction, SemanticAnalysis
 from src.utils.logging_config import get_logger
 from src.zotero.models import PaperMetadata
 
 logger = get_logger(__name__)
 
-# Dimension chunk types: one per non-None SemanticAnalysis question field
-_DIM_CHUNK_TYPES = [f"dim_q{i:02d}" for i in range(1, 41)]
+ChunkType = str
 
-ChunkType = str  # "dim_q01" through "dim_q40", "raptor_overview", "raptor_core", "abstract"
 
-CHUNK_TYPES: list[str] = [
-    "abstract",
-    *_DIM_CHUNK_TYPES,
-    "raptor_overview",
-    "raptor_core",
-]
+def get_dimension_chunk_types(profile_id: str | None = None) -> list[str]:
+    """Return dimension chunk types for the active registry/profile."""
 
-# Mapping from dimension chunk type to thematic group
-DIMENSION_GROUPS: dict[str, str] = {}
-_GROUP_RANGES = [
-    ("research_core", range(1, 6)),
-    ("methodology", range(6, 11)),
-    ("context", range(11, 17)),
-    ("meta", range(17, 25)),
-    ("scholarly", range(25, 32)),
-    ("impact", range(32, 41)),
-]
-for _group, _rng in _GROUP_RANGES:
-    for _i in _rng:
-        DIMENSION_GROUPS[f"dim_q{_i:02d}"] = _group
+    registry = get_default_dimension_registry()
+    return registry.get_chunk_types(
+        profile_id=profile_id,
+        include_non_dimension=False,
+    )
+
+
+def get_chunk_types(profile_id: str | None = None) -> list[str]:
+    """Return all chunk types for the active registry/profile."""
+
+    registry = get_default_dimension_registry()
+    return registry.get_chunk_types(profile_id=profile_id)
+
+
+def get_dimension_group_map(profile_id: str | None = None) -> dict[str, str]:
+    """Return chunk-type to group-name mapping for the active profile."""
+
+    registry = get_default_dimension_registry()
+    profile = registry.get_profile(profile_id)
+    mapping: dict[str, str] = {}
+    for section in profile.ordered_sections:
+        for dimension in profile.dimensions_for_section(section.id):
+            mapping[dimension.chunk_type] = section.id
+            if dimension.legacy_chunk_type:
+                mapping[dimension.legacy_chunk_type] = section.id
+    return mapping
+
+_DIM_CHUNK_TYPES = get_dimension_chunk_types()
+CHUNK_TYPES: list[str] = get_chunk_types()
+DIMENSION_GROUPS: dict[str, str] = get_dimension_group_map()
 
 SentenceTransformer = _SentenceTransformer
 
@@ -202,7 +214,7 @@ class EmbeddingGenerator:
     def create_chunks(
         self,
         paper: PaperMetadata,
-        extraction: SemanticAnalysis,
+        extraction: SemanticAnalysis | DimensionedExtraction,
         raptor_summaries: RaptorSummaries | None = None,
     ) -> list[EmbeddingChunk]:
         """Create text chunks from paper metadata and semantic analysis.
@@ -222,8 +234,12 @@ class EmbeddingGenerator:
         """
         chunks = []
 
-        # Derive quality_rating from q21_quality prose (integer 1-5)
-        quality_rating = self._derive_quality_rating(extraction.q21_quality)
+        quality_source = None
+        if hasattr(extraction, "get_role"):
+            quality_source = extraction.get_role("quality")
+        if quality_source is None:
+            quality_source = getattr(extraction, "q21_quality", None)
+        quality_rating = self._derive_quality_rating(quality_source)
 
         base_metadata = {
             "title": paper.title,
@@ -247,14 +263,25 @@ class EmbeddingGenerator:
                 )
             )
 
-        # Dimension chunks: one per non-None q field
-        for field_name in extraction.DIMENSION_FIELDS:
-            value = getattr(extraction, field_name, None)
+        # Dimension chunks: one per non-None active dimension
+        registry = get_default_dimension_registry()
+        profile = registry.profiles.get(
+            getattr(extraction, "profile_id", None),
+            registry.active_profile,
+        )
+        dimension_values = (
+            extraction.dimension_map
+            if hasattr(extraction, "dimension_map")
+            else extraction.to_dimensioned_extraction().dimension_map
+        )
+        group_map = get_dimension_group_map(profile.profile_id)
+        for dimension in profile.enabled_dimensions:
+            value = dimension_values.get(dimension.id)
             if value is None:
                 continue
-            # e.g., "q01_research_question" -> "dim_q01"
-            dim_key = f"dim_{field_name[:3]}"
+            dim_key = dimension.chunk_type
             group = DIMENSION_GROUPS.get(dim_key, "unknown")
+            group = group_map.get(dim_key, group)
             chunks.append(
                 EmbeddingChunk(
                     paper_id=paper.paper_id,

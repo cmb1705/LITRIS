@@ -13,6 +13,7 @@ from src.analysis.cli_executor import (
     ParseError,
     RateLimitError,
 )
+from src.analysis.dimensions import EXTRACTION_METADATA_KEYS, is_dimension_payload
 from src.analysis.progress_tracker import ProgressTracker
 from src.analysis.prompts import build_extraction_prompt
 from src.analysis.rate_limit_handler import RateLimitHandler
@@ -267,58 +268,29 @@ class CliSectionExtractor:
         """
         now = datetime.now()
 
-        # Build SemanticAnalysis from q-field response
+        dimension_payload = (
+            {
+                key: value
+                for key, value in response.items()
+                if key not in EXTRACTION_METADATA_KEYS
+            }
+            if is_dimension_payload(response)
+            else {
+                key: value
+                for key, value in response.items()
+                if key.startswith("q") or key == "dimensions"
+            }
+        )
+
         analysis = SemanticAnalysis(
             paper_id=paper_id,
+            profile_id=response.get("profile_id", "legacy_semantic_v1"),
+            profile_version=response.get("profile_version", "1.0.0"),
+            profile_fingerprint=response.get("profile_fingerprint", ""),
             prompt_version=response.get("prompt_version", "2.0.0"),
             extraction_model=response.get("extraction_model", "unknown"),
             extracted_at=now.isoformat(),
-            # Pass 1: Research Core
-            q01_research_question=response.get("q01_research_question"),
-            q02_thesis=response.get("q02_thesis"),
-            q03_key_claims=response.get("q03_key_claims"),
-            q04_evidence=response.get("q04_evidence"),
-            q05_limitations=response.get("q05_limitations"),
-            # Pass 2: Methodology
-            q06_paradigm=response.get("q06_paradigm"),
-            q07_methods=response.get("q07_methods"),
-            q08_data=response.get("q08_data"),
-            q09_reproducibility=response.get("q09_reproducibility"),
-            q10_framework=response.get("q10_framework"),
-            # Pass 3: Context & Discourse
-            q11_traditions=response.get("q11_traditions"),
-            q12_key_citations=response.get("q12_key_citations"),
-            q13_assumptions=response.get("q13_assumptions"),
-            q14_counterarguments=response.get("q14_counterarguments"),
-            q15_novelty=response.get("q15_novelty"),
-            q16_stance=response.get("q16_stance"),
-            # Pass 4: Meta & Audience
-            q17_field=response.get("q17_field"),
-            q18_audience=response.get("q18_audience"),
-            q19_implications=response.get("q19_implications"),
-            q20_future_work=response.get("q20_future_work"),
-            q21_quality=response.get("q21_quality"),
-            q22_contribution=response.get("q22_contribution"),
-            q23_source_type=response.get("q23_source_type"),
-            q24_other=response.get("q24_other"),
-            # Pass 5: Scholarly Positioning
-            q25_institutional_context=response.get("q25_institutional_context"),
-            q26_historical_timing=response.get("q26_historical_timing"),
-            q27_paradigm_influence=response.get("q27_paradigm_influence"),
-            q28_disciplines_bridged=response.get("q28_disciplines_bridged"),
-            q29_cross_domain_insights=response.get("q29_cross_domain_insights"),
-            q30_cultural_scope=response.get("q30_cultural_scope"),
-            q31_philosophical_assumptions=response.get("q31_philosophical_assumptions"),
-            # Pass 6: Impact, Gaps & Domain
-            q32_deployment_gap=response.get("q32_deployment_gap"),
-            q33_infrastructure_contribution=response.get("q33_infrastructure_contribution"),
-            q34_power_dynamics=response.get("q34_power_dynamics"),
-            q35_gaps_and_omissions=response.get("q35_gaps_and_omissions"),
-            q36_dual_use_concerns=response.get("q36_dual_use_concerns"),
-            q37_emergence_claims=response.get("q37_emergence_claims"),
-            q38_remaining_other=response.get("q38_remaining_other"),
-            q39_network_properties=response.get("q39_network_properties"),
-            q40_policy_recommendations=response.get("q40_policy_recommendations"),
+            **dimension_payload,
         )
 
         return analysis

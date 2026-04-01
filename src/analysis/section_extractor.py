@@ -10,14 +10,15 @@ from threading import Lock
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode
 from src.analysis.coverage import score_coverage
+from src.analysis.dimensions import get_dimension_value
 from src.analysis.document_classifier import classify as classify_document
 from src.analysis.document_types import DocumentType
 from src.analysis.llm_factory import create_llm_client
 from src.analysis.schemas import ExtractionResult, SemanticAnalysis
 from src.analysis.semantic_prompts import (
-    PASS_DEFINITIONS,
     SEMANTIC_PROMPT_VERSION,
     build_pass_user_prompt,
+    get_pass_definitions,
 )
 from src.extraction.cascade import ExtractionCascade
 from src.extraction.pdf_extractor import PDFExtractor
@@ -26,10 +27,6 @@ from src.utils.logging_config import LogContext, get_logger
 from src.zotero.models import PaperMetadata
 
 logger = get_logger(__name__)
-
-# Number of extraction passes
-NUM_PASSES = 6
-
 
 class ExtractionCache:
     """Cache for extraction results based on content hash."""
@@ -536,8 +533,10 @@ class SectionExtractor:
         total_duration = 0.0
         errors: list[str] = []
 
-        for pass_num in range(1, NUM_PASSES + 1):
-            pass_label, pass_questions = PASS_DEFINITIONS[pass_num - 1]
+        pass_definitions = get_pass_definitions()
+        num_passes = len(pass_definitions)
+        for pass_num in range(1, num_passes + 1):
+            pass_label, pass_questions = pass_definitions[pass_num - 1]
             pass_fields = [q[0] for q in pass_questions]
 
             # Check per-pass cache
@@ -614,11 +613,11 @@ class SectionExtractor:
             )
 
         # If all passes failed, return error
-        if len(errors) == NUM_PASSES:
+        if len(errors) == num_passes:
             return ExtractionResult(
                 paper_id=paper.paper_id,
                 success=False,
-                error=f"All {NUM_PASSES} passes failed: " + "; ".join(errors),
+                error=f"All {num_passes} passes failed: " + "; ".join(errors),
                 duration_seconds=total_duration,
                 model_used=self.model,
                 input_tokens=total_input_tokens,
@@ -640,11 +639,11 @@ class SectionExtractor:
         analysis.coverage_flags = coverage_result.flags
 
         # Reject extractions with too many failed passes (likely quota hit)
-        min_passes = NUM_PASSES // 2  # At least half the passes must succeed
-        successful_passes = NUM_PASSES - len(errors)
+        min_passes = num_passes // 2  # At least half the passes must succeed
+        successful_passes = num_passes - len(errors)
         if successful_passes < min_passes:
             logger.warning(
-                f"Paper {paper.paper_id}: only {successful_passes}/{NUM_PASSES} "
+                f"Paper {paper.paper_id}: only {successful_passes}/{num_passes} "
                 f"passes succeeded (coverage: {analysis.dimension_coverage:.0%}). "
                 f"Marking as failed for retry."
             )
@@ -652,7 +651,7 @@ class SectionExtractor:
                 paper_id=paper.paper_id,
                 success=False,
                 error=(
-                    f"Too few passes succeeded ({successful_passes}/{NUM_PASSES}): "
+                    f"Too few passes succeeded ({successful_passes}/{num_passes}): "
                     + "; ".join(errors)
                 ),
                 duration_seconds=total_duration,
@@ -663,7 +662,7 @@ class SectionExtractor:
 
         logger.info(
             f"Extracted paper {paper.paper_id} in {total_duration:.1f}s "
-            f"({successful_passes}/{NUM_PASSES} passes, "
+            f"({successful_passes}/{num_passes} passes, "
             f"coverage: {analysis.dimension_coverage:.0%})"
         )
 
@@ -702,7 +701,9 @@ class SectionExtractor:
 
         # Extract fields from the extraction object
         for field in field_names:
-            value = getattr(result.extraction, field, None)
+            value = get_dimension_value(result.extraction, field)
+            if value is None:
+                value = getattr(result.extraction, field, None)
             answers[field] = value
 
         return answers
@@ -1085,8 +1086,8 @@ class SectionExtractor:
             }
 
         avg_length = sum(sample_lengths) / len(sample_lengths)
-        # 6 passes per paper
-        per_paper_cost = self.llm_client.estimate_cost(int(avg_length)) * NUM_PASSES
+        num_passes = len(get_pass_definitions())
+        per_paper_cost = self.llm_client.estimate_cost(int(avg_length)) * num_passes
         total_cost = per_paper_cost * papers_to_extract
 
         return {
@@ -1094,7 +1095,7 @@ class SectionExtractor:
             "papers_cached": cached_count,
             "papers_to_extract": papers_to_extract,
             "average_text_length": int(avg_length),
-            "passes_per_paper": NUM_PASSES,
+            "passes_per_paper": num_passes,
             "estimated_cost_per_paper": round(per_paper_cost, 4),
             "estimated_total_cost": round(total_cost, 2),
             "model": self.model,

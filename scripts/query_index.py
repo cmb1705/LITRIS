@@ -45,9 +45,7 @@ def parse_args():
     parser.add_argument(
         "--chunk-types",
         nargs="+",
-        choices=["abstract", "raptor_overview", "raptor_core"]
-        + [f"dim_q{i:02d}" for i in range(1, 41)],
-        help="Filter by chunk types (e.g., abstract, dim_q02, raptor_overview)",
+        help="Filter by chunk types from the active index profile (e.g., abstract, dim_q02, dim_thesis)",
     )
     parser.add_argument(
         "--year-min",

@@ -7,6 +7,8 @@ Prompt version is tracked separately from the legacy prompts.py version.
 Cache keys include this version so bumping it invalidates all cached results.
 """
 
+from src.analysis.dimensions import get_default_dimension_registry
+
 # Prompt version for SemanticAnalysis extraction.
 # Bump this when any prompt text changes; cache keys include it.
 SEMANTIC_PROMPT_VERSION = "2.0.0"
@@ -94,193 +96,64 @@ def _get_framing(document_type: str) -> str:
 
 
 # -- Question definitions per pass ----------------------------------------------
-# Each entry: (field_name, human-readable question text)
+# Each entry is ``(output_key, question_text)``. Legacy profiles keep ``qNN``
+# output keys; newer profiles can emit canonical IDs directly.
 
-PASS_1_QUESTIONS: list[tuple[str, str]] = [
-    ("q01_research_question",
-     "What research questions or objectives does this work address?"),
-    ("q02_thesis",
-     "What is the central thesis or main argument?"),
-    ("q03_key_claims",
-     "What are the key claims or propositions made?"),
-    ("q04_evidence",
-     "What evidence is presented and how strong is it?"),
-    ("q05_limitations",
-     "What limitations are acknowledged or apparent?"),
-]
 
-PASS_2_QUESTIONS: list[tuple[str, str]] = [
-    ("q06_paradigm",
-     "What research paradigm underlies this work? "
-     "(positivist, interpretivist, critical, pragmatist, etc.)"),
-    ("q07_methods",
-     "What methods and analytical techniques are used?"),
-    ("q08_data",
-     "What data sources, sample sizes, and time periods are involved?"),
-    ("q09_reproducibility",
-     "How reproducible is this work? Are methods, data, and code available?"),
-    ("q10_framework",
-     "What theoretical or conceptual framework is used?"),
-]
+def get_pass_definitions() -> list[tuple[str, list[tuple[str, str]]]]:
+    """Return the ordered extraction passes for the active profile."""
 
-PASS_3_QUESTIONS: list[tuple[str, str]] = [
-    ("q11_traditions",
-     "What intellectual traditions or schools of thought does this draw from?"),
-    ("q12_key_citations",
-     "What are the most influential works cited, and how do they shape "
-     "this paper?"),
-    ("q13_assumptions",
-     "What assumptions (stated or unstated) underlie the analysis?"),
-    ("q14_counterarguments",
-     "What counterarguments or alternative interpretations are addressed?"),
-    ("q15_novelty",
-     "What is novel or original about this work?"),
-    ("q16_stance",
-     "What is the author's stance or perspective on the topic?"),
-]
+    registry = get_default_dimension_registry()
+    profile = registry.active_profile
+    pass_definitions: list[tuple[str, list[tuple[str, str]]]] = []
+    for section in profile.ordered_sections:
+        questions = []
+        for dimension in profile.dimensions_for_section(section.id):
+            output_key = dimension.legacy_field_name or dimension.id
+            questions.append((output_key, dimension.question))
+        pass_definitions.append((section.display_label, questions))
+    return pass_definitions
 
-PASS_4_QUESTIONS: list[tuple[str, str]] = [
-    ("q17_field",
-     "What academic field(s) does this work belong to?"),
-    ("q18_audience",
-     "Who is the intended audience?"),
-    ("q19_implications",
-     "What are the broader theoretical or practical implications?"),
-    ("q20_future_work",
-     "What future research directions are suggested?"),
-    ("q21_quality",
-     "How would you rate the overall quality? "
-     "(methodology rigor, evidence strength, contribution significance)"),
-    ("q22_contribution",
-     "What is the explicit contribution of this work to its field?"),
-    ("q23_source_type",
-     "What type of document is this? "
-     "(empirical study, review, theoretical, report, etc.)"),
-    ("q24_other",
-     "What else is noteworthy that the above questions don't capture?"),
-]
 
-PASS_5_QUESTIONS: list[tuple[str, str]] = [
-    ("q25_institutional_context",
-     "What institutional or organizational context shaped this work?"),
-    ("q26_historical_timing",
-     "Why does this work appear now? "
-     "What historical/temporal factors are relevant?"),
-    ("q27_paradigm_influence",
-     "How does this work relate to dominant paradigms in its field?"),
-    ("q28_disciplines_bridged",
-     "What disciplines does this work bridge or draw from?"),
-    ("q29_cross_domain_insights",
-     "What insights transfer to or from other domains?"),
-    ("q30_cultural_scope",
-     "What cultural, geographic, or demographic scope does this cover?"),
-    ("q31_philosophical_assumptions",
-     "What philosophical assumptions underlie the methodology or claims?"),
-]
+def get_dimension_groups() -> dict[str, list[str]]:
+    """Return group -> output key mappings for the active profile."""
 
-PASS_6_QUESTIONS: list[tuple[str, str]] = [
-    ("q32_deployment_gap",
-     "What gap exists between this research and real-world application?"),
-    ("q33_infrastructure_contribution",
-     "Does this work contribute tools, datasets, frameworks, "
-     "or infrastructure?"),
-    ("q34_power_dynamics",
-     "What power dynamics, inequities, or stakeholder tensions "
-     "are relevant?"),
-    ("q35_gaps_and_omissions",
-     "What important aspects does this work fail to address?"),
-    ("q36_dual_use_concerns",
-     "Are there dual-use or ethical concerns with the findings or methods?"),
-    ("q37_emergence_claims",
-     "Does this work describe emergent phenomena or system-level behaviors?"),
-    ("q38_remaining_other",
-     "What else is significant that no prior question has captured?"),
-    ("q39_network_properties",
-     "What network structures, metrics, or graph algorithms are central?"),
-    ("q40_policy_recommendations",
-     "What specific policy recommendations or actionable guidance "
-     "is proposed?"),
-]
+    registry = get_default_dimension_registry()
+    profile = registry.active_profile
+    groups: dict[str, list[str]] = {}
+    for section in profile.ordered_sections:
+        groups[section.id] = [
+            dimension.legacy_field_name or dimension.id
+            for dimension in profile.dimensions_for_section(section.id)
+        ]
+    return groups
 
-# Ordered list of all passes for iteration.
-PASS_DEFINITIONS: list[tuple[str, list[tuple[str, str]]]] = [
-    ("Pass 1: Research Core", PASS_1_QUESTIONS),
-    ("Pass 2: Methodology", PASS_2_QUESTIONS),
-    ("Pass 3: Context & Discourse", PASS_3_QUESTIONS),
-    ("Pass 4: Meta & Audience", PASS_4_QUESTIONS),
-    ("Pass 5: Scholarly Positioning", PASS_5_QUESTIONS),
-    ("Pass 6: Impact, Gaps & Domain", PASS_6_QUESTIONS),
-]
 
-# -- Dimension groups (for search filtering) ------------------------------------
+def get_field_to_group() -> dict[str, str]:
+    """Return output key -> group mapping for the active profile."""
 
-DIMENSION_GROUPS: dict[str, list[str]] = {
-    "research_core": [q[0] for q in PASS_1_QUESTIONS],
-    "methodology": [q[0] for q in PASS_2_QUESTIONS],
-    "context": [q[0] for q in PASS_3_QUESTIONS],
-    "meta": [q[0] for q in PASS_4_QUESTIONS],
-    "scholarly": [q[0] for q in PASS_5_QUESTIONS],
-    "impact": [q[0] for q in PASS_6_QUESTIONS],
-}
+    return {
+        field_name: group_name
+        for group_name, fields in get_dimension_groups().items()
+        for field_name in fields
+    }
 
-# Reverse mapping: field name -> group name
-FIELD_TO_GROUP: dict[str, str] = {
-    field: group
-    for group, fields in DIMENSION_GROUPS.items()
-    for field in fields
-}
 
-# Per-dimension reasoning effort for OpenAI GPT-5.x models.
-# "high" = answer is typically explicit in the text (structural extraction)
-# "xhigh" = requires synthesis, inference, or critical reading
-DIMENSION_REASONING_EFFORT: dict[str, str] = {
-    # Pass 1: Research Core
-    "q01_research_question": "high",    # Usually stated in abstract/intro
-    "q02_thesis": "high",              # Usually stated explicitly
-    "q03_key_claims": "xhigh",         # Distilling argument structure
-    "q04_evidence": "xhigh",           # Evaluating quality, not just listing
-    "q05_limitations": "xhigh",        # Often implicit or understated
-    # Pass 2: Methodology
-    "q06_paradigm": "xhigh",           # Epistemological classification
-    "q07_methods": "high",             # Dedicated section in most papers
-    "q08_data": "high",               # Explicitly described
-    "q09_reproducibility": "high",     # Factual: is code/data shared?
-    "q10_framework": "high",           # Usually named explicitly
-    # Pass 3: Context & Discourse
-    "q11_traditions": "xhigh",         # Requires broad field knowledge
-    "q12_key_citations": "high",       # Listed in references
-    "q13_assumptions": "xhigh",        # Rarely stated, must be inferred
-    "q14_counterarguments": "xhigh",   # Adversarial reading required
-    "q15_novelty": "xhigh",           # Must situate in field context
-    "q16_stance": "xhigh",            # Reading between the lines
-    # Pass 4: Meta & Audience
-    "q17_field": "high",              # Obvious from journal/content
-    "q18_audience": "high",           # Obvious from venue
-    "q19_implications": "xhigh",      # Synthesis beyond stated conclusions
-    "q20_future_work": "xhigh",       # Sometimes requires inference
-    "q21_quality": "xhigh",           # Holistic judgment call
-    "q22_contribution": "xhigh",      # What's actually new vs claimed
-    "q23_source_type": "high",        # Structural classification
-    "q24_other": "xhigh",            # Open-ended synthesis
-    # Pass 5: Scholarly Positioning
-    "q25_institutional_context": "high",  # Affiliations are stated
-    "q26_historical_timing": "xhigh",    # Why now? Contextual reasoning
-    "q27_paradigm_influence": "xhigh",   # Deep field knowledge
-    "q28_disciplines_bridged": "high",   # Stated or obvious from methods
-    "q29_cross_domain_insights": "xhigh",  # Transfer reasoning
-    "q30_cultural_scope": "high",        # Stated in data description
-    "q31_philosophical_assumptions": "xhigh",  # Deep epistemological reasoning
-    # Pass 6: Impact, Gaps & Domain
-    "q32_deployment_gap": "xhigh",       # Research-to-practice gap analysis
-    "q33_infrastructure_contribution": "high",  # Factual: tools/datasets released?
-    "q34_power_dynamics": "xhigh",       # Critical theory lens
-    "q35_gaps_and_omissions": "xhigh",   # Knowing what's missing
-    "q36_dual_use_concerns": "xhigh",    # Ethical reasoning
-    "q37_emergence_claims": "xhigh",     # Nuanced systems thinking
-    "q38_remaining_other": "xhigh",      # Open-ended catch-all
-    "q39_network_properties": "high",    # Factual: which metrics/algorithms?
-    "q40_policy_recommendations": "high",  # Usually in conclusion if present
-}
+def get_dimension_reasoning_effort() -> dict[str, str]:
+    """Return output key -> reasoning effort for the active profile."""
+
+    registry = get_default_dimension_registry()
+    profile = registry.active_profile
+    return {
+        (dimension.legacy_field_name or dimension.id): dimension.reasoning_effort
+        for dimension in profile.ordered_dimensions
+    }
+
+
+PASS_DEFINITIONS: list[tuple[str, list[tuple[str, str]]]] = get_pass_definitions()
+DIMENSION_GROUPS: dict[str, list[str]] = get_dimension_groups()
+FIELD_TO_GROUP: dict[str, str] = get_field_to_group()
+DIMENSION_REASONING_EFFORT: dict[str, str] = get_dimension_reasoning_effort()
 
 
 def get_pass_reasoning_effort(pass_number: int) -> str:
@@ -290,12 +163,13 @@ def get_pass_reasoning_effort(pass_number: int) -> str:
     "xhigh". Otherwise "high".
 
     Args:
-        pass_number: 1-6.
+        pass_number: 1-indexed pass number for the active profile.
 
     Returns:
         "high" or "xhigh".
     """
-    _, questions = PASS_DEFINITIONS[pass_number - 1]
+    pass_definitions = get_pass_definitions()
+    _, questions = pass_definitions[pass_number - 1]
     for field_name, _ in questions:
         if DIMENSION_REASONING_EFFORT.get(field_name) == "xhigh":
             return "xhigh"
@@ -336,10 +210,13 @@ def build_pass_user_prompt(
     Raises:
         ValueError: If pass_number is not 1-6.
     """
-    if not 1 <= pass_number <= 6:
-        raise ValueError(f"pass_number must be 1-6, got {pass_number}")
+    pass_definitions = get_pass_definitions()
+    if not 1 <= pass_number <= len(pass_definitions):
+        raise ValueError(
+            f"pass_number must be 1-{len(pass_definitions)}, got {pass_number}"
+        )
 
-    pass_label, questions = PASS_DEFINITIONS[pass_number - 1]
+    pass_label, questions = pass_definitions[pass_number - 1]
     framing = _get_framing(document_type)
     formatted_questions = _format_questions(questions)
 
@@ -370,19 +247,22 @@ def get_pass_fields(pass_number: int) -> list[str]:
     """Return the field names produced by a given pass.
 
     Args:
-        pass_number: 1-6.
+        pass_number: 1-indexed pass number for the active profile.
 
     Returns:
         List of field name strings (e.g., ["q01_research_question", ...]).
     """
-    if not 1 <= pass_number <= 6:
-        raise ValueError(f"pass_number must be 1-6, got {pass_number}")
-    return [q[0] for q in PASS_DEFINITIONS[pass_number - 1][1]]
+    pass_definitions = get_pass_definitions()
+    if not 1 <= pass_number <= len(pass_definitions):
+        raise ValueError(
+            f"pass_number must be 1-{len(pass_definitions)}, got {pass_number}"
+        )
+    return [q[0] for q in pass_definitions[pass_number - 1][1]]
 
 
 def get_all_dimension_fields() -> list[str]:
-    """Return all 40 dimension field names in order."""
+    """Return all output keys for the active profile in order."""
     fields = []
-    for _, questions in PASS_DEFINITIONS:
+    for _, questions in get_pass_definitions():
         fields.extend(q[0] for q in questions)
     return fields

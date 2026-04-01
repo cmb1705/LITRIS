@@ -14,6 +14,7 @@ Inspired by RAPTOR (Recursive Abstractive Processing for Tree-Organized Retrieva
 import json
 from dataclasses import dataclass
 
+from src.analysis.dimensions import get_dimension_value
 from src.analysis.schemas import SemanticAnalysis
 from src.utils.logging_config import get_logger
 from src.zotero.models import PaperMetadata
@@ -79,18 +80,18 @@ def _format_analysis_for_prompt(
         "title": paper.title or "Unknown",
         "year": str(paper.publication_year or "n/a"),
         "authors": paper.author_string or "Unknown",
-        "thesis": analysis.q02_thesis or "(not extracted)",
-        "contribution": analysis.q22_contribution or "(not extracted)",
-        "framework": analysis.q10_framework or "(not specified)",
-        "research_question": analysis.q01_research_question or "(none)",
-        "methods": analysis.q07_methods or "(not extracted)",
-        "key_claims": analysis.q03_key_claims or "(not extracted)",
-        "evidence": analysis.q04_evidence or "(not extracted)",
-        "implications": analysis.q19_implications or "(not extracted)",
-        "limitations": analysis.q05_limitations or "(none noted)",
-        "future_work": analysis.q20_future_work or "(none noted)",
-        "field": analysis.q17_field or "(not specified)",
-        "paradigm": analysis.q06_paradigm or "(not specified)",
+        "thesis": get_dimension_value(analysis, "thesis") or "(not extracted)",
+        "contribution": get_dimension_value(analysis, "contribution") or "(not extracted)",
+        "framework": get_dimension_value(analysis, "framework") or "(not specified)",
+        "research_question": get_dimension_value(analysis, "research_question") or "(none)",
+        "methods": get_dimension_value(analysis, "methods") or "(not extracted)",
+        "key_claims": get_dimension_value(analysis, "key_claims") or "(not extracted)",
+        "evidence": get_dimension_value(analysis, "evidence") or "(not extracted)",
+        "implications": get_dimension_value(analysis, "implications") or "(not extracted)",
+        "limitations": get_dimension_value(analysis, "limitations") or "(none noted)",
+        "future_work": get_dimension_value(analysis, "future_work") or "(none noted)",
+        "field": get_dimension_value(analysis, "field") or "(not specified)",
+        "paradigm": get_dimension_value(analysis, "paradigm") or "(not specified)",
     }
 
 

@@ -9,17 +9,29 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from src.analysis.dimensions import (
+    LEGACY_PROFILE_ID,
+    DimensionRegistry,
+    get_default_dimension_registry,
+)
 from src.analysis.schemas import SemanticAnalysis
 
 if TYPE_CHECKING:
     from src.query.search import EnrichedResult, SearchEngine
 
 
-# Valid dimension names for search (e.g., "q01", "q02", ..., "q40")
-VALID_DIMENSIONS = [f"q{i:02d}" for i in range(1, 41)]
+def _get_registry(engine: SearchEngine | None = None):
+    if engine is not None and isinstance(getattr(engine, "dimension_registry", None), DimensionRegistry):
+        return engine.dimension_registry
+    return get_default_dimension_registry()
 
-# Valid group names
-VALID_GROUPS = list(SemanticAnalysis.DIMENSION_GROUPS.keys())
+
+_LEGACY_REGISTRY = get_default_dimension_registry()
+VALID_DIMENSIONS = [
+    dimension.legacy_short_name or dimension.id
+    for dimension in _LEGACY_REGISTRY.get_profile(LEGACY_PROFILE_ID).ordered_dimensions
+]
+VALID_GROUPS = _LEGACY_REGISTRY.get_group_names(profile_id=LEGACY_PROFILE_ID)
 
 
 def search_dimension(
@@ -46,8 +58,9 @@ def search_dimension(
     Raises:
         ValueError: If the dimension identifier is invalid.
     """
-    dim_key = _normalize_dimension(dimension)
-    chunk_type = f"dim_{dim_key}"
+    registry = _get_registry(engine)
+    definition = _resolve_dimension_definition(dimension, engine=engine)
+    chunk_type = definition.chunk_type
 
     return engine.search(
         query=query,
@@ -80,14 +93,16 @@ def search_group(
     Raises:
         ValueError: If the group name is invalid.
     """
-    if group not in SemanticAnalysis.DIMENSION_GROUPS:
+    registry = _get_registry(engine)
+    if group not in registry.get_group_names():
         raise ValueError(
-            f"Invalid group '{group}'. Valid groups: {', '.join(VALID_GROUPS)}"
+            f"Invalid group '{group}'. Valid groups: {', '.join(registry.get_group_names())}"
         )
 
-    # Get dimension field names for this group and convert to chunk types
-    field_names = SemanticAnalysis.DIMENSION_GROUPS[group]
-    chunk_types = [f"dim_{name[:3]}" for name in field_names]
+    chunk_types = [
+        definition.chunk_type
+        for definition in registry.get_section_dimensions(group)
+    ]
 
     return engine.search(
         query=query,
@@ -97,32 +112,37 @@ def search_group(
     )
 
 
-def _normalize_dimension(dimension: str) -> str:
-    """Normalize a dimension identifier to short form (e.g., "q07").
+def _resolve_dimension_definition(dimension: str, engine: SearchEngine | None = None):
+    """Resolve a dimension identifier to the active profile definition.
 
     Accepts:
-        - Short form: "q07", "q01"
-        - Full field name: "q07_methods", "q01_research_question"
-
-    Returns:
-        Short dimension key like "q07".
+        - Canonical IDs: ``"thesis"``
+        - Legacy short form: ``"q07"``
+        - Legacy full form: ``"q07_methods"``
+        - Role aliases: ``"methods"``
 
     Raises:
         ValueError: If the dimension identifier is invalid.
     """
-    # If it's already short form
-    if dimension in VALID_DIMENSIONS:
-        return dimension
-
-    # Try extracting short form from full field name (e.g., "q07_methods" -> "q07")
-    short = dimension[:3]
-    if short in VALID_DIMENSIONS:
-        # Verify the full name matches a real field
-        matching = [f for f in SemanticAnalysis.DIMENSION_FIELDS if f.startswith(short)]
-        if matching and (dimension == short or dimension in matching):
-            return short
-
+    registry = _get_registry(engine)
+    definition = registry.resolve_optional_dimension(dimension)
+    if definition:
+        return definition
+    role_match = registry.resolve_role(dimension)
+    if role_match:
+        return role_match
     raise ValueError(
-        f"Invalid dimension '{dimension}'. Use short form (q01-q40) "
-        f"or full field name (e.g., q07_methods)."
+        f"Invalid dimension '{dimension}'. Use a canonical ID, legacy qNN alias, "
+        "or a supported role alias."
     )
+
+
+def _normalize_dimension(dimension: str) -> str:
+    """Normalize a legacy dimension identifier to its short ``qNN`` alias."""
+
+    if not dimension.startswith("q"):
+        raise ValueError(f"Invalid dimension '{dimension}'. Use a legacy qNN alias.")
+    definition = _resolve_dimension_definition(dimension)
+    if not definition.legacy_short_name:
+        raise ValueError(f"Invalid dimension '{dimension}'. Use a legacy qNN alias.")
+    return definition.legacy_short_name

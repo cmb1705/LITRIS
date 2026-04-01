@@ -12,6 +12,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from src.analysis.dimensions import get_dimension_value
 from src.config import Config
 from src.indexing.embeddings import EmbeddingGenerator
 from src.indexing.structured_store import StructuredStore
@@ -294,7 +295,7 @@ def format_search_result_markdown(
     # Key extraction info
     if extraction:
         ext = extraction.get("extraction", extraction)
-        if thesis := ext.get("q02_thesis"):
+        if thesis := get_dimension_value(ext, "thesis"):
             lines.append(f"**Thesis:** {thesis}")
         if conclusions := ext.get("conclusions"):
             lines.append(f"**Conclusions:** {conclusions}")

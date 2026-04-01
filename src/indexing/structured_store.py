@@ -4,6 +4,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from src.analysis.dimensions import build_legacy_dimension_profile, get_dimension_value
 from src.utils.file_utils import safe_read_json, safe_write_json
 from src.utils.logging_config import get_logger
 
@@ -29,6 +30,7 @@ class StructuredStore:
 
         self.papers_file = self.index_dir / "papers.json"
         self.extractions_file = self.index_dir / "semantic_analyses.json"
+        self.dimension_profile_file = self.index_dir / "dimension_profile.json"
         self.metadata_file = self.index_dir / "metadata.json"
         self.summary_file = self.index_dir / "summary.json"
         self.similarity_pairs_file = self.index_dir / "similarity_pairs.json"
@@ -38,6 +40,8 @@ class StructuredStore:
         self._papers_mtime: float = _NO_MTIME
         self._extractions_cache: dict[str, dict] | None = None
         self._extractions_mtime: float = _NO_MTIME
+        self._dimension_profile_cache: dict | None = None
+        self._dimension_profile_mtime: float = _NO_MTIME
 
     def _file_mtime(self, path: Path) -> float:
         """Get file modification time, or sentinel if file does not exist."""
@@ -157,6 +161,32 @@ class StructuredStore:
         self._extractions_cache = extractions
         self._extractions_mtime = self._file_mtime(self.extractions_file)
         logger.info(f"Saved {len(extractions)} extractions to {self.extractions_file}")
+
+    def load_dimension_profile(self) -> dict:
+        """Load the active dimension profile snapshot for the index."""
+
+        if self._dimension_profile_cache is not None and not self._cache_stale(
+            self.dimension_profile_file,
+            self._dimension_profile_mtime,
+        ):
+            return self._dimension_profile_cache
+
+        if self.dimension_profile_file.exists():
+            data = safe_read_json(self.dimension_profile_file, default={})
+        else:
+            data = build_legacy_dimension_profile().model_dump(mode="json")
+
+        self._dimension_profile_cache = data
+        self._dimension_profile_mtime = self._file_mtime(self.dimension_profile_file)
+        return self._dimension_profile_cache
+
+    def save_dimension_profile(self, profile: dict) -> None:
+        """Save the active dimension profile snapshot for the index."""
+
+        safe_write_json(self.dimension_profile_file, profile)
+        self._dimension_profile_cache = profile
+        self._dimension_profile_mtime = self._file_mtime(self.dimension_profile_file)
+        logger.info("Saved dimension profile snapshot to %s", self.dimension_profile_file)
 
     def get_paper(self, paper_id: str) -> dict | None:
         """Get a single paper by ID.
@@ -309,8 +339,7 @@ class StructuredStore:
         # Extract field/discipline from q17_field
         discipline_counts = Counter()
         for ext in extractions.values():
-            ext_data = ext.get("extraction", ext)
-            field_val = ext_data.get("q17_field", "")
+            field_val = get_dimension_value(ext, "field") or ""
             if field_val:
                 discipline_counts[field_val] += 1
 
@@ -484,6 +513,8 @@ class StructuredStore:
         self._papers_mtime = _NO_MTIME
         self._extractions_cache = None
         self._extractions_mtime = _NO_MTIME
+        self._dimension_profile_cache = None
+        self._dimension_profile_mtime = _NO_MTIME
 
     def get_paper_ids(self) -> set[str]:
         """Get set of all paper IDs in the store.

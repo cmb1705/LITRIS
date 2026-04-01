@@ -50,7 +50,7 @@ mcp = FastMCP(
     "query results to the query_results folder (content must include the "
     "original query verbatim in a blockquote before analysis), "
     "litris_search_dimension to search within a specific SemanticAnalysis "
-    "dimension (q01-q40, e.g. q07_methods for methodology), and "
+    "dimension (canonical ids plus legacy qNN aliases, e.g. thesis or q07_methods), and "
     "litris_search_group to search across a group of dimensions by analysis "
     "pass (research_core, methodology, contribution, context, synthesis, deep).",
 )
@@ -85,7 +85,7 @@ async def litris_search(
     Args:
         query: Natural language search query
         top_k: Number of results to return (default: 10, max: 50)
-        chunk_types: Filter by chunk type (dim_q01-q40, raptor_overview, raptor_core, abstract)
+        chunk_types: Filter by chunk type (profile-defined dim_* values, raptor_overview, raptor_core, abstract)
         year_min: Minimum publication year
         year_max: Maximum publication year
         collections: Filter by Zotero collection names

@@ -11,6 +11,7 @@ Implements an iterative search loop:
 import json
 from dataclasses import dataclass, field
 
+from src.analysis.dimensions import get_dimension_value
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -84,8 +85,9 @@ def _format_results_for_analysis(results: list[dict]) -> str:
         thesis = ""
         extraction = r.get("extraction", {})
         if extraction:
-            thesis = extraction.get("q02_thesis", "")
-        disciplines = [extraction.get("q17_field", "")] if extraction and extraction.get("q17_field") else []
+            thesis = get_dimension_value(extraction, "thesis") or ""
+        field_value = get_dimension_value(extraction, "field") if extraction else None
+        disciplines = [field_value] if field_value else []
 
         line = f"{i}. [{year}] {title} ({authors})"
         if thesis:
