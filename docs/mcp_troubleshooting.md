@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 MD031 MD060 -->
 # LITRIS MCP Troubleshooting Guide
 
 ## Common Issues
@@ -19,6 +20,10 @@
 python -m src.mcp
 ```
 
+If the server starts and then exits immediately with no stack trace, that often
+means the MCP client closed stdin. In stdio mode that is a clean disconnect,
+not necessarily a server crash.
+
 ### Tools Not Discovered
 
 **Symptoms**: Claude Code doesn't show LITRIS tools.
@@ -29,6 +34,11 @@ python -m src.mcp
 2. Check `.claude/settings.json` has `"enableAllProjectMcpServers": true`
 3. Restart Claude Code session
 4. Check server logs in `data/logs/mcp_server.log`
+
+The shared failure pattern to distinguish is:
+
+- clean startup followed by immediate shutdown with no error: client/session side disconnect
+- explicit `Server error:` in the log: real server-side failure
 
 ### Search Returns No Results
 
@@ -57,7 +67,24 @@ print(adapter.get_summary())
 
 1. Verify paper ID format (alphanumeric with underscores/hyphens)
 2. Use `litris_search` first to find valid paper IDs
-3. Check if paper exists in `data/index/papers_index.json`
+3. Check if the paper exists in `data/index/papers.json`
+
+### Full-Text Context Not Found
+
+**Symptoms**: `litris_get_fulltext_context` returns no matches or says the
+snapshot is missing.
+
+**Solutions**:
+
+1. Verify canonical snapshots exist under `data/index/fulltext/`
+2. Check `data/index/fulltext_manifest.json`
+3. If snapshots are incomplete, populate them with:
+
+```bash
+python scripts/dimensions.py backfill --index-dir data/index \
+  --dimension-profile ./profiles/your_profile.yaml \
+  --fulltext-only --resume
+```
 
 ### Slow Response Times
 

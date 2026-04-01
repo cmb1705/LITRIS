@@ -1,475 +1,119 @@
 # Alternative Reference Sources Guide
 
-LITRIS supports multiple reference sources beyond Zotero:
+LITRIS supports multiple reference sources beyond Zotero through the
+`--source` and `--source-path` flags on `scripts/build_index.py`.
 
-- **BibTeX**: Import from `.bib` files exported from any reference manager
-- **PDF Folder**: Scan folders of PDF files without any reference manager
-- **Mendeley**: Read directly from Mendeley Desktop database
-- **EndNote**: Parse EndNote XML export files
-- **Paperpile**: Import from Paperpile BibTeX exports with sync folder support
+Currently supported source types are:
 
-## Quick Reference
+- `zotero`
+- `bibtex`
+- `pdffolder`
+- `mendeley`
+- `endnote`
+- `paperpile`
 
-| Source | Input | Best For |
-| ------ | ----- | -------- |
-| Zotero | SQLite database | Primary use case, full metadata |
-| BibTeX | `.bib` file + PDF folder | Cross-platform, any ref manager |
-| PDF Folder | Folder of PDFs | No reference manager needed |
-| Mendeley | SQLite database | Mendeley Desktop users |
-| EndNote | XML export file | EndNote users |
-| Paperpile | BibTeX export + sync folder | Paperpile users |
+## Current CLI Surface
 
-## BibTeX Import
-
-### Overview
-
-The BibTeX adapter parses `.bib` files and optionally matches PDFs from a directory. This works with exports from any reference manager (Zotero, Mendeley, EndNote, etc.).
-
-### Setup
-
-1. Export your library to BibTeX format from your reference manager
-2. Optionally organize PDFs in a folder (named by citation key)
-
-### Usage
+The top-level build CLI currently exposes one required path per non-Zotero
+source:
 
 ```powershell
-# Build index from BibTeX file
-python scripts/build_index.py --provider bibtex --bibtex-path references.bib
+# BibTeX
+python scripts/build_index.py --source bibtex --source-path .\references.bib
 
-# With PDF directory
-python scripts/build_index.py --provider bibtex --bibtex-path references.bib --pdf-dir ./papers/
+# Folder of PDFs
+python scripts/build_index.py --source pdffolder --source-path .\papers
+
+# Mendeley Desktop database
+python scripts/build_index.py --source mendeley --source-path .\mendeley.sqlite
+
+# EndNote XML export
+python scripts/build_index.py --source endnote --source-path .\library.xml
+
+# Paperpile BibTeX export
+python scripts/build_index.py --source paperpile --source-path .\paperpile.bib
 ```
 
-### PDF Matching
+The build CLI does not currently expose every adapter-specific option from the
+lower-level reference adapters. For example, PDF side directories, recursive
+PDF-folder toggles, and Paperpile sync-folder wiring are available in the
+adapter layer, but not as first-class `build_index.py` flags yet.
 
-When a `pdf_dir` is specified, the adapter looks for PDFs matching the citation key:
+## Source Mapping
 
-```text
-references.bib contains:
-  @article{smith2020example, ...}
+`build_index.py` maps `--source-path` to the adapter entrypoint as follows:
 
-papers/ contains:
-  smith2020example.pdf  -> Matched!
-  Smith2020Example.pdf  -> Matched (case-insensitive)
-```
+| `--source` | Adapter argument |
+| ---------- | ---------------- |
+| `bibtex` | `bibtex_path` |
+| `pdffolder` | `folder_path` |
+| `mendeley` | `db_path` |
+| `endnote` | `xml_path` |
+| `paperpile` | `bibtex_path` |
 
-### Supported Entry Types
+## Notes By Source
 
-| BibTeX Type | LITRIS Type |
-| ----------- | ----------- |
-| `@article` | journalArticle |
-| `@inproceedings` | conferencePaper |
-| `@book` | book |
-| `@incollection` | bookSection |
-| `@phdthesis`, `@mastersthesis` | thesis |
-| `@techreport` | report |
-| `@misc` | document |
+### BibTeX
 
-### Metadata Extraction
+Use this when you have a `.bib` export from another reference manager.
 
-The adapter extracts:
+- Metadata comes from the BibTeX file.
+- PDF attachment matching through extra directories is supported in the adapter
+  layer, but is not currently exposed through `build_index.py`.
 
-- Title, authors, year
-- Journal/booktitle
-- Volume, issue, pages
-- DOI, ISBN
-- Abstract
-- Keywords (from `keywords` field)
+### PDF Folder
 
-### Example BibTeX Entry
+Use this when you have a directory of PDFs and no reference manager.
 
-```bibtex
-@article{smith2020example,
-    author = {Smith, John and Doe, Jane},
-    title = {An Example Article Title},
-    journal = {Journal of Examples},
-    year = {2020},
-    volume = {10},
-    number = {2},
-    pages = {100-120},
-    doi = {10.1234/example.2020},
-    abstract = {This is the abstract.},
-    keywords = {machine learning, NLP}
-}
-```
+- LITRIS derives metadata from filenames and PDF document metadata.
+- Subfolders become collections.
+- Recursive scanning and PDF-metadata extraction behavior are adapter features;
+  the current build CLI uses adapter defaults.
 
-### Programmatic Usage
+### Mendeley
+
+Use this with a local Mendeley Desktop SQLite database.
+
+- The adapter reads metadata, collections, tags, and file attachments directly
+  from the database.
+- If you need custom storage-path resolution, use the adapter layer directly or
+  extend the top-level CLI.
+
+### EndNote
+
+Use this with an EndNote XML export.
+
+- Metadata is parsed from XML.
+- Extra PDF-directory matching exists in the adapter layer, not the current
+  top-level build flags.
+
+### Paperpile
+
+Use this with a BibTeX export from Paperpile.
+
+- Metadata is parsed from the export file.
+- Paperpile-specific PDF sync-folder behavior exists in the adapter layer, but
+  the current build CLI only accepts the exported `.bib` path directly.
+
+## Programmatic Use
+
+If you need adapter-specific options that are not yet exposed by
+`scripts/build_index.py`, use the adapter factory directly:
 
 ```python
+from pathlib import Path
+
 from src.references.factory import create_reference_db
 
 db = create_reference_db(
     provider="bibtex",
-    bibtex_path="references.bib",
-    pdf_dir="papers/"  # Optional
-)
-
-# Iterate papers
-for paper in db.get_all_papers():
-    print(f"{paper.title} ({paper.publication_year})")
-    if paper.pdf_path:
-        print(f"  PDF: {paper.pdf_path}")
-```
-
-## PDF Folder Import
-
-### Overview
-
-The PDF folder adapter scans a directory for PDF files and extracts metadata from:
-
-1. PDF document properties (embedded title, author, creation date)
-2. Filename parsing (author, year, title patterns)
-3. Subfolder names (mapped to collections)
-
-This is ideal when you have PDFs but no reference management software.
-
-### Setup
-
-Organize your PDFs in a folder. Subfolder structure is preserved as collections.
-
-```text
-papers/
-  Methods/
-    Smith - 2020 - Network Analysis.pdf
-    Jones_2019_Graph Theory.pdf
-  Theory/
-    Brown2018ReviewPaper.pdf
-```
-
-### Usage
-
-```powershell
-# Build index from PDF folder
-python scripts/build_index.py --provider pdffolder --folder-path ./papers/
-
-# Non-recursive (top-level only)
-python scripts/build_index.py --provider pdffolder --folder-path ./papers/ --no-recursive
-
-# Skip PDF metadata extraction (faster, filename only)
-python scripts/build_index.py --provider pdffolder --folder-path ./papers/ --no-pdf-metadata
-```
-
-### Filename Patterns
-
-The adapter recognizes these naming conventions:
-
-| Pattern | Example |
-| ------- | ------- |
-| `Author - Year - Title.pdf` | `Smith - 2020 - Network Analysis.pdf` |
-| `Author_Year_Title.pdf` | `Smith_2020_Network_Analysis.pdf` |
-| `Year_Author_Title.pdf` | `2020_Smith_Network_Analysis.pdf` |
-| `Year - Author - Title.pdf` | `2020 - Smith - Network Analysis.pdf` |
-| `Title.pdf` (fallback) | `Network Analysis Methods.pdf` |
-
-### Author Parsing
-
-Multiple authors can be specified:
-
-- `Smith and Jones - 2020 - Title.pdf`
-- `Smith, Jones - 2020 - Title.pdf`
-- `Smith; Jones; Brown - 2020 - Title.pdf`
-- `Smith et al - 2020 - Title.pdf`
-
-### PDF Metadata
-
-When `extract_pdf_metadata` is enabled (default), the adapter reads:
-
-- Document title
-- Author field
-- Creation date
-- Subject/keywords
-
-PDF metadata takes precedence over filename parsing when available.
-
-### Collections from Folders
-
-Subfolder names become collections:
-
-```text
-papers/
-  Machine Learning/    -> Collection: "Machine Learning"
-    paper1.pdf
-  Statistics/          -> Collection: "Statistics"
-    paper2.pdf
-```
-
-### Programmatic Usage
-
-```python
-from src.references.factory import create_reference_db
-
-db = create_reference_db(
-    provider="pdffolder",
-    folder_path="papers/",
-    recursive=True,           # Scan subfolders
-    extract_pdf_metadata=True # Read PDF properties
-)
-
-# Get paper count
-print(f"Found {db.get_paper_count()} papers")
-
-# Filter by collection (subfolder)
-for paper in db.filter_papers(collections=["Methods"]):
-    print(paper.title)
-```
-
-### Running the Smoketest
-
-```powershell
-python scripts/smoketest_pdffolder.py
-```
-
-## Mendeley Import
-
-### Overview
-
-The Mendeley adapter reads directly from the Mendeley Desktop SQLite database, providing full access to your library metadata including folders, tags, and file attachments.
-
-### Finding Your Database
-
-**Windows**:
-
-```text
-%LOCALAPPDATA%\Mendeley Ltd\Mendeley Desktop\<your-email>@www.mendeley.com.sqlite
-```
-
-**macOS**:
-
-```text
-~/Library/Application Support/Mendeley Desktop/<your-email>@www.mendeley.com.sqlite
-```
-
-**Linux**:
-
-```text
-~/.local/share/data/Mendeley Ltd./Mendeley Desktop/<your-email>@www.mendeley.com.sqlite
-```
-
-### Usage
-
-```powershell
-# Build index from Mendeley database
-python scripts/build_index.py --provider mendeley --db-path "path/to/mendeley.sqlite"
-
-# With storage path for resolving relative file paths
-python scripts/build_index.py --provider mendeley --db-path "path/to/mendeley.sqlite" --storage-path "path/to/mendeley/files"
-```
-
-### Supported Metadata
-
-The adapter extracts:
-
-- Title, authors, year
-- Document type (journal article, book, thesis, etc.)
-- Journal/publication details
-- DOI, ISBN, PMID
-- Abstract
-- Keywords/tags
-- Folder membership (as collections)
-- File attachments
-
-### Programmatic Usage
-
-```python
-from src.references.factory import create_reference_db
-
-db = create_reference_db(
-    provider="mendeley",
-    db_path="path/to/mendeley.sqlite",
-    storage_path="path/to/mendeley/files"  # Optional
+    bibtex_path=Path("references.bib"),
+    pdf_dir=Path("papers"),
 )
 
 for paper in db.get_all_papers():
-    print(f"{paper.title}")
-    print(f"  Collections: {paper.collections}")
+    print(paper.paper_id, paper.title)
 ```
 
-## EndNote Import
-
-### Overview
-
-The EndNote adapter parses XML files exported from EndNote. This provides full metadata access including custom reference types, keywords, and file attachments.
-
-### Exporting from EndNote
-
-1. Open your EndNote library
-2. Select references to export (or Ctrl+A for all)
-3. File -> Export...
-4. Choose "XML" as the output style
-5. Save the `.xml` file
-
-### Usage
-
-```powershell
-# Build index from EndNote XML
-python scripts/build_index.py --provider endnote --xml-path library.xml
-
-# With PDF directory for file matching
-python scripts/build_index.py --provider endnote --xml-path library.xml --pdf-dir ./papers/
-```
-
-### Supported Reference Types
-
-| EndNote Type | LITRIS Type |
-| ------------ | ----------- |
-| Journal Article | journalArticle |
-| Book | book |
-| Book Section | bookSection |
-| Conference Proceedings | conferencePaper |
-| Thesis | thesis |
-| Report | report |
-| Web Page | webpage |
-| Patent | patent |
-| Generic | document |
-
-### PDF Matching
-
-When a `pdf_dir` is specified, the adapter matches PDFs by record number:
-
-```text
-library.xml contains:
-  <record><rec-number>123</rec-number>...</record>
-
-papers/ contains:
-  123.pdf  -> Matched!
-```
-
-### Programmatic Usage
-
-```python
-from src.references.factory import create_reference_db
-
-db = create_reference_db(
-    provider="endnote",
-    xml_path="library.xml",
-    pdf_dir="papers/"  # Optional
-)
-
-for paper in db.get_all_papers():
-    print(f"{paper.title} ({paper.publication_year})")
-```
-
-### Running the Smoketest
-
-```powershell
-python scripts/smoketest_endnote.py
-```
-
-## Paperpile Import
-
-### Overview
-
-The Paperpile adapter works with BibTeX exports from Paperpile. Since Paperpile does not provide a public API, this is the recommended approach for importing your library.
-
-Note: Paperpile's sync folder (Google Drive) can be used for automatic PDF matching.
-
-### Exporting from Paperpile
-
-1. Go to [paperpile.com](https://paperpile.com) and open your library
-2. Select references to export (or all)
-3. Click Export -> BibTeX
-4. Save the `.bib` file
-
-### Usage
-
-```powershell
-# Build index from Paperpile BibTeX
-python scripts/build_index.py --provider paperpile --bibtex-path paperpile.bib
-
-# With PDF directory
-python scripts/build_index.py --provider paperpile --bibtex-path paperpile.bib --pdf-dir ./papers/
-
-# With Paperpile sync folder (Google Drive)
-python scripts/build_index.py --provider paperpile --bibtex-path paperpile.bib --sync-folder "~/Google Drive/Paperpile"
-```
-
-### Sync Folder Support
-
-If you use Paperpile's Google Drive sync, the adapter can automatically find PDFs:
-
-```text
-Google Drive/Paperpile/
-  Smith/
-    Smith2020_Network_Analysis.pdf  -> Matched by author folder
-  Jones/
-    Jones2021_Graph_Theory.pdf
-```
-
-### Paperpile-Specific Metadata
-
-The adapter handles Paperpile-specific fields:
-
-- **Labels**: Mapped to tags (from `keywords` field)
-- **Folders/Groups**: Mapped to collections (from `groups` field)
-- **Notes**: Used as abstract if no abstract exists
-
-### Programmatic Usage
-
-```python
-from src.references.factory import create_reference_db
-
-db = create_reference_db(
-    provider="paperpile",
-    bibtex_path="paperpile.bib",
-    pdf_dir="papers/",         # Optional
-    sync_folder="~/Google Drive/Paperpile"  # Optional
-)
-
-for paper in db.get_all_papers():
-    print(f"{paper.title}")
-    print(f"  Tags: {paper.tags}")
-    print(f"  Collections: {paper.collections}")
-```
-
-### Running the Smoketest
-
-```powershell
-python scripts/smoketest_paperpile.py
-```
-
-## Comparison
-
-| Feature | Zotero | BibTeX | PDF Folder | Mendeley | EndNote | Paperpile |
-| ------- | ------ | ------ | ---------- | -------- | ------- | --------- |
-| Full metadata | Yes | Yes | Partial | Yes | Yes | Yes |
-| PDF attachments | Yes | Manual match | Automatic | Yes | Manual match | Sync folder |
-| Collections/folders | Yes | No | From subfolders | Yes | No | Yes |
-| Tags/keywords | Yes | From field | From PDF | Yes | Yes | Yes |
-| Requires software | Yes | No | No | Yes | Yes | No |
-| Cross-platform | Yes | Yes | Yes | Yes | Yes | Yes |
-
-## Troubleshooting
-
-### BibTeX Parse Errors
-
-If your `.bib` file fails to parse:
-
-1. Check for unescaped special characters (`&`, `%`, `_`)
-2. Ensure all entries have closing braces
-3. Try exporting fresh from your reference manager
-
-### PDF Folder: Missing Metadata
-
-If papers show minimal metadata:
-
-1. Ensure PDF document properties are set
-2. Use descriptive filenames with author/year/title
-3. Enable `extract_pdf_metadata=True`
-
-### Mendeley: Database Locked
-
-If you get a "database is locked" error:
-
-1. Close Mendeley Desktop
-2. Wait a few seconds for locks to release
-3. Retry the import
-
-The adapter opens the database read-only, but Mendeley may hold locks.
-
-### Mixed Sources
-
-Currently, LITRIS supports one source per index build. To combine sources:
-
-1. Export all to BibTeX format
-2. Merge `.bib` files
-3. Build from the combined BibTeX
+See [src/references/factory.py](d:/Git_Repos/LITRIS/src/references/factory.py)
+for the adapter-level arguments currently available.

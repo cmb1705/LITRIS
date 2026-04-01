@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD031 MD032 -->
 # Troubleshooting Guide
 
 This guide covers common issues and their solutions.
@@ -89,31 +90,70 @@ ls ~/Zotero/storage      # Linux/Mac
 # Install
 npm install -g @anthropic-ai/claude-code
 
-# Log in
-claude login
+# Verify
+claude --version
 ```
 
-### API Key Conflict
+For OpenAI CLI mode, verify Codex separately:
 
-**Error**: `CliExecutionError: ANTHROPIC_API_KEY environment variable is set`
-
-**Solution**: Unset the API key for CLI mode:
 ```bash
-# Windows
-set ANTHROPIC_API_KEY=
+# Install
+npm i -g @openai/codex
 
-# Linux/Mac
-unset ANTHROPIC_API_KEY
+# Verify
+codex --version
 ```
 
 ### Rate Limit Hit
 
 **Error**: `RateLimitError: Rate limit exceeded`
 
-**Solution**: Wait for rate limit reset (check output for timing), then resume:
+**Solution**: Wait for the reset window, then resume the same command:
 ```bash
 python scripts/build_index.py --resume
 ```
+
+For portable-dimension runs:
+
+```bash
+python scripts/dimensions.py backfill --index-dir data/index \
+  --dimension-profile ./profiles/your_profile.yaml --resume
+```
+
+If you only want to finish canonical full-text capture without spending more
+provider quota, use:
+
+```bash
+python scripts/dimensions.py backfill --index-dir data/index \
+  --dimension-profile ./profiles/your_profile.yaml \
+  --fulltext-only --resume
+```
+
+### CLI Session/Auth Failures
+
+**Error**: `Authentication failed during extraction` or repeated
+`Please re-authenticate` messages
+
+**Solution**:
+1. Re-run `claude` in the same shell and confirm the session is still valid.
+2. Resume the interrupted LITRIS run with `--resume`.
+3. If the failure actually reflects subscription quota exhaustion, wait for the
+   quota window to reset before resuming.
+
+LITRIS now preserves the raw CLI stderr/stdout summary in failure messages so
+session expiry, rate limits, and prompt-size failures are easier to distinguish.
+
+### Prompt Too Long
+
+**Error**: `Prompt too long` or `prompt is too long: ... tokens > ... maximum`
+
+**Solution**:
+1. Resume the run after the failing paper is handled; LITRIS checkpoints
+   completed work.
+2. If you are running a semantic backfill, populate canonical full-text first
+   with `--fulltext-only` so later retries reuse stored snapshots.
+3. Reprocess the specific paper later with a smaller provider input budget or
+   a different extraction stack if needed.
 
 ### Timeout Errors
 
@@ -344,6 +384,9 @@ python scripts/build_index.py --reset-checkpoint
 ```bash
 python scripts/build_index.py --retry-failed
 ```
+
+For portable-dimension backfills, rerun the same command with `--resume` to
+continue from the saved checkpoint instead of restarting from scratch.
 
 ### Full Rebuild
 

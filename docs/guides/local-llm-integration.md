@@ -1,11 +1,15 @@
+<!-- markdownlint-disable MD013 MD024 MD029 MD032 MD036 -->
 # Local LLM Integration Guide
 
-LITRIS supports local LLM inference through two providers:
+LITRIS includes local LLM clients through two providers:
 
 - **Ollama**: Server-based inference with easy model management
 - **llama.cpp**: Direct model loading for maximum control
 
 Both options provide free inference on your own hardware with no API costs.
+These clients are available programmatically, but `scripts/build_index.py` does
+not currently expose `--provider ollama` or `--provider llamacpp` as
+first-class top-level build options.
 
 ## Quick Comparison
 
@@ -58,11 +62,7 @@ extraction:
   mode: "api"
 ```
 
-Or use command-line options:
-
-```bash
-python scripts/build_index.py --provider ollama --model llama3
-```
+Use the Ollama client programmatically through `src.analysis.llm_factory`.
 
 ### Environment Variables
 
@@ -192,11 +192,7 @@ extraction:
     n_gpu_layers: -1  # -1 = all layers on GPU
 ```
 
-Or use command-line options:
-
-```bash
-python scripts/build_index.py --provider llamacpp --model-path /path/to/model.gguf
-```
+Use the llama.cpp client programmatically through `src.analysis.llm_factory`.
 
 ### Configuration Options
 

@@ -7,7 +7,11 @@ from anthropic import Anthropic, APIConnectionError, APIError, RateLimitError
 from pydantic import ValidationError
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode, LLMProvider
-from src.analysis.cli_executor import ClaudeCliExecutor, CliExecutionError
+from src.analysis.cli_executor import (
+    ClaudeCliExecutor,
+    CliExecutionError,
+    PromptTooLongError,
+)
 from src.analysis.dimensions import (
     EXTRACTION_METADATA_KEYS,
     get_default_dimension_registry,
@@ -211,6 +215,20 @@ class AnthropicLLMClient(BaseLLMClient):
                 paper_id=paper_id,
                 success=False,
                 error=f"API error: {e}",
+                duration_seconds=duration,
+                model_used=self.model,
+            )
+        except PromptTooLongError as e:
+            duration = time.time() - start_time
+            logger.warning(f"Prompt too long for paper {paper_id}: {e}")
+            if e.stdout:
+                logger.debug("Claude CLI stdout for %s: %s", paper_id, e.stdout[:500])
+            if e.stderr:
+                logger.debug("Claude CLI stderr for %s: %s", paper_id, e.stderr[:500])
+            return ExtractionResult(
+                paper_id=paper_id,
+                success=False,
+                error=f"Prompt too long: {e}",
                 duration_seconds=duration,
                 model_used=self.model,
             )

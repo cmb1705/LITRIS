@@ -1,6 +1,13 @@
+<!-- markdownlint-disable MD013 MD030 MD060 -->
 # LITRIS Redesign: Technical Progress Report
 
 **Date:** March 2026 \| **Version:** 0.2.0
+
+This report is a historical redesign summary from March 2026. It describes the
+state of the migration work at that time, not every current runtime default.
+LITRIS now uses profile-driven semantic dimensions, canonical full-text
+snapshots for verbatim retrieval, and updated extraction-cascade ordering beyond
+what this report originally captured.
 
 ***
 
@@ -21,7 +28,11 @@ The extraction schema was redesigned from a flat structure (thesis, methodology,
 | Scholarly Positioning (q25-q31) | Institutional context, timing, paradigm influence, interdisciplinarity |
 | Impact & Gaps (q32-q40)         | Deployment gap, infrastructure, power dynamics, omissions, emergence   |
 
-Each paper is analyzed through six sequential LLM calls, one per pass, using the paper's full text. This produces structured prose analysis for each dimension rather than keyword-level metadata, enabling more nuanced semantic search and cross-paper synthesis.
+At the time of this report, each paper was analyzed through six sequential LLM
+calls, one per pass, using the paper's full text. The current system preserves
+legacy `q01` through `q40` compatibility, but the active runtime now stores
+answers in profile-driven canonical `dimensions` maps keyed by stable dimension
+IDs.
 
 ## Multi-Provider Consensus (LLM Council)
 
@@ -41,20 +52,27 @@ Rather than running the full council on every paper (which doubles extraction co
 
 ## Extraction Pipeline Improvements
 
-The PDF text extraction cascade was reordered to prioritize speed:
+The PDF text extraction cascade was originally reordered to prioritize speed:
 
-1.  arXiv HTML (cleanest source for preprints)
-2.  PyMuPDF (fast extraction for PDFs with embedded text)
-3.  Marker (ML-based fallback for complex layouts and scanned documents)
-4.  Tesseract OCR (last resort for image-only PDFs)
+1.  Companion markdown sidecars when present
+2.  arXiv HTML
+3.  ar5iv
+4.  OpenDataLoader
+5.  PyMuPDF
+6.  Marker
 
-The prior ordering ran Marker (a deep learning PDF parser) before PyMuPDF on every paper, causing 10-30 minute processing times on large documents. A 388-page dissertation was observed triggering a 10+ hour Marker run unnecessarily when PyMuPDF could extract the text in under a second.
+OCR is now handled as a fallback within the PDF extraction path rather than as a
+simple standalone top-level tier.
 
 An OCR assessment comparing Tesseract and GLM-OCR (a 0.9B-parameter multimodal model) on 8 papers with failed text extraction found that both methods recovered 800-3,400 words from pages where PyMuPDF extracted zero. Enabling OCR in the cascade recovers approximately 101 papers (6.5% of the corpus) that were previously excluded from the index due to insufficient text.
 
 ## Build Infrastructure
 
-The index build pipeline now supports parallel extraction with adaptive rate limiting. Multiple LLM workers process papers concurrently, automatically reducing parallelism when API rate limits are encountered and sleeping through quota exhaustion windows before resuming. This enables unattended multi-day index builds across the full corpus.
+The index build pipeline now supports parallel extraction with adaptive rate
+limiting, resumable backfill checkpoints, canonical full-text snapshot reuse,
+and portable dimension-profile backfills. Multiple LLM workers process papers
+concurrently, reducing parallelism when rate-limit signals are detected and
+resuming from checkpoints after interruptions.
 
 A per-dimension reasoning effort classification maps each of the 40 dimensions as either structural (answer is explicit in the text) or inferential (requires synthesis or critical reading), establishing the foundation for differentiated compute allocation in future builds.
 

@@ -1,8 +1,12 @@
+<!-- markdownlint-disable MD013 MD060 -->
 # Google Gemini Integration Guide
 
-LITRIS supports Google Gemini models for paper extraction via the Google Gen AI SDK.
+LITRIS includes a Google Gemini client for programmatic extraction via the
+Google Gen AI SDK.
 
-Unlike Claude and OpenAI, Gemini currently only supports API mode (no CLI option with subscription authentication).
+Unlike Claude and OpenAI, Gemini currently supports API mode only. The Gemini
+client exists in the codebase, but `scripts/build_index.py` does not currently
+expose `--provider google` as a first-class top-level build option.
 
 ## Quick Start
 
@@ -13,8 +17,8 @@ pip install google-genai
 # 2. Set API key
 $env:GOOGLE_API_KEY = "AIza..."
 
-# 3. Build index with Gemini
-python scripts/build_index.py --provider google --mode api
+# 3. Use the Gemini client programmatically
+python scripts/smoketest_gemini.py
 ```
 
 ## API Setup
@@ -55,25 +59,20 @@ export GEMINI_API_KEY="AIza..."
 
 | Model | Description | Best For |
 |-------|-------------|----------|
-| gemini-3-pro | Gemini 3 Pro Preview (highest capability) | Complex papers, highest quality |
-| gemini-3-flash | Gemini 3 Flash (Pro intelligence at Flash speed) | Balance of quality and speed |
+| gemini-3.1-flash-lite | Gemini 3.1 Flash Lite | Fastest lightweight option |
+| gemini-3-flash | Gemini 3 Flash | Balance of quality and speed |
 | gemini-2.5-pro | Gemini 2.5 Pro (state-of-the-art reasoning) | Deep analysis, complex methodology |
 | gemini-2.5-flash | Gemini 2.5 Flash (best price-performance) | Large libraries, good quality |
 | gemini-2.5-flash-lite | Gemini 2.5 Flash-Lite (fastest, cost-effective) | Testing, rapid iteration |
+| gemini-3-pro | Gemini 3 Pro Preview | Deprecated preview model |
 
-LITRIS defaults to `gemini-3-pro` for highest extraction quality.
+The Gemini client currently defaults to `gemini-2.5-flash`.
 
 ### Model Selection
 
 ```powershell
-# Cost-effective (recommended for large libraries)
-python scripts/build_index.py --provider google --mode api --model gemini-2.5-flash
-
-# Fastest and cheapest
-python scripts/build_index.py --provider google --mode api --model gemini-2.5-flash-lite
-
-# Highest quality
-python scripts/build_index.py --provider google --mode api --model gemini-3-pro
+# Create a client with the default model
+python scripts/smoketest_gemini.py
 ```
 
 ## Cost Estimation
@@ -82,12 +81,13 @@ python scripts/build_index.py --provider google --mode api --model gemini-3-pro
 
 | Model | Input | Output | Est. per paper (~10k chars) |
 |-------|-------|--------|----------------------------|
+| gemini-3.1-flash-lite | $0.25 | $1.50 | ~$0.004 |
 | gemini-2.5-flash-lite | $0.10 | $0.40 | ~$0.001 |
 | gemini-2.5-flash | $0.30 | $2.50 | ~$0.006 |
 | gemini-2.0-flash | $0.10 | $0.40 | ~$0.001 |
 | gemini-2.5-pro (<=200k) | $1.25 | $10.00 | ~$0.023 |
-| gemini-3-flash-preview | $0.50 | $3.00 | ~$0.007 |
-| gemini-3-pro-preview (<=200k) | $2.00 | $12.00 | ~$0.029 |
+| gemini-3-flash | $0.50 | $3.00 | ~$0.007 |
+| gemini-3-pro (<=200k) | $2.00 | $12.00 | ~$0.029 |
 
 **Context length pricing**: For contexts exceeding 200K tokens, prices typically double for Pro models.
 
@@ -99,19 +99,19 @@ See [official pricing](https://ai.google.dev/gemini-api/docs/pricing) for curren
 ### Cost Estimation Command
 
 ```powershell
-# Estimate costs before processing
-python scripts/build_index.py --provider google --model gemini-2.5-flash --estimate-cost
+# Estimate cost programmatically
+python scripts/smoketest_gemini.py
 ```
 
 ## Configuration File
 
-You can set Gemini as the default provider in `config.yaml`:
+You can configure the Gemini client in `config.yaml`:
 
 ```yaml
 extraction:
   provider: "google"
   mode: "api"
-  model: "gemini-2.5-flash"  # or leave empty for default (gemini-3-pro)
+  model: "gemini-2.5-flash"  # or leave empty for the current Gemini default
   max_tokens: 100000
   timeout: 120
 ```
@@ -139,8 +139,10 @@ result = client.extract(
 )
 
 if result.success:
-    print(f"Thesis: {result.extraction.thesis_statement}")
-    print(f"Confidence: {result.extraction.extraction_confidence}")
+    from src.analysis.dimensions import get_dimension_value
+
+    print(f"Thesis: {get_dimension_value(result.extraction, 'thesis')}")
+    print(f"Methods: {get_dimension_value(result.extraction, 'methods')}")
 ```
 
 ## Troubleshooting
@@ -207,7 +209,7 @@ api: PASS (if API key set)
 
 | Feature | Claude (Anthropic) | GPT (OpenAI) | Gemini (Google) |
 |---------|-------------------|--------------|-----------------|
-| Default Model | claude-opus-4-6 | gpt-5.4 | gemini-3-pro |
+| Default Model | claude-opus-4-6 | gpt-5.4 | gemini-2.5-flash |
 | CLI Mode | Yes (claude) | Yes (codex) | No |
 | Subscription Auth | Claude Max | ChatGPT Plus/Pro | No |
 | API Pricing | $$$ | $$$ | $ (cheapest) |

@@ -11,6 +11,7 @@ from src.analysis.cli_executor import (
     ClaudeCliExecutor,
     CliExecutionError,
     ParseError,
+    PromptTooLongError,
 )
 from src.analysis.progress_tracker import ProgressTracker
 from src.analysis.rate_limit_handler import RateLimitExceededError, RateLimitHandler
@@ -121,6 +122,72 @@ class TestClaudeCliExecutor:
         assert executor._is_authentication_error("", "Please re-authenticate before continuing") is True
         assert executor._is_authentication_error("", "OAuth token expired") is True
         assert executor._is_authentication_error("", "Generic authentication context") is False
+
+    def test_prompt_too_long_detection(self):
+        """Prompt-too-long responses should be recognized explicitly."""
+        executor = ClaudeCliExecutor()
+
+        assert executor._is_prompt_too_long_error(
+            "",
+            'Error: 400 {"message":"prompt is too long: 212869 tokens > 200000 maximum"}',
+        ) is True
+        assert executor._is_prompt_too_long_error(
+            "maximum context length exceeded",
+            "",
+        ) is True
+        assert executor._is_prompt_too_long_error("normal response", "") is False
+
+    def test_prompt_too_long_not_retried(self):
+        """Prompt-size failures should not be retried as transient errors."""
+        executor = ClaudeCliExecutor()
+        executor.verify_authentication = MagicMock(return_value=True)
+        executor._cli_path = "/usr/bin/claude"
+        executor._execute_single_extraction = MagicMock(
+            side_effect=PromptTooLongError("prompt is too long", stderr="status=400")
+        )
+
+        with pytest.raises(PromptTooLongError):
+            executor.extract("prompt", "input text", max_retries=3)
+
+        assert executor._execute_single_extraction.call_count == 1
+
+    def test_execute_single_extraction_preserves_auth_outputs(self):
+        """Authentication failures should keep raw stdout/stderr for diagnostics."""
+        executor = ClaudeCliExecutor()
+        executor._cli_path = "/usr/bin/claude"
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1,
+                stdout="session expired during request",
+                stderr="Please re-authenticate before continuing",
+            )
+
+            with pytest.raises(Exception) as exc_info:
+                executor._execute_single_extraction("prompt", "input text")
+
+        err = exc_info.value
+        assert err.__class__.__name__ == "AuthenticationError"
+        assert err.stdout == "session expired during request"
+        assert err.stderr == "Please re-authenticate before continuing"
+
+    def test_execute_single_extraction_raises_prompt_too_long_with_outputs(self):
+        """Prompt-too-long failures should surface a dedicated error with raw output."""
+        executor = ClaudeCliExecutor()
+        executor._cli_path = "/usr/bin/claude"
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1,
+                stdout="",
+                stderr='Error: 400 {"message":"prompt is too long: 212869 tokens > 200000 maximum"}',
+            )
+
+            with pytest.raises(PromptTooLongError) as exc_info:
+                executor._execute_single_extraction("prompt", "input text")
+
+        assert "context limits" in str(exc_info.value)
+        assert exc_info.value.stderr
 
     def test_parse_json_response(self):
         """Test parsing JSON from CLI response."""

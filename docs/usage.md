@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 MD024 MD040 MD060 MD034 -->
 # Usage Guide
 
 This guide covers the main workflows for using the Literature Review Index System.
@@ -70,6 +71,7 @@ python scripts/build_index.py --paper ABC123_DEF456
 | `--classify-only` | Run classification pre-pass only (no extraction) |
 | `--index-all` | Extract all papers regardless of classification |
 | `--source SOURCE` | Reference source: zotero, bibtex, pdffolder, mendeley, endnote, paperpile |
+| `--refresh-text` | Re-run full-text extraction for the targeted papers instead of reusing canonical snapshots |
 
 ### Dimension Profiles
 
@@ -141,23 +143,11 @@ python scripts/build_index.py --mode api --provider anthropic
 # OpenAI
 export OPENAI_API_KEY=your_key_here
 python scripts/build_index.py --mode api --provider openai
-
-# Google Gemini
-export GOOGLE_API_KEY=your_key_here
-python scripts/build_index.py --mode api --provider google
 ```
 
-### Local LLM Mode
-
-For offline extraction using local models:
-
-```bash
-# Ollama (requires Ollama server running)
-python scripts/build_index.py --provider ollama --model llama3
-
-# llama.cpp (requires model file)
-python scripts/build_index.py --provider llamacpp --model-path ./models/llama-3.gguf
-```
+`scripts/build_index.py` currently exposes Anthropic and OpenAI as first-class
+provider choices. Lower-level Gemini, Ollama, and llama.cpp clients exist in
+the codebase, but they are not currently wired through the top-level build CLI.
 
 ## Querying the Index
 
@@ -370,6 +360,8 @@ The extraction data is stored in `data/index/semantic_analyses.json`.
 | `data/index/papers.json` | Paper metadata |
 | `data/index/semantic_analyses.json` | Canonical extraction store with `dimensions` maps |
 | `data/index/dimension_profile.json` | Active dimension profile snapshot for the index |
+| `data/index/fulltext/<paper_id>.txt` | Canonical cleaned full-text snapshots for verbatim retrieval |
+| `data/index/fulltext_manifest.json` | Metadata for the full-text snapshots |
 | `data/index/summary.json` | Statistics |
 | `data/index/metadata.json` | Build metadata |
 | `data/index/index_manifest.json` | Sync manifest and pending-work state |
@@ -431,9 +423,9 @@ extraction:
 
 Provider defaults:
 
-- **Anthropic**: claude-opus-4-5-20251101
-- **OpenAI**: gpt-5.2
-- **Google**: gemini-3-pro
+- **Anthropic**: `claude-opus-4-6`
+- **OpenAI**: `gpt-5.4`
+- **Google**: `gemini-2.5-flash`
 
 ### Model Overrides by Document Type
 
@@ -954,15 +946,17 @@ build. Running `--classify-only` first is recommended for large libraries.
 
 ### Extraction Cascade
 
-Text extraction uses a multi-tier cascade, trying higher-fidelity methods
-first and falling back to simpler ones:
+Text extraction uses a multi-tier cascade, trying higher-signal sources first:
 
-1. **Companion** (.md file alongside PDF) -- pre-extracted markdown
-2. **arXiv HTML** -- structured HTML from arXiv papers
-3. **ar5iv** -- accessible HTML rendering of arXiv papers
-4. **Marker** -- ML-based PDF to markdown conversion
-5. **PyMuPDF** -- direct PDF text extraction
-6. **OCR** -- Tesseract fallback for scanned documents
+1. **Companion** `.md` sidecar if present
+2. **arXiv HTML** for arXiv papers
+3. **ar5iv** fallback for arXiv papers
+4. **OpenDataLoader** as the primary fast PDF extractor
+5. **PyMuPDF** direct PDF text extraction
+6. **Marker** ML-based PDF-to-markdown fallback
+
+OCR is not a separate top-level tier. It can be triggered inside the PyMuPDF
+path and as a quality fallback when extracted text is still unusable.
 
 Cascade behavior is configured in `config.yaml` under `processing:`:
 

@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 MD031 MD032 MD040 MD060 -->
 # OpenAI Integration Guide
 
 LITRIS supports OpenAI GPT models for paper extraction, offering two modes of operation:
@@ -84,7 +85,9 @@ LITRIS automatically defaults to `gpt-5.4` when using CLI mode.
 
 ## MCP Integration (Codex + LITRIS)
 
-Codex CLI can use LITRIS as an MCP (Model Context Protocol) server, enabling GPT-5.4 to search your literature index directly.
+Codex CLI can use LITRIS as an MCP (Model Context Protocol) server, enabling
+GPT-5.4 to search your literature index directly and retrieve verbatim
+full-text context from canonical snapshots.
 
 ### Setup
 
@@ -116,9 +119,12 @@ codex "Find papers similar to the one about graph neural networks"
 |------|-------------|
 | `litris_search` | Semantic search with filters (year, collection, type) |
 | `litris_get_paper` | Get full paper details by ID |
+| `litris_get_fulltext_context` | Retrieve verbatim context windows from canonical full text |
 | `litris_similar` | Find papers similar to a given paper |
 | `litris_summary` | Index statistics (paper counts, disciplines, etc.) |
 | `litris_collections` | List available Zotero collections |
+| `litris_search_dimension` | Search within a specific canonical or legacy semantic dimension |
+| `litris_search_group` | Search across profile-defined dimension groups |
 
 ## API Mode Setup
 
@@ -248,6 +254,7 @@ Both providers produce high-quality extractions. Choose based on:
 
 ```python
 from src.analysis.llm_factory import create_llm_client
+from src.analysis.dimensions import get_dimension_value
 
 # CLI mode (ChatGPT subscription)
 client = create_llm_client(
@@ -274,8 +281,8 @@ result = client.extract(
 )
 
 if result.success:
-    print(f"Thesis: {result.extraction.thesis_statement}")
-    print(f"Confidence: {result.extraction.extraction_confidence}")
+    print(f"Thesis: {get_dimension_value(result.extraction, 'thesis')}")
+    print(f"Methods: {get_dimension_value(result.extraction, 'methods')}")
 ```
 
 ## Running the Smoketest

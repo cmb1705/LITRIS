@@ -86,6 +86,12 @@ class RateLimitError(CliExecutionError):
         self.reset_time = reset_time
 
 
+class PromptTooLongError(CliExecutionError):
+    """Prompt exceeds the provider's accepted context window."""
+
+    pass
+
+
 class ParseError(CliExecutionError):
     """Failed to parse CLI response."""
 
@@ -472,6 +478,21 @@ class ClaudeCliExecutor:
         ]
         return any(indicator in combined for indicator in indicators)
 
+    @staticmethod
+    def _is_prompt_too_long_error(stdout: str, stderr: str) -> bool:
+        """Return whether CLI output indicates the prompt exceeded context limits."""
+
+        combined = (stdout + stderr).lower()
+        indicators = [
+            "prompt is too long",
+            "context window",
+            "maximum context length",
+            "input is too long",
+            "too many tokens",
+            "maximum token",
+        ]
+        return any(indicator in combined for indicator in indicators)
+
     def _execute_prompt(self, prompt: str) -> str:
         """Execute a single prompt and return raw response.
 
@@ -535,6 +556,18 @@ class ClaudeCliExecutor:
                         + self._summarize_cli_output(result.stdout, result.stderr)
                     ),
                     reset_time=reset_time,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    returncode=result.returncode,
+                )
+
+            # Check for prompt-size failures before generic empty/non-zero handling.
+            if self._is_prompt_too_long_error(result.stdout or "", result.stderr or ""):
+                raise PromptTooLongError(
+                    (
+                        "Prompt exceeds Claude CLI context limits. "
+                        + self._summarize_cli_output(result.stdout, result.stderr)
+                    ),
                     stdout=result.stdout,
                     stderr=result.stderr,
                     returncode=result.returncode,
@@ -706,6 +739,18 @@ class ClaudeCliExecutor:
                         + self._summarize_cli_output(result.stdout, result.stderr)
                     ),
                     reset_time=reset_time,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    returncode=result.returncode,
+                )
+
+            # Check for prompt-size failures before generic empty/non-zero handling.
+            if self._is_prompt_too_long_error(result.stdout or "", result.stderr or ""):
+                raise PromptTooLongError(
+                    (
+                        "Prompt exceeds Claude CLI context limits. "
+                        + self._summarize_cli_output(result.stdout, result.stderr)
+                    ),
                     stdout=result.stdout,
                     stderr=result.stderr,
                     returncode=result.returncode,
