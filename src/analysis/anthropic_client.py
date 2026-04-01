@@ -183,6 +183,10 @@ class AnthropicLLMClient(BaseLLMClient):
         except RateLimitError as e:
             duration = time.time() - start_time
             logger.warning(f"Rate limit hit for paper {paper_id}: {e}")
+            if e.stdout:
+                logger.debug("Claude CLI stdout for %s: %s", paper_id, e.stdout[:500])
+            if e.stderr:
+                logger.debug("Claude CLI stderr for %s: %s", paper_id, e.stderr[:500])
             return ExtractionResult(
                 paper_id=paper_id,
                 success=False,
@@ -213,6 +217,10 @@ class AnthropicLLMClient(BaseLLMClient):
         except CliExecutionError as e:
             duration = time.time() - start_time
             logger.error(f"CLI execution failed for paper {paper_id}: {e}")
+            if e.stdout:
+                logger.debug("Claude CLI stdout for %s: %s", paper_id, e.stdout[:500])
+            if e.stderr:
+                logger.debug("Claude CLI stderr for %s: %s", paper_id, e.stderr[:500])
             return ExtractionResult(
                 paper_id=paper_id,
                 success=False,

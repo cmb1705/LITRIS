@@ -385,6 +385,7 @@ class SectionExtractor:
         check_cache: bool = True,
         section_ids: list[str] | None = None,
         text_snapshot: dict[str, object] | None = None,
+        skip_llm: bool = False,
     ) -> tuple[ExtractionResult, bool]:
         """Extract structured content from a single paper.
 
@@ -399,7 +400,10 @@ class SectionExtractor:
         Returns:
             Tuple of (ExtractionResult, from_cache).
         """
+        import time
+
         with LogContext(logger, f"Extracting paper: {paper.title[:50]}..."):
+            started_at = time.time()
             snapshot_text = None
             snapshot_hash = None
             if text_snapshot:
@@ -425,7 +429,7 @@ class SectionExtractor:
 
             # Check full-result cache
             full_hash = None
-            use_full_result_cache = not section_ids
+            use_full_result_cache = not section_ids and not skip_llm
             if check_cache and self.extraction_cache and use_full_result_cache:
                 full_hash = self.extraction_cache.compute_content_hash(
                     paper.pdf_path,
@@ -644,6 +648,20 @@ class SectionExtractor:
                     error=f"Non-academic document (confidence={type_confidence:.2f})",
                     document_type=doc_type.value,
                     type_confidence=type_confidence,
+                    text_snapshot=snapshot_payload,
+                ), False
+
+            if skip_llm:
+                return ExtractionResult(
+                    paper_id=paper.paper_id,
+                    success=True,
+                    duration_seconds=time.time() - started_at,
+                    document_type=doc_type.value,
+                    type_confidence=type_confidence,
+                    model_used=None,
+                    extraction_method=(
+                        cascade_result.method if cascade_result else method
+                    ),
                     text_snapshot=snapshot_payload,
                 ), False
 
@@ -906,6 +924,7 @@ class SectionExtractor:
         progress_callback: Callable | None = None,
         section_ids: list[str] | None = None,
         text_snapshots: dict[str, dict[str, object]] | None = None,
+        skip_llm: bool = False,
     ) -> Generator[ExtractionResult, None, ExtractionStats]:
         """Extract content from multiple papers.
 
@@ -931,12 +950,14 @@ class SectionExtractor:
                 progress_callback,
                 section_ids=section_ids,
                 text_snapshots=text_snapshots,
+                skip_llm=skip_llm,
             )
         return self._extract_batch_sequential(
             papers,
             progress_callback,
             section_ids=section_ids,
             text_snapshots=text_snapshots,
+            skip_llm=skip_llm,
         )
 
     def _extract_batch_sequential(
@@ -945,6 +966,7 @@ class SectionExtractor:
         progress_callback: Callable | None = None,
         section_ids: list[str] | None = None,
         text_snapshots: dict[str, dict[str, object]] | None = None,
+        skip_llm: bool = False,
     ) -> Generator[ExtractionResult, None, ExtractionStats]:
         """Sequential batch extraction.
 
@@ -963,6 +985,7 @@ class SectionExtractor:
 
         stats = ExtractionStats(total=len(papers))
         consecutive_rate_limits = 0
+        provider_failure_counts: dict[str, int] = {}
 
         i = 0
         while i < len(papers):
@@ -981,6 +1004,7 @@ class SectionExtractor:
                 paper,
                 section_ids=section_ids,
                 text_snapshot=(text_snapshots or {}).get(paper.paper_id),
+                skip_llm=skip_llm,
             )
 
             if from_cache:
@@ -1015,6 +1039,26 @@ class SectionExtractor:
                 else:
                     stats.failed += 1
                     consecutive_rate_limits = 0
+                    failure_kind = self._get_provider_failure_kind(error_str)
+                    if failure_kind:
+                        provider_failure_counts[failure_kind] = (
+                            provider_failure_counts.get(failure_kind, 0) + 1
+                        )
+                        if self._should_abort_for_provider_failure(
+                            failure_kind,
+                            provider_failure_counts[failure_kind],
+                        ):
+                            logger.error(
+                                "Aborting extraction after %d repeated %s failures. "
+                                "Latest error for %s: %s",
+                                provider_failure_counts[failure_kind],
+                                failure_kind,
+                                paper.paper_id,
+                                error_str,
+                            )
+                            stats.total_duration += result.duration_seconds
+                            yield result
+                            break
                 stats.total_duration += result.duration_seconds
 
             yield result
@@ -1029,6 +1073,7 @@ class SectionExtractor:
         progress_callback: Callable | None = None,
         section_ids: list[str] | None = None,
         text_snapshots: dict[str, dict[str, object]] | None = None,
+        skip_llm: bool = False,
     ) -> Generator[ExtractionResult, None, ExtractionStats]:
         """Parallel batch extraction with adaptive rate limit backoff.
 
@@ -1053,6 +1098,8 @@ class SectionExtractor:
         current_workers = self.parallel_workers
         rate_limit_count = 0
         completed = 0
+        provider_failure_counts: dict[str, int] = {}
+        abort_remaining = False
 
         logger.info(f"Parallel extraction: {len(papers)} papers, {current_workers} workers")
 
@@ -1071,6 +1118,7 @@ class SectionExtractor:
                         paper,
                         section_ids,
                         (text_snapshots or {}).get(paper.paper_id),
+                        skip_llm,
                     ): paper
                     for paper in chunk
                 }
@@ -1148,9 +1196,31 @@ class SectionExtractor:
                                 stats.failed += 1
                         else:
                             stats.failed += 1
+                            failure_kind = self._get_provider_failure_kind(error_str)
+                            if failure_kind:
+                                provider_failure_counts[failure_kind] = (
+                                    provider_failure_counts.get(failure_kind, 0) + 1
+                                )
+                                if self._should_abort_for_provider_failure(
+                                    failure_kind,
+                                    provider_failure_counts[failure_kind],
+                                ):
+                                    abort_remaining = True
+                                    logger.error(
+                                        "Aborting extraction after %d repeated %s failures. "
+                                        "Latest error for %s: %s",
+                                        provider_failure_counts[failure_kind],
+                                        failure_kind,
+                                        paper.paper_id,
+                                        error_str,
+                                    )
                         stats.total_duration += result.duration_seconds
 
                     yield result
+
+                if abort_remaining:
+                    remaining = []
+                    break
 
         if rate_limit_count > 0:
             logger.info(
@@ -1166,6 +1236,7 @@ class SectionExtractor:
         paper: PaperMetadata,
         section_ids: list[str] | None = None,
         text_snapshot: dict[str, object] | None = None,
+        skip_llm: bool = False,
     ) -> tuple[ExtractionResult, bool]:
         """Extract a single paper (for use in thread pool).
 
@@ -1185,12 +1256,15 @@ class SectionExtractor:
             paper,
             section_ids=section_ids,
             text_snapshot=text_snapshot,
+            skip_llm=skip_llm,
         )
 
     # Maximum consecutive rate limit errors before triggering quota sleep
     _QUOTA_THRESHOLD = 3
     # Hours to sleep when quota is exhausted
     _QUOTA_SLEEP_HOURS = 4
+    # Repeated provider-wide failures before aborting new chunk scheduling
+    _FATAL_PROVIDER_FAILURE_THRESHOLD = 2
 
     @staticmethod
     def _is_rate_limit_error(error: str) -> bool:
@@ -1198,13 +1272,48 @@ class SectionExtractor:
         lower = error.lower()
         return any(phrase in lower for phrase in (
             "rate limit",
+            "rate limited",
             "429",
             "too many requests",
             "quota exceeded",
             "throttl",
             "usage_limit_reached",
             "usage limit",
+            "usage cap",
+            "credit balance",
         ))
+
+    @staticmethod
+    def _get_provider_failure_kind(error: str) -> str | None:
+        """Classify provider-wide failures that should halt new work quickly."""
+
+        lower = error.lower()
+        if SectionExtractor._is_rate_limit_error(lower):
+            return "rate_limit"
+        if any(
+            phrase in lower
+            for phrase in (
+                "authentication failed during extraction",
+                "not authenticated",
+                "please re-authenticate",
+                "session expired",
+                "oauth token",
+                "login required",
+            )
+        ):
+            return "authentication"
+        return None
+
+    def _should_abort_for_provider_failure(
+        self,
+        failure_kind: str,
+        count: int,
+    ) -> bool:
+        """Return whether repeated provider-wide failures should halt new work."""
+
+        if failure_kind == "rate_limit":
+            return False
+        return count >= self._FATAL_PROVIDER_FAILURE_THRESHOLD
 
     def _handle_quota_exhaustion(self, consecutive_errors: int) -> bool:
         """Sleep and retry if quota appears exhausted.

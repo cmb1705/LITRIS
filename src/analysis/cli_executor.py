@@ -16,14 +16,46 @@ logger = get_logger(__name__)
 class CliExecutionError(Exception):
     """Error during CLI execution."""
 
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        stdout: str | None = None,
+        stderr: str | None = None,
+        returncode: int | None = None,
+    ):
+        """Initialize CLI execution error metadata.
+
+        Args:
+            message: Human-readable error message.
+            stdout: Optional stdout emitted by the CLI.
+            stderr: Optional stderr emitted by the CLI.
+            returncode: Optional subprocess return code.
+        """
+        super().__init__(message)
+        self.stdout = stdout
+        self.stderr = stderr
+        self.returncode = returncode
 
 
 class AuthenticationError(CliExecutionError):
     """Authentication required for CLI mode."""
 
-    def __init__(self, message: str, setup_instructions: str | None = None):
-        super().__init__(message)
+    def __init__(
+        self,
+        message: str,
+        setup_instructions: str | None = None,
+        *,
+        stdout: str | None = None,
+        stderr: str | None = None,
+        returncode: int | None = None,
+    ):
+        super().__init__(
+            message,
+            stdout=stdout,
+            stderr=stderr,
+            returncode=returncode,
+        )
         self.setup_instructions = setup_instructions
 
 
@@ -36,16 +68,42 @@ class ExtractionTimeoutError(CliExecutionError):
 class RateLimitError(CliExecutionError):
     """Rate limit hit during extraction."""
 
-    def __init__(self, message: str, reset_time: str | None = None):
-        super().__init__(message)
+    def __init__(
+        self,
+        message: str,
+        reset_time: str | None = None,
+        *,
+        stdout: str | None = None,
+        stderr: str | None = None,
+        returncode: int | None = None,
+    ):
+        super().__init__(
+            message,
+            stdout=stdout,
+            stderr=stderr,
+            returncode=returncode,
+        )
         self.reset_time = reset_time
 
 
 class ParseError(CliExecutionError):
     """Failed to parse CLI response."""
 
-    def __init__(self, message: str, raw_output: str):
-        super().__init__(message)
+    def __init__(
+        self,
+        message: str,
+        raw_output: str,
+        *,
+        stdout: str | None = None,
+        stderr: str | None = None,
+        returncode: int | None = None,
+    ):
+        super().__init__(
+            message,
+            stdout=stdout,
+            stderr=stderr,
+            returncode=returncode,
+        )
         self.raw_output = raw_output
 
 
@@ -384,6 +442,36 @@ class ClaudeCliExecutor:
 
         raise CliExecutionError(f"CLI failed after {max_retries + 1} attempts: {last_error}")
 
+    @staticmethod
+    def _summarize_cli_output(stdout: str, stderr: str, max_chars: int = 220) -> str:
+        """Build a compact, single-line summary of CLI output."""
+
+        combined = " ".join(((stdout or "") + " " + (stderr or "")).split())
+        if not combined:
+            return "No CLI output was captured."
+        if len(combined) <= max_chars:
+            return combined
+        return combined[: max_chars - 3].rstrip() + "..."
+
+    @staticmethod
+    def _is_authentication_error(stdout: str, stderr: str) -> bool:
+        """Return whether CLI output points to an authentication/session failure."""
+
+        combined = (stdout + stderr).lower()
+        indicators = [
+            "invalid api key",
+            "not authenticated",
+            "authentication failed",
+            "unauthorized",
+            "please re-authenticate",
+            "please authenticate",
+            "oauth token",
+            "token expired",
+            "session expired",
+            "login required",
+        ]
+        return any(indicator in combined for indicator in indicators)
+
     def _execute_prompt(self, prompt: str) -> str:
         """Execute a single prompt and return raw response.
 
@@ -436,25 +524,33 @@ class ClaudeCliExecutor:
                 errors="replace",  # Replace unencodable chars instead of failing
             )
 
-            # Check for authentication errors
-            combined_output = ((result.stdout or "") + (result.stderr or "")).lower()
-            if any(
-                x in combined_output
-                for x in ["invalid api key", "authentication", "unauthorized", "not authenticated"]
-            ):
-                raise AuthenticationError(
-                    "Authentication failed during extraction. Please re-authenticate.",
-                    setup_instructions=self.authenticator.get_setup_instructions(),
-                )
-
             # Check for rate limit
             if self._is_rate_limited(result.stdout, result.stderr):
                 reset_time = self._extract_reset_time(
                     (result.stdout or "") + (result.stderr or "")
                 )
                 raise RateLimitError(
-                    "Rate limit hit during extraction",
+                    (
+                        "Rate limit hit during extraction. "
+                        + self._summarize_cli_output(result.stdout, result.stderr)
+                    ),
                     reset_time=reset_time,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    returncode=result.returncode,
+                )
+
+            # Check for authentication/session errors after rate-limit detection.
+            if self._is_authentication_error(result.stdout or "", result.stderr or ""):
+                raise AuthenticationError(
+                    (
+                        "Authentication failed during extraction. "
+                        + self._summarize_cli_output(result.stdout, result.stderr)
+                    ),
+                    setup_instructions=self.authenticator.get_setup_instructions(),
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    returncode=result.returncode,
                 )
 
             # Check for empty response
@@ -471,7 +567,12 @@ class ClaudeCliExecutor:
                 error_msg = result.stderr or result.stdout
                 if "error" in error_msg.lower():
                     raise TransientError(f"CLI error (may retry): {error_msg[:200]}")
-                raise CliExecutionError(f"CLI returned error: {error_msg}")
+                raise CliExecutionError(
+                    f"CLI returned error: {self._summarize_cli_output(result.stdout, result.stderr)}",
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    returncode=result.returncode,
+                )
 
             return result.stdout
 
@@ -594,25 +695,33 @@ class ClaudeCliExecutor:
                 errors="replace",
             )
 
-            # Check for authentication errors in response
-            combined_output = ((result.stdout or "") + (result.stderr or "")).lower()
-            if any(
-                x in combined_output
-                for x in ["invalid api key", "authentication", "unauthorized", "not authenticated"]
-            ):
-                raise AuthenticationError(
-                    "Authentication failed during extraction. Please re-authenticate.",
-                    setup_instructions=self.authenticator.get_setup_instructions(),
-                )
-
             # Check for rate limit
             if self._is_rate_limited(result.stdout, result.stderr):
                 reset_time = self._extract_reset_time(
                     (result.stdout or "") + (result.stderr or "")
                 )
                 raise RateLimitError(
-                    "Rate limit hit during extraction",
+                    (
+                        "Rate limit hit during extraction. "
+                        + self._summarize_cli_output(result.stdout, result.stderr)
+                    ),
                     reset_time=reset_time,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    returncode=result.returncode,
+                )
+
+            # Check for authentication/session errors after rate-limit detection.
+            if self._is_authentication_error(result.stdout or "", result.stderr or ""):
+                raise AuthenticationError(
+                    (
+                        "Authentication failed during extraction. "
+                        + self._summarize_cli_output(result.stdout, result.stderr)
+                    ),
+                    setup_instructions=self.authenticator.get_setup_instructions(),
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    returncode=result.returncode,
                 )
 
             # Check for empty response (transient failure)
@@ -630,7 +739,12 @@ class ClaudeCliExecutor:
                 # Some non-zero returns with output might be transient
                 if "error" in error_msg.lower() and "json" not in stdout_stripped.lower():
                     raise TransientError(f"CLI error (may retry): {error_msg[:200]}")
-                raise CliExecutionError(f"CLI returned error: {error_msg}")
+                raise CliExecutionError(
+                    f"CLI returned error: {self._summarize_cli_output(result.stdout, result.stderr)}",
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    returncode=result.returncode,
+                )
 
             # Parse response
             return self._parse_response(result.stdout)
@@ -653,10 +767,18 @@ class ClaudeCliExecutor:
         combined = (stdout + stderr).lower()
         rate_limit_indicators = [
             "rate limit",
+            "rate limited",
             "usage limit",
+            "usage_limit_reached",
+            "status code 429",
+            "status=429",
             "try again later",
             "too many requests",
             "quota exceeded",
+            "quota exhausted",
+            "usage cap",
+            "credit balance",
+            "request failed with status code 429",
         ]
         return any(indicator in combined for indicator in rate_limit_indicators)
 

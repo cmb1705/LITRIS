@@ -46,12 +46,15 @@ from src.indexing.pipeline import (
 )
 from src.indexing.raptor_pipeline import generate_scoped_raptor_summaries
 from src.indexing.structured_store import StructuredStore
+from src.utils.checkpoint import CheckpointManager
 from src.utils.file_utils import safe_read_json, safe_write_json
 from src.utils.logging_config import setup_logging
 from src.zotero.models import Author, PaperMetadata
 
 PROPOSALS_FILENAME = "dimension_proposals.json"
 MIGRATED_EXTRACTION_SCHEMA_VERSION = "2.0.0"
+BACKFILL_CHECKPOINT_ROOT = ".dimension_backfill"
+BACKFILL_STAGED_EXTRACTIONS_FILENAME = "semantic_analyses.backfill.json"
 
 SUGGESTION_HEURISTICS = [
     {
@@ -662,6 +665,16 @@ def parse_args() -> argparse.Namespace:
     backfill.add_argument("--parallel", type=int, default=None)
     backfill.add_argument("--no-cache", action="store_true")
     backfill.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume a previously interrupted backfill for the same target profile and paper scope",
+    )
+    backfill.add_argument(
+        "--fulltext-only",
+        action="store_true",
+        help="Capture canonical full-text snapshots without calling the semantic analysis provider",
+    )
+    backfill.add_argument(
         "--refresh-text",
         action="store_true",
         help="Re-run source text extraction for the targeted papers instead of reusing stored full-text snapshots",
@@ -754,6 +767,91 @@ def _load_extractions_payload(index_dir: Path) -> tuple[dict[str, Any], dict[str
     if isinstance(raw_data, dict):
         return {}, raw_data
     raise ValueError("Unsupported semantic_analyses.json structure")
+
+
+def _backfill_checkpoint_dir(index_dir: Path, profile: DimensionProfile) -> Path:
+    """Return the checkpoint directory for a staged backfill run."""
+
+    fingerprint = profile.fingerprint[:12]
+    return index_dir / BACKFILL_CHECKPOINT_ROOT / f"{profile.profile_id}_{fingerprint}"
+
+
+def _staged_backfill_extractions_path(checkpoint_dir: Path) -> Path:
+    """Return the staged extraction payload path for a backfill checkpoint."""
+
+    return checkpoint_dir / BACKFILL_STAGED_EXTRACTIONS_FILENAME
+
+
+def _load_staged_backfill_extractions(checkpoint_dir: Path) -> dict[str, dict]:
+    """Load staged extraction updates from a backfill checkpoint."""
+
+    return safe_read_json(
+        _staged_backfill_extractions_path(checkpoint_dir),
+        default={},
+    )
+
+
+def _save_staged_backfill_extractions(
+    checkpoint_dir: Path,
+    staged_extractions: dict[str, dict],
+) -> None:
+    """Persist staged extraction updates for a resumable backfill."""
+
+    safe_write_json(
+        _staged_backfill_extractions_path(checkpoint_dir),
+        staged_extractions,
+    )
+
+
+def _checkpoint_request_metadata(
+    *,
+    target_ids: list[str],
+    old_profile: DimensionProfile,
+    target_profile: DimensionProfile,
+    changed_sections: list[str],
+    reextract_sections: list[str],
+    partial_scope: bool,
+    refresh_text: bool,
+    fulltext_only: bool,
+) -> dict[str, Any]:
+    """Build the request fingerprint stored alongside backfill checkpoints."""
+
+    return {
+        "paper_ids": list(target_ids),
+        "old_profile_id": old_profile.profile_id,
+        "old_profile_fingerprint": old_profile.fingerprint,
+        "target_profile_id": target_profile.profile_id,
+        "target_profile_fingerprint": target_profile.fingerprint,
+        "changed_sections": list(changed_sections),
+        "reextract_sections": list(reextract_sections),
+        "partial_scope": partial_scope,
+        "refresh_text": refresh_text,
+        "fulltext_only": fulltext_only,
+    }
+
+
+def _checkpoint_matches_request(
+    state_metadata: dict[str, Any],
+    request_metadata: dict[str, Any],
+) -> bool:
+    """Return whether a stored checkpoint matches the current backfill request."""
+
+    comparable_keys = [
+        "paper_ids",
+        "old_profile_id",
+        "old_profile_fingerprint",
+        "target_profile_id",
+        "target_profile_fingerprint",
+        "changed_sections",
+        "reextract_sections",
+        "partial_scope",
+        "refresh_text",
+        "fulltext_only",
+    ]
+    return all(
+        state_metadata.get(key) == request_metadata.get(key)
+        for key in comparable_keys
+    )
 
 
 def _section_dimension_ids(
@@ -1197,6 +1295,19 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
         logger.warning("Ignoring %d paper ids missing from papers.json", len(missing_papers))
         target_ids = [paper_id for paper_id in target_ids if paper_id in papers]
 
+    request_metadata = _checkpoint_request_metadata(
+        target_ids=target_ids,
+        old_profile=old_profile,
+        target_profile=target_profile,
+        changed_sections=changed_sections,
+        reextract_sections=reextract_sections,
+        partial_scope=partial_scope,
+        refresh_text=bool(getattr(args, "refresh_text", False)),
+        fulltext_only=bool(getattr(args, "fulltext_only", False)),
+    )
+    checkpoint_dir = _backfill_checkpoint_dir(args.index_dir, target_profile)
+    checkpoint_exists = checkpoint_dir.exists()
+
     if args.dry_run:
         payload = {
             "index_dir": str(args.index_dir),
@@ -1207,16 +1318,56 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
             "reextract_sections": reextract_sections,
             "disable_only": disable_only,
             "refresh_text": bool(getattr(args, "refresh_text", False)),
+            "fulltext_only": bool(getattr(args, "fulltext_only", False)),
+            "resume": bool(getattr(args, "resume", False)),
+            "checkpoint_dir": str(checkpoint_dir),
+            "checkpoint_exists": checkpoint_exists,
             "diff": diff.model_dump(mode="json"),
         }
         print(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False).strip())
         return 0
 
+    resume_requested = bool(getattr(args, "resume", False))
+    fulltext_only = bool(getattr(args, "fulltext_only", False))
+
+    if checkpoint_exists and not resume_requested:
+        logger.info("Removing stale backfill checkpoint at %s", checkpoint_dir)
+        shutil.rmtree(checkpoint_dir, ignore_errors=True)
+
+    checkpoint_mgr = CheckpointManager(checkpoint_dir, checkpoint_id="dimension_backfill")
+    checkpoint_state = checkpoint_mgr.load() if resume_requested else None
+    if checkpoint_state is not None:
+        if not _checkpoint_matches_request(checkpoint_state.metadata, request_metadata):
+            raise ValueError(
+                "Existing backfill checkpoint does not match the current request. "
+                "Delete the checkpoint or rerun without --resume."
+            )
+    else:
+        checkpoint_mgr.initialize(
+            total_items=len(target_ids),
+            metadata=request_metadata,
+        )
+
+    staged_extractions = _load_staged_backfill_extractions(checkpoint_dir)
     updated_extractions = dict(extractions)
+    updated_extractions.update(staged_extractions)
+    requested_target_ids = list(target_ids)
+
+    completed_ids = set(checkpoint_mgr.state.processed_ids if checkpoint_mgr.state else [])
+    failed_checkpoint_ids = set(checkpoint_mgr.get_failed_ids()) if checkpoint_mgr.state else set()
+    if completed_ids or failed_checkpoint_ids:
+        logger.info(
+            "Backfill checkpoint: %d completed, %d failed, %d remaining",
+            len(completed_ids),
+            len(failed_checkpoint_ids),
+            max(0, len(target_ids) - len(completed_ids)),
+        )
+
+    target_ids = [paper_id for paper_id in target_ids if paper_id not in completed_ids]
     failed_ids: list[str] = []
     paper_models = [_paper_from_index_dict(paper_id, papers[paper_id]) for paper_id in target_ids]
 
-    if reextract_sections:
+    if reextract_sections or fulltext_only:
         provider, mode, cache_dir, parallel_workers, use_cache = configure_extraction_runtime(
             args,
             config,
@@ -1236,82 +1387,141 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
             refresh_text=bool(getattr(args, "refresh_text", False)),
         )
 
-        extract_batch_kwargs: dict[str, Any] = {
-            "section_ids": reextract_sections,
-        }
+        extract_batch_kwargs: dict[str, Any] = {}
+        if not fulltext_only:
+            extract_batch_kwargs["section_ids"] = reextract_sections
         signature = inspect.signature(extractor.extract_batch)
         if "text_snapshots" in signature.parameters:
             extract_batch_kwargs["text_snapshots"] = reusable_text_snapshots
+        if "skip_llm" in signature.parameters:
+            extract_batch_kwargs["skip_llm"] = fulltext_only
 
-        for result in extractor.extract_batch(
-            paper_models,
-            **extract_batch_kwargs,
-        ):
-            if not result.success or not result.extraction:
-                logger.warning("Backfill failed for %s: %s", result.paper_id, result.error)
-                failed_ids.append(result.paper_id)
-                continue
-            if result.pass_errors:
-                logger.warning(
-                    "Backfill failed for %s due to incomplete targeted section extraction: %s",
-                    result.paper_id,
-                    "; ".join(result.pass_errors),
-                )
-                failed_ids.append(result.paper_id)
-                continue
-
-            snapshot = result.text_snapshot or {}
-            snapshot_text = snapshot.get("text") if isinstance(snapshot, dict) else None
-            if (
-                isinstance(snapshot_text, str)
-                and snapshot_text
-                and bool(snapshot.get("should_persist", True))
+        processed_since_flush = 0
+        try:
+            for result in extractor.extract_batch(
+                paper_models,
+                **extract_batch_kwargs,
             ):
-                metadata = {
-                    key: value
-                    for key, value in snapshot.items()
-                    if key not in {"text", "should_persist"}
-                }
-                store.save_text_snapshot(
-                    result.paper_id,
-                    snapshot_text,
-                    metadata=metadata,
-                    persist_manifest=False,
-                )
+                processed_since_flush += 1
+                snapshot = result.text_snapshot or {}
+                snapshot_text = snapshot.get("text") if isinstance(snapshot, dict) else None
+                if (
+                    isinstance(snapshot_text, str)
+                    and snapshot_text
+                    and bool(snapshot.get("should_persist", True))
+                ):
+                    metadata = {
+                        key: value
+                        for key, value in snapshot.items()
+                        if key not in {"text", "should_persist"}
+                    }
+                    store.save_text_snapshot(
+                        result.paper_id,
+                        snapshot_text,
+                        metadata=metadata,
+                        persist_manifest=False,
+                    )
 
-            existing_record = updated_extractions.get(
-                result.paper_id,
-                {"paper_id": result.paper_id},
-            )
-            old_extraction = DimensionedExtraction.from_record(existing_record)
-            new_extraction = DimensionedExtraction.from_record(result.extraction)
-            merged = _merge_reextracted_dimensions(
-                old_extraction=old_extraction,
-                new_extraction=new_extraction,
-                target_profile=target_profile,
-                section_ids=reextract_sections,
-            )
-            updated_extractions[result.paper_id] = {
-                **existing_record,
-                "paper_id": result.paper_id,
-                "extraction": merged.to_index_dict(),
-                "timestamp": result.timestamp.isoformat(),
-                "model": result.model_used,
-                "duration": result.duration_seconds,
-                "input_tokens": result.input_tokens,
-                "output_tokens": result.output_tokens,
-            }
+                if fulltext_only:
+                    if result.success:
+                        checkpoint_mgr.complete_item(result.paper_id, success=True)
+                    else:
+                        logger.warning(
+                            "Full-text capture failed for %s: %s",
+                            result.paper_id,
+                            result.error,
+                        )
+                        failed_ids.append(result.paper_id)
+                        checkpoint_mgr.complete_item(
+                            result.paper_id,
+                            success=False,
+                            error=Exception(result.error or "Unknown error"),
+                        )
+                else:
+                    if not result.success or not result.extraction:
+                        logger.warning("Backfill failed for %s: %s", result.paper_id, result.error)
+                        failed_ids.append(result.paper_id)
+                        checkpoint_mgr.complete_item(
+                            result.paper_id,
+                            success=False,
+                            error=Exception(result.error or "Unknown error"),
+                        )
+                    elif result.pass_errors:
+                        logger.warning(
+                            "Backfill failed for %s due to incomplete targeted section extraction: %s",
+                            result.paper_id,
+                            "; ".join(result.pass_errors),
+                        )
+                        failed_ids.append(result.paper_id)
+                        checkpoint_mgr.complete_item(
+                            result.paper_id,
+                            success=False,
+                            error=Exception("; ".join(result.pass_errors)),
+                        )
+                    else:
+                        existing_record = updated_extractions.get(
+                            result.paper_id,
+                            {"paper_id": result.paper_id},
+                        )
+                        old_extraction = DimensionedExtraction.from_record(existing_record)
+                        new_extraction = DimensionedExtraction.from_record(result.extraction)
+                        merged = _merge_reextracted_dimensions(
+                            old_extraction=old_extraction,
+                            new_extraction=new_extraction,
+                            target_profile=target_profile,
+                            section_ids=reextract_sections,
+                        )
+                        updated_extractions[result.paper_id] = {
+                            **existing_record,
+                            "paper_id": result.paper_id,
+                            "extraction": merged.to_index_dict(),
+                            "timestamp": result.timestamp.isoformat(),
+                            "model": result.model_used,
+                            "duration": result.duration_seconds,
+                            "input_tokens": result.input_tokens,
+                            "output_tokens": result.output_tokens,
+                        }
+                        staged_extractions[result.paper_id] = updated_extractions[result.paper_id]
+                        checkpoint_mgr.complete_item(result.paper_id, success=True)
 
-        store.flush_fulltext_manifest()
+                if processed_since_flush % 10 == 0:
+                    _save_staged_backfill_extractions(checkpoint_dir, staged_extractions)
+                    checkpoint_mgr.save()
+                    store.flush_fulltext_manifest()
+        except KeyboardInterrupt:
+            checkpoint_mgr.save()
+            _save_staged_backfill_extractions(checkpoint_dir, staged_extractions)
+            store.flush_fulltext_manifest()
+            logger.warning(
+                "Backfill interrupted by user. Resume with --resume. Checkpoint saved at %s",
+                checkpoint_dir,
+            )
+            return 130
+        finally:
+            checkpoint_mgr.save()
+            _save_staged_backfill_extractions(checkpoint_dir, staged_extractions)
+            store.flush_fulltext_manifest()
 
     if failed_ids:
         logger.error(
-            "Aborting backfill; %d paper(s) failed targeted re-extraction",
+            "Aborting backfill; %d paper(s) failed. Resume with --resume. Checkpoint: %s",
             len(failed_ids),
+            checkpoint_dir,
         )
         return 1
 
-    for paper_id in target_ids:
+    if fulltext_only:
+        shutil.rmtree(checkpoint_dir, ignore_errors=True)
+        logger.info(
+            "Captured canonical full-text snapshots for %d paper(s)%s",
+            len(requested_target_ids),
+            " using stored snapshots where available"
+            if not args.refresh_text
+            else " with refreshed source extraction",
+        )
+        return 0
+
+    for paper_id in requested_target_ids:
         existing_record = updated_extractions.get(paper_id)
         if not existing_record:
             continue
@@ -1326,7 +1536,7 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
     if not args.skip_embeddings:
         scoped_papers = [
             _paper_from_index_dict(paper_id, papers[paper_id])
-            for paper_id in target_ids
+            for paper_id in requested_target_ids
             if paper_id in updated_extractions
         ]
         scoped_extractions = {
@@ -1369,16 +1579,17 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
         logger.info(
             "Partial backfill completed for %d paper(s); leaving the index-level "
             "profile snapshot unchanged until a full-corpus backfill succeeds",
-            len(target_ids),
+            len(requested_target_ids),
         )
     else:
         store.save_dimension_profile(target_profile.model_dump(mode="json"))
         _update_manifest_profile_snapshot(args.index_dir, args, config, target_profile)
 
     generate_summary(args.index_dir, logger)
+    shutil.rmtree(checkpoint_dir, ignore_errors=True)
     logger.info(
         "Backfilled %d papers from profile %s to %s (%d changed sections, %d re-extracted)",
-        len(target_ids),
+        len(requested_target_ids),
         old_profile.profile_id,
         target_profile.profile_id,
         len(changed_sections),

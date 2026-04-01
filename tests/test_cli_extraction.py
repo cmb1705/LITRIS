@@ -99,9 +99,28 @@ class TestClaudeCliExecutor:
         assert executor._is_rate_limited("Rate limit exceeded", "") is True
         assert executor._is_rate_limited("", "usage limit reached") is True
         assert executor._is_rate_limited("Please try again later", "") is True
+        assert executor._is_rate_limited("", "status=429 body=Rate limited. Please try again later.") is True
 
         # Should not detect rate limit
         assert executor._is_rate_limited("Normal response", "") is False
+
+    def test_rate_limit_checked_before_authentication(self):
+        """Rate-limit messages should not be mislabeled as auth failures."""
+        executor = ClaudeCliExecutor()
+
+        message = "status=429 body=Rate limited. Please try again later."
+
+        assert executor._is_rate_limited("", message) is True
+        assert executor._is_authentication_error("", message) is False
+
+    def test_authentication_detection_requires_specific_session_signals(self):
+        """Authentication detection should use explicit auth/session phrases."""
+        executor = ClaudeCliExecutor()
+
+        assert executor._is_authentication_error("", "Authentication failed during extraction") is True
+        assert executor._is_authentication_error("", "Please re-authenticate before continuing") is True
+        assert executor._is_authentication_error("", "OAuth token expired") is True
+        assert executor._is_authentication_error("", "Generic authentication context") is False
 
     def test_parse_json_response(self):
         """Test parsing JSON from CLI response."""

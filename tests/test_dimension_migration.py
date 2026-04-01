@@ -21,6 +21,7 @@ from src.analysis.schemas import DimensionedExtraction, ExtractionResult
 from src.config import Config
 from src.indexing.orchestrator import IndexManifest
 from src.indexing.structured_store import StructuredStore
+from src.utils.checkpoint import CheckpointManager
 from src.utils.file_utils import safe_read_json, safe_write_json
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -94,6 +95,27 @@ def _write_legacy_index(index_dir: Path, paper_id: str = "paper_001") -> Structu
                     "paper_id": paper_id,
                     "extraction": _legacy_extraction_record(paper_id),
                 }
+            },
+        },
+    )
+    return store
+
+
+def _write_legacy_index_many(index_dir: Path, paper_ids: list[str]) -> StructuredStore:
+    store = StructuredStore(index_dir)
+    store.save_papers({paper_id: _paper_record(index_dir, paper_id) for paper_id in paper_ids})
+    safe_write_json(
+        index_dir / "semantic_analyses.json",
+        {
+            "schema_version": "1.0",
+            "generated_at": "2026-03-31T00:00:00",
+            "extraction_count": len(paper_ids),
+            "extractions": {
+                paper_id: {
+                    "paper_id": paper_id,
+                    "extraction": _legacy_extraction_record(paper_id),
+                }
+                for paper_id in paper_ids
             },
         },
     )
@@ -515,6 +537,233 @@ def test_backfill_refresh_text_bypasses_stored_snapshot(
     snapshot = StructuredStore(tmp_path).load_text_snapshot("paper_001")
     assert snapshot is not None
     assert snapshot["text"] == "Refreshed canonical text"
+
+
+def test_fulltext_only_backfill_populates_canonical_snapshots_without_embeddings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dimensions_cli: ModuleType,
+) -> None:
+    store = _write_legacy_index(tmp_path)
+    old_profile = build_legacy_dimension_profile()
+    store.save_dimension_profile(old_profile.model_dump(mode="json"))
+    profile_path = tmp_path / "legacy.yaml"
+    _write_profile(profile_path, old_profile.model_dump(mode="json"))
+
+    embedding_called = False
+
+    class DummyExtractor:
+        def extract_batch(
+            self,
+            papers,
+            progress_callback=None,
+            section_ids=None,
+            text_snapshots=None,
+            skip_llm=False,
+        ):
+            assert skip_llm is True
+            assert section_ids is None
+            for paper in papers:
+                yield ExtractionResult(
+                    paper_id=paper.paper_id,
+                    success=True,
+                    extraction=None,
+                    text_snapshot={
+                        "text": "Canonical full text",
+                        "source": "fulltext_only_test",
+                        "extraction_method": "pymupdf",
+                        "is_cleaned": True,
+                        "is_truncated_for_llm": False,
+                        "should_persist": True,
+                    },
+                )
+
+    monkeypatch.setattr(
+        dimensions_cli,
+        "configure_extraction_runtime",
+        lambda *args, **kwargs: ("anthropic", "cli", tmp_path, 1, False),
+    )
+    monkeypatch.setattr(dimensions_cli, "build_section_extractor", lambda **kwargs: DummyExtractor())
+    monkeypatch.setattr(
+        dimensions_cli,
+        "run_embedding_generation",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("embeddings should not run")),
+    )
+    monkeypatch.setattr(dimensions_cli, "generate_summary", lambda *args, **kwargs: {})
+
+    args = argparse.Namespace(
+        index_dir=tmp_path,
+        dimension_profile=profile_path,
+        paper=[],
+        dry_run=False,
+        skip_embeddings=False,
+        skip_similarity=False,
+        provider=None,
+        mode=None,
+        model=None,
+        parallel=None,
+        no_cache=False,
+        refresh_text=True,
+        resume=False,
+        fulltext_only=True,
+        summary_model=None,
+        methodology_model=None,
+    )
+    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    config = _make_config(tmp_path)
+
+    assert dimensions_cli.backfill_dimensions(args, config, logger) == 0
+    snapshot = StructuredStore(tmp_path).load_text_snapshot("paper_001")
+    assert snapshot is not None
+    assert snapshot["text"] == "Canonical full text"
+    assert embedding_called is False
+
+
+def test_backfill_resume_reuses_staged_extractions_and_skips_completed_ids(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dimensions_cli: ModuleType,
+) -> None:
+    store = _write_legacy_index_many(tmp_path, ["paper_001", "paper_002"])
+    old_profile = build_legacy_dimension_profile()
+    store.save_dimension_profile(old_profile.model_dump(mode="json"))
+
+    profile_dict = old_profile.model_dump(mode="json")
+    profile_dict["profile_id"] = "legacy_semantic_methods_v2"
+    profile_dict["version"] = "2.0.0"
+    for dimension in profile_dict["dimensions"]:
+        if dimension["id"] == "methods":
+            dimension["question"] = "What updated methods and analytical techniques are used?"
+    profile_path = tmp_path / "methods_v2.yaml"
+    _write_profile(profile_path, profile_dict)
+    target_profile = dimensions_cli.load_dimension_profile(profile_path)
+
+    checkpoint_dir = dimensions_cli._backfill_checkpoint_dir(tmp_path, target_profile)
+    checkpoint_mgr = CheckpointManager(checkpoint_dir, checkpoint_id="dimension_backfill")
+    request_metadata = dimensions_cli._checkpoint_request_metadata(
+        target_ids=["paper_001", "paper_002"],
+        old_profile=old_profile,
+        target_profile=target_profile,
+        changed_sections=["methodology"],
+        reextract_sections=["methodology"],
+        partial_scope=False,
+        refresh_text=False,
+        fulltext_only=False,
+    )
+    checkpoint_mgr.initialize(total_items=2, metadata=request_metadata)
+    checkpoint_mgr.complete_item("paper_001", success=True)
+    checkpoint_mgr.save()
+
+    staged_candidate = DimensionedExtraction(
+        paper_id="paper_001",
+        profile_id=target_profile.profile_id,
+        profile_version=target_profile.version,
+        profile_fingerprint=target_profile.fingerprint,
+        prompt_version="2.0.0",
+        extraction_model="target-model",
+        extracted_at="2026-03-31T01:00:00",
+        dimensions={"methods": "Staged methods"},
+    )
+    staged_extraction = dimensions_cli._merge_reextracted_dimensions(
+        old_extraction=DimensionedExtraction.from_record(
+            StructuredStore(tmp_path).load_extractions()["paper_001"]
+        ),
+        new_extraction=staged_candidate,
+        target_profile=target_profile,
+        section_ids=["methodology"],
+    )
+    dimensions_cli._save_staged_backfill_extractions(
+        checkpoint_dir,
+        {
+            "paper_001": {
+                "paper_id": "paper_001",
+                "extraction": staged_extraction.to_index_dict(),
+                "timestamp": "2026-03-31T01:00:00",
+                "model": "target-model",
+                "duration": 1.0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+            }
+        },
+    )
+
+    observed: dict[str, object] = {}
+
+    class DummyExtractor:
+        def extract_batch(self, papers, progress_callback=None, section_ids=None, text_snapshots=None, skip_llm=False):
+            observed["paper_ids"] = [paper.paper_id for paper in papers]
+            for paper in papers:
+                yield ExtractionResult(
+                    paper_id=paper.paper_id,
+                    success=True,
+                    extraction=DimensionedExtraction(
+                        paper_id=paper.paper_id,
+                        profile_id=target_profile.profile_id,
+                        profile_version=target_profile.version,
+                        profile_fingerprint=target_profile.fingerprint,
+                        prompt_version="2.0.0",
+                        extraction_model="target-model",
+                        extracted_at="2026-03-31T01:00:00",
+                        dimensions={"methods": f"Updated methods for {paper.paper_id}"},
+                    ),
+                    model_used="target-model",
+                )
+
+    monkeypatch.setattr(
+        dimensions_cli,
+        "configure_extraction_runtime",
+        lambda *args, **kwargs: ("anthropic", "api", tmp_path, 1, False),
+    )
+    monkeypatch.setattr(dimensions_cli, "build_section_extractor", lambda **kwargs: DummyExtractor())
+    monkeypatch.setattr(dimensions_cli, "generate_scoped_raptor_summaries", lambda **kwargs: {})
+    monkeypatch.setattr(dimensions_cli, "run_embedding_generation", lambda **kwargs: None)
+    monkeypatch.setattr(dimensions_cli, "compute_similarity_pairs", lambda **kwargs: 0)
+    monkeypatch.setattr(dimensions_cli, "generate_summary", lambda *args, **kwargs: {})
+
+    args = argparse.Namespace(
+        index_dir=tmp_path,
+        dimension_profile=profile_path,
+        paper=[],
+        dry_run=False,
+        skip_embeddings=False,
+        skip_similarity=False,
+        provider=None,
+        mode=None,
+        model=None,
+        parallel=None,
+        no_cache=False,
+        refresh_text=False,
+        resume=True,
+        fulltext_only=False,
+        summary_model=None,
+        methodology_model=None,
+    )
+    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    config = _make_config(tmp_path)
+
+    assert dimensions_cli.backfill_dimensions(args, config, logger) == 0
+    assert observed["paper_ids"] == ["paper_002"]
+
+    reloaded = StructuredStore(tmp_path).load_extractions()
+    paper1 = DimensionedExtraction.from_record(reloaded["paper_001"])
+    paper2 = DimensionedExtraction.from_record(reloaded["paper_002"])
+    assert paper1.dimensions["methods"] == "Staged methods"
+    assert paper2.dimensions["methods"] == "Updated methods for paper_002"
+
+
+def test_missing_fulltext_manifest_rebuilds_from_snapshot_files(tmp_path: Path) -> None:
+    store = _write_legacy_index(tmp_path)
+    _write_text_snapshot(tmp_path, "paper_001", "Snapshot body for manifest rebuild")
+
+    manifest_path = tmp_path / "fulltext_manifest.json"
+    manifest_path.unlink()
+
+    rebuilt_store = StructuredStore(tmp_path)
+    manifest = rebuilt_store.load_fulltext_manifest()
+
+    assert "paper_001" in manifest
+    assert manifest["paper_001"]["reconstructed"] is True
+    assert manifest_path.exists()
 
 
 def test_partial_backfill_keeps_index_snapshot_on_old_profile(

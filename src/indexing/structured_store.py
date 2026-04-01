@@ -210,6 +210,20 @@ class StructuredStore:
         ):
             return self._fulltext_manifest_cache
 
+        if (
+            not self.fulltext_manifest_file.exists()
+            and self.fulltext_dir.exists()
+            and any(self.fulltext_dir.glob("*.txt"))
+        ):
+            logger.warning(
+                "Full-text manifest missing; rebuilding from snapshot files in %s",
+                self.fulltext_dir,
+            )
+            rebuilt = self.rebuild_fulltext_manifest()
+            self._fulltext_manifest_cache = rebuilt
+            self._fulltext_manifest_mtime = self._file_mtime(self.fulltext_manifest_file)
+            return self._fulltext_manifest_cache
+
         data = safe_read_json(self.fulltext_manifest_file, default={})
         if isinstance(data, dict) and "snapshots" in data:
             snapshots = data["snapshots"]
@@ -245,6 +259,48 @@ class StructuredStore:
 
         if self._fulltext_manifest_cache is not None:
             self.save_fulltext_manifest(self._fulltext_manifest_cache)
+
+    def rebuild_fulltext_manifest(self) -> dict[str, dict]:
+        """Rebuild the full-text manifest from snapshot files on disk.
+
+        Returns:
+            Reconstructed snapshot metadata keyed by ``paper_id``.
+        """
+
+        snapshots: dict[str, dict] = {}
+        if not self.fulltext_dir.exists():
+            self._fulltext_manifest_cache = snapshots
+            self.save_fulltext_manifest(snapshots)
+            return snapshots
+
+        for snapshot_path in sorted(self.fulltext_dir.glob("*.txt")):
+            paper_id = snapshot_path.stem
+            try:
+                text = snapshot_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                logger.warning(
+                    "Failed to rebuild full-text manifest entry for %s: %s",
+                    paper_id,
+                    exc,
+                )
+                continue
+
+            stat = snapshot_path.stat()
+            snapshots[paper_id] = {
+                "paper_id": paper_id,
+                "path": str(snapshot_path.relative_to(self.index_dir)),
+                "char_count": len(text),
+                "word_count": len(text.split()),
+                "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                "captured_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "is_cleaned": True,
+                "is_truncated_for_llm": False,
+                "source": "manifest_rebuild",
+                "reconstructed": True,
+            }
+
+        self.save_fulltext_manifest(snapshots)
+        return snapshots
 
     def save_text_snapshot(
         self,
