@@ -676,6 +676,23 @@ class SearchEngine:
         """
         return self.structured_store.get_paper_with_extraction(paper_id)
 
+    def get_fulltext_context(
+        self,
+        paper_id: str,
+        query: str,
+        *,
+        max_hits: int = 3,
+        context_chars: int = 400,
+    ) -> dict:
+        """Return verbatim context windows for a query within one paper."""
+
+        return self.structured_store.get_fulltext_context(
+            paper_id=paper_id,
+            query=query,
+            max_hits=max_hits,
+            context_chars=context_chars,
+        )
+
     def get_summary(self) -> dict:
         """Get index summary statistics.
 

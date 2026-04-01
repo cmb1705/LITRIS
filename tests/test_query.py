@@ -154,6 +154,69 @@ class TestStructuredStore:
         assert "paper" in combined
         assert "extraction" in combined
 
+    def test_save_and_load_text_snapshot(self, store):
+        """Full-text snapshots round-trip with metadata and exact text."""
+        metadata = {
+            "source": "cascade",
+            "extraction_method": "companion",
+            "pdf_path": "paper_001.pdf",
+            "pdf_size": 1234,
+            "pdf_mtime_ns": 5678,
+        }
+        store.save_text_snapshot(
+            "paper_001",
+            "Alpha Beta Gamma Delta",
+            metadata=metadata,
+        )
+
+        loaded = store.load_text_snapshot("paper_001")
+
+        assert loaded is not None
+        assert loaded["text"] == "Alpha Beta Gamma Delta"
+        assert loaded["source"] == "cascade"
+        assert loaded["is_truncated_for_llm"] is False
+
+    def test_get_fulltext_context_returns_verbatim_matches(self, store):
+        """Context lookup returns exact match text plus surrounding context."""
+        store.save_text_snapshot(
+            "paper_001",
+            "Alpha Beta Gamma. Beta appears twice.",
+            metadata={"source": "cascade"},
+        )
+
+        context = store.get_fulltext_context(
+            "paper_001",
+            "Beta",
+            max_hits=2,
+            context_chars=8,
+        )
+
+        assert context["found"] is True
+        assert context["match_count"] == 2
+        assert context["matches"][0]["match_text"] == "Beta"
+        assert "Alpha Beta Gamma" in context["matches"][0]["context"]
+
+    def test_get_paper_with_extraction_includes_fulltext_metadata_only(
+        self,
+        store,
+        sample_papers,
+        sample_extractions,
+    ):
+        """Combined paper payload includes full-text metadata without the raw text body."""
+        store.save_papers(sample_papers)
+        store.save_extractions(sample_extractions)
+        store.save_text_snapshot(
+            "paper_001",
+            "Canonical full text for paper one.",
+            metadata={"source": "cascade"},
+        )
+
+        combined = store.get_paper_with_extraction("paper_001")
+
+        assert combined["fulltext"] is not None
+        assert combined["fulltext"]["source"] == "cascade"
+        assert "text" not in combined["fulltext"]
+
     def test_search_papers_by_title(self, store, sample_papers):
         """Test searching papers by title."""
         store.save_papers(sample_papers)
@@ -201,12 +264,18 @@ class TestStructuredStore:
         """Test summary generation."""
         store.save_papers(sample_papers)
         store.save_extractions(sample_extractions)
+        store.save_text_snapshot(
+            "paper_001",
+            "Stored full text",
+            metadata={"source": "cascade"},
+        )
 
         summary = store.generate_summary()
         assert summary["total_papers"] == 2
         assert summary["total_extractions"] == 2
         assert "papers_by_type" in summary
         assert "papers_by_year" in summary
+        assert summary["fulltext"]["snapshot_count"] == 1
 
     def test_get_paper_ids(self, store, sample_papers):
         """Test getting all paper IDs."""
@@ -456,6 +525,13 @@ class TestSearchEngine:
                 "paper": {"title": "Test"},
                 "extraction": {},
             }
+            mock_store_instance.get_fulltext_context.return_value = {
+                "paper_id": "paper_001",
+                "found": True,
+                "query": "test",
+                "match_count": 1,
+                "matches": [{"match_text": "test", "context": "test context"}],
+            }
             mock_store_instance.load_summary.return_value = {"total_papers": 10}
             mock_store_instance.generate_summary.return_value = {
                 "papers_by_collection": {"ML": 5},
@@ -543,3 +619,19 @@ class TestSearchEngine:
         paper = engine.get_paper("paper_001")
         assert paper is not None
         assert "paper" in paper
+
+    def test_get_fulltext_context(self, mock_dependencies):
+        """SearchEngine forwards verbatim context lookup to the structured store."""
+        engine = SearchEngine(
+            index_dir=mock_dependencies["index_dir"],
+        )
+
+        context = engine.get_fulltext_context("paper_001", "test")
+
+        assert context["found"] is True
+        mock_dependencies["store"].get_fulltext_context.assert_called_once_with(
+            paper_id="paper_001",
+            query="test",
+            max_hits=3,
+            context_chars=400,
+        )

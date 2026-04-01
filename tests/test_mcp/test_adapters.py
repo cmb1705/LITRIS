@@ -107,6 +107,59 @@ class TestLitrisAdapterGetPaper:
             for field in paper_fields:
                 assert field in paper, f"Missing paper field: {field}"
 
+    def test_get_paper_reports_fulltext_availability(self, mock_search_engine, sample_paper_data, sample_extraction_data):
+        """get_paper surfaces full-text metadata when available."""
+        mock_search_engine.get_paper.return_value = {
+            "paper": sample_paper_data,
+            "extraction": sample_extraction_data,
+            "fulltext": {"source": "cascade", "char_count": 1234},
+        }
+
+        with patch.object(LitrisAdapter, "engine", mock_search_engine):
+            adapter = LitrisAdapter()
+            result = adapter.get_paper("test_paper_001")
+
+            assert result["fulltext_available"] is True
+            assert result["fulltext"]["source"] == "cascade"
+
+
+class TestLitrisAdapterFulltextContext:
+    """Tests for verbatim full-text context lookup."""
+
+    def test_get_fulltext_context_returns_matches(self, mock_search_engine, sample_paper_data, sample_extraction_data):
+        """Adapter forwards full-text context lookups and annotates them with paper metadata."""
+        mock_search_engine.get_paper.return_value = {
+            "paper": sample_paper_data,
+            "extraction": sample_extraction_data,
+            "fulltext": {"source": "cascade", "char_count": 1234},
+        }
+        mock_search_engine.get_fulltext_context.return_value = {
+            "paper_id": sample_paper_data["paper_id"],
+            "found": True,
+            "query": "citation prediction",
+            "match_count": 1,
+            "matches": [{"match_text": "citation prediction", "context": "context"}],
+            "fulltext_metadata": {"source": "cascade"},
+        }
+
+        with patch.object(LitrisAdapter, "engine", mock_search_engine):
+            adapter = LitrisAdapter()
+            result = adapter.get_fulltext_context(
+                "test_paper_001",
+                "citation prediction",
+                max_hits=2,
+                context_chars=300,
+            )
+
+            assert result["found"] is True
+            assert result["paper"]["title"] == sample_paper_data["title"]
+            mock_search_engine.get_fulltext_context.assert_called_once_with(
+                paper_id="test_paper_001",
+                query="citation prediction",
+                max_hits=2,
+                context_chars=300,
+            )
+
 
 class TestLitrisAdapterFindSimilar:
     """Tests for LitrisAdapter.find_similar method."""

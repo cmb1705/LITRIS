@@ -10,6 +10,10 @@ The commands below assume:
 - Target profile: `d:\Git_Repos\LITRIS\profiles\stp_cas.yaml`
 - Extraction stack for backfill: `anthropic` provider in `cli` mode
 
+This workflow now also maintains canonical full-text snapshots under
+`data/index/fulltext/`. Those snapshots are full cleaned text, not the
+LLM-truncated input view.
+
 ## Preconditions
 
 Before running the backfill, verify:
@@ -69,6 +73,7 @@ Expected result:
 - `changed_sections` contains `scholarly` and `impact`
 - `reextract_sections` contains `scholarly` and `impact`
 - `disable_only` is `false`
+- `refresh_text` is `false` unless you explicitly add `--refresh-text`
 
 ### 5. Pilot on the five validation papers
 
@@ -133,6 +138,10 @@ for paper_id in paper_ids:
 
 ### 7. Full-corpus backfill after pilot approval
 
+If you want to populate or refresh the canonical full-text store for the
+entire corpus at the same time, add `--refresh-text`. That forces a new source
+text extraction only for the current command scope.
+
 Run this only after you are satisfied with the pilot outputs.
 
 ```powershell
@@ -143,12 +152,15 @@ Run this only after you are satisfied with the pilot outputs.
   --mode cli `
   --model claude-opus-4-6 `
   --parallel 4 `
+  --refresh-text `
   --no-cache
 ```
 
 On a successful full-corpus run, LITRIS will:
 
 - update `semantic_analyses.json`
+- write or refresh canonical full-text snapshots in `fulltext/`
+- write `fulltext_manifest.json`
 - refresh embeddings
 - write `dimension_profile.json`
 - update `index_manifest.json` with the new profile metadata
@@ -158,5 +170,7 @@ On a successful full-corpus run, LITRIS will:
 - Partial pilot runs do not advance the index-level profile snapshot by design.
 - If any targeted section fails during backfill, the run aborts before
   advancing the profile snapshot.
+- `--refresh-text` does not imply "refresh everything in the repo." It only
+  re-extracts source text for the current backfill scope.
 - If `claude` is not available in your shell, fix the CLI installation or PATH
   before running the backfill.

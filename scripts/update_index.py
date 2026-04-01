@@ -111,6 +111,7 @@ def _augment_args(args: argparse.Namespace) -> argparse.Namespace:
     args.parallel = None
     args.no_cache = False
     args.clear_cache = False
+    args.refresh_text = False
     args.use_subscription = False
     args.estimate_cost = False
     args.gap_fill = False

@@ -205,6 +205,11 @@ def parse_args():
         help="Clear extraction cache before running",
     )
     parser.add_argument(
+        "--refresh-text",
+        action="store_true",
+        help="Re-run full-text extraction for the targeted papers instead of reusing stored canonical snapshots",
+    )
+    parser.add_argument(
         "--use-subscription",
         action="store_true",
         help="Use Claude subscription (Max/Pro) instead of API billing",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import inspect
 import os
 import sys
 from datetime import datetime
@@ -131,11 +132,13 @@ def run_extraction(
     existing_extractions: dict[str, dict],
     checkpoint_mgr: CheckpointManager,
     logger,
+    text_snapshots: dict[str, dict[str, object]] | None = None,
 ) -> tuple[dict[str, dict], dict[str, dict], list]:
     """Run extraction and checkpoint progress for the provided paper scope."""
     paper_dicts = dict(existing_papers)
     for paper in papers:
         paper_dicts[paper.paper_id] = paper.to_index_dict()
+    store = StructuredStore(index_dir)
 
     state = checkpoint_mgr.load()
     if not state:
@@ -147,8 +150,33 @@ def run_extraction(
     pbar = tqdm(total=len(papers), desc="Extracting", unit="paper")
     results = []
     try:
-        for result in extractor.extract_batch(papers):
+        extract_batch_kwargs = {}
+        signature = inspect.signature(extractor.extract_batch)
+        if "text_snapshots" in signature.parameters:
+            extract_batch_kwargs["text_snapshots"] = text_snapshots
+
+        for result in extractor.extract_batch(papers, **extract_batch_kwargs):
             results.append(result)
+            snapshot = result.text_snapshot or {}
+            snapshot_text = snapshot.get("text") if isinstance(snapshot, dict) else None
+            should_persist_snapshot = (
+                isinstance(snapshot_text, str)
+                and bool(snapshot_text)
+                and bool(snapshot.get("should_persist", True))
+            )
+            if should_persist_snapshot:
+                metadata = {
+                    key: value
+                    for key, value in snapshot.items()
+                    if key not in {"text", "should_persist"}
+                }
+                store.save_text_snapshot(
+                    result.paper_id,
+                    snapshot_text,
+                    metadata=metadata,
+                    persist_manifest=False,
+                )
+
             if result.success and result.extraction:
                 checkpoint_mgr.complete_item(result.paper_id, success=True)
                 existing_extractions[result.paper_id] = {
@@ -165,6 +193,7 @@ def run_extraction(
                 checkpoint_mgr.complete_item(result.paper_id, success=False, error=error)
 
             if len(results) % 10 == 0:
+                store.flush_fulltext_manifest()
                 checkpoint_mgr.save()
                 save_checkpoint(
                     index_dir,
@@ -184,6 +213,7 @@ def run_extraction(
     finally:
         pbar.close()
         checkpoint_mgr.save()
+        store.flush_fulltext_manifest()
 
     return paper_dicts, existing_extractions, results
 
@@ -248,6 +278,7 @@ def run_gap_fill(
         enable_ocr=config.processing.ocr_enabled or config.processing.ocr_on_fail,
     )
     text_cleaner = TextCleaner()
+    store = StructuredStore(index_dir)
 
     filled_total = 0
     for idx, (paper, extraction, result) in enumerate(low_coverage, 1):
@@ -264,13 +295,32 @@ def run_gap_fill(
             continue
 
         try:
-            raw_text = pdf_extractor.extract_text(paper.pdf_path)
-            if raw_text:
-                text = text_cleaner.clean(raw_text)
-                text = text_cleaner.truncate_for_llm(text)
+            snapshot = store.load_text_snapshot(paper.paper_id)
+            if snapshot and _snapshot_matches_paper(snapshot, paper):
+                text = str(snapshot["text"])
             else:
-                logger.warning("Gap-fill: empty text for %s", paper.paper_id)
-                continue
+                raw_text = pdf_extractor.extract_text(paper.pdf_path)
+                if raw_text:
+                    text = text_cleaner.clean(raw_text)
+                    store.save_text_snapshot(
+                        paper.paper_id,
+                        text,
+                        metadata={
+                            "paper_id": paper.paper_id,
+                            "source": "gap_fill_refresh",
+                            "extraction_method": "pymupdf",
+                            "is_cleaned": True,
+                            "is_truncated_for_llm": False,
+                            "pdf_path": str(paper.pdf_path),
+                            "pdf_size": int(paper.pdf_path.stat().st_size),
+                            "pdf_mtime_ns": int(paper.pdf_path.stat().st_mtime_ns),
+                        },
+                        persist_manifest=False,
+                    )
+                else:
+                    logger.warning("Gap-fill: empty text for %s", paper.paper_id)
+                    continue
+            text = text_cleaner.truncate_for_llm(text)
         except Exception as exc:
             logger.warning(
                 "Gap-fill: text extraction failed for %s: %s",
@@ -325,6 +375,7 @@ def run_gap_fill(
             logger.error("Gap-fill failed for %s: %s", paper.paper_id, exc)
 
     if filled_total > 0:
+        store.flush_fulltext_manifest()
         save_checkpoint(
             index_dir,
             list(paper_dicts.values()),
@@ -339,6 +390,7 @@ def run_gap_fill(
             },
         )
 
+    store.flush_fulltext_manifest()
     logger.info(
         "Gap-fill complete: %d dimensions filled across %d papers",
         filled_total,
@@ -653,6 +705,57 @@ def configure_extraction_runtime(
             os.environ.pop("ANTHROPIC_API_KEY", None)
 
     return provider, mode, cache_dir, parallel_workers, use_cache
+
+
+def load_reusable_text_snapshots(
+    store: StructuredStore,
+    papers: list[PaperMetadata],
+    *,
+    refresh_text: bool = False,
+) -> dict[str, dict[str, object]]:
+    """Load canonical text snapshots that match the current paper source state."""
+
+    if refresh_text:
+        return {}
+
+    snapshots: dict[str, dict[str, object]] = {}
+    for paper in papers:
+        snapshot = store.load_text_snapshot(paper.paper_id)
+        if snapshot is None:
+            continue
+        if _snapshot_matches_paper(snapshot, paper):
+            snapshots[paper.paper_id] = snapshot
+    return snapshots
+
+
+def _snapshot_matches_paper(
+    snapshot: dict[str, object],
+    paper: PaperMetadata,
+) -> bool:
+    """Return whether a stored text snapshot still matches the current paper source."""
+
+    if not paper.pdf_path or not paper.pdf_path.exists():
+        return True
+
+    stored_path = snapshot.get("pdf_path")
+    current_path = str(paper.pdf_path)
+    if stored_path and stored_path != current_path:
+        return False
+
+    try:
+        stat = paper.pdf_path.stat()
+    except OSError:
+        return False
+
+    stored_size = snapshot.get("pdf_size")
+    stored_mtime_ns = snapshot.get("pdf_mtime_ns")
+    if stored_size is None or stored_mtime_ns is None:
+        return True
+
+    return (
+        int(stored_size) == int(stat.st_size)
+        and int(stored_mtime_ns) == int(stat.st_mtime_ns)
+    )
 
 
 def build_section_extractor(

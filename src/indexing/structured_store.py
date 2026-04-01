@@ -1,5 +1,7 @@
-"""Structured storage for papers and extractions using JSON files."""
+"""Structured storage for papers, extractions, and full-text snapshots."""
 
+import hashlib
+import re
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +17,7 @@ logger = get_logger(__name__)
 
 SCHEMA_VERSION = "1.0"
 EXTRACTION_STORE_SCHEMA_VERSION = "2.0.0"
+FULLTEXT_STORE_SCHEMA_VERSION = "1.0.0"
 
 
 class StructuredStore:
@@ -35,6 +38,8 @@ class StructuredStore:
         self.metadata_file = self.index_dir / "metadata.json"
         self.summary_file = self.index_dir / "summary.json"
         self.similarity_pairs_file = self.index_dir / "similarity_pairs.json"
+        self.fulltext_dir = self.index_dir / "fulltext"
+        self.fulltext_manifest_file = self.index_dir / "fulltext_manifest.json"
 
         # Cache loaded data with file modification tracking
         self._papers_cache: dict[str, dict] | None = None
@@ -43,6 +48,8 @@ class StructuredStore:
         self._extractions_mtime: float = _NO_MTIME
         self._dimension_profile_cache: dict | None = None
         self._dimension_profile_mtime: float = _NO_MTIME
+        self._fulltext_manifest_cache: dict[str, dict] | None = None
+        self._fulltext_manifest_mtime: float = _NO_MTIME
 
     def _file_mtime(self, path: Path) -> float:
         """Get file modification time, or sentinel if file does not exist."""
@@ -189,6 +196,190 @@ class StructuredStore:
         self._dimension_profile_mtime = self._file_mtime(self.dimension_profile_file)
         logger.info("Saved dimension profile snapshot to %s", self.dimension_profile_file)
 
+    def _fulltext_path(self, paper_id: str) -> Path:
+        """Return the canonical full-text snapshot path for a paper."""
+
+        return self.fulltext_dir / f"{paper_id}.txt"
+
+    def load_fulltext_manifest(self) -> dict[str, dict]:
+        """Load per-paper full-text snapshot metadata."""
+
+        if self._fulltext_manifest_cache is not None and not self._cache_stale(
+            self.fulltext_manifest_file,
+            self._fulltext_manifest_mtime,
+        ):
+            return self._fulltext_manifest_cache
+
+        data = safe_read_json(self.fulltext_manifest_file, default={})
+        if isinstance(data, dict) and "snapshots" in data:
+            snapshots = data["snapshots"]
+        elif isinstance(data, dict):
+            snapshots = data
+        else:
+            snapshots = {}
+
+        self._fulltext_manifest_cache = snapshots
+        self._fulltext_manifest_mtime = self._file_mtime(self.fulltext_manifest_file)
+        return self._fulltext_manifest_cache
+
+    def save_fulltext_manifest(self, snapshots: dict[str, dict]) -> None:
+        """Persist full-text snapshot metadata."""
+
+        data = {
+            "schema_version": FULLTEXT_STORE_SCHEMA_VERSION,
+            "generated_at": datetime.now().isoformat(),
+            "snapshot_count": len(snapshots),
+            "snapshots": snapshots,
+        }
+        safe_write_json(self.fulltext_manifest_file, data)
+        self._fulltext_manifest_cache = snapshots
+        self._fulltext_manifest_mtime = self._file_mtime(self.fulltext_manifest_file)
+        logger.info(
+            "Saved full-text manifest for %d papers to %s",
+            len(snapshots),
+            self.fulltext_manifest_file,
+        )
+
+    def flush_fulltext_manifest(self) -> None:
+        """Flush in-memory full-text manifest changes to disk."""
+
+        if self._fulltext_manifest_cache is not None:
+            self.save_fulltext_manifest(self._fulltext_manifest_cache)
+
+    def save_text_snapshot(
+        self,
+        paper_id: str,
+        text: str,
+        metadata: dict | None = None,
+        persist_manifest: bool = True,
+    ) -> dict:
+        """Save a canonical cleaned full-text snapshot for one paper.
+
+        Args:
+            paper_id: Paper identifier.
+            text: Full cleaned text to persist verbatim.
+            metadata: Optional sidecar metadata to merge into the manifest entry.
+            persist_manifest: Persist the updated manifest immediately.
+
+        Returns:
+            Metadata entry recorded in the full-text manifest.
+        """
+
+        self.fulltext_dir.mkdir(parents=True, exist_ok=True)
+        snapshot_path = self._fulltext_path(paper_id)
+        snapshot_path.write_text(text, encoding="utf-8")
+
+        entry = {
+            "paper_id": paper_id,
+            "path": str(snapshot_path.relative_to(self.index_dir)),
+            "char_count": len(text),
+            "word_count": len(text.split()),
+            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "captured_at": datetime.now().isoformat(),
+            "is_cleaned": True,
+            "is_truncated_for_llm": False,
+        }
+        if metadata:
+            entry.update(metadata)
+
+        snapshots = dict(self.load_fulltext_manifest())
+        snapshots[paper_id] = entry
+        self._fulltext_manifest_cache = snapshots
+        if persist_manifest:
+            self.save_fulltext_manifest(snapshots)
+        return entry
+
+    def load_text_snapshot(self, paper_id: str) -> dict | None:
+        """Load a full-text snapshot plus its metadata for one paper."""
+
+        manifest = self.load_fulltext_manifest()
+        entry = manifest.get(paper_id)
+        if not entry:
+            return None
+
+        snapshot_path = self.index_dir / entry.get("path", "")
+        if not snapshot_path.exists():
+            logger.warning("Full-text snapshot missing on disk for %s", paper_id)
+            return None
+
+        try:
+            text = snapshot_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            logger.warning("Failed to read full-text snapshot for %s: %s", paper_id, exc)
+            return None
+
+        return {**entry, "text": text}
+
+    def delete_text_snapshot(self, paper_id: str, persist_manifest: bool = True) -> None:
+        """Delete a paper's canonical full-text snapshot and manifest entry."""
+
+        snapshot_path = self._fulltext_path(paper_id)
+        if snapshot_path.exists():
+            try:
+                snapshot_path.unlink()
+            except OSError as exc:
+                logger.warning("Failed to remove full-text snapshot for %s: %s", paper_id, exc)
+
+        snapshots = dict(self.load_fulltext_manifest())
+        if paper_id in snapshots:
+            snapshots.pop(paper_id, None)
+            self._fulltext_manifest_cache = snapshots
+            if persist_manifest:
+                self.save_fulltext_manifest(snapshots)
+
+    def get_fulltext_context(
+        self,
+        paper_id: str,
+        query: str,
+        *,
+        max_hits: int = 3,
+        context_chars: int = 400,
+        case_sensitive: bool = False,
+    ) -> dict:
+        """Return verbatim context windows for a query within a paper snapshot."""
+
+        snapshot = self.load_text_snapshot(paper_id)
+        if snapshot is None:
+            return {
+                "paper_id": paper_id,
+                "found": False,
+                "error": f"No full-text snapshot available for {paper_id}",
+                "query": query,
+                "matches": [],
+            }
+
+        text = snapshot["text"]
+        flags = 0 if case_sensitive else re.IGNORECASE
+        matches = []
+        for match in re.finditer(re.escape(query), text, flags):
+            start = max(0, match.start() - context_chars)
+            end = min(len(text), match.end() + context_chars)
+            matches.append(
+                {
+                    "match_text": text[match.start():match.end()],
+                    "context": text[start:end],
+                    "start_char": match.start(),
+                    "end_char": match.end(),
+                    "context_start_char": start,
+                    "context_end_char": end,
+                }
+            )
+            if len(matches) >= max_hits:
+                break
+
+        return {
+            "paper_id": paper_id,
+            "found": True,
+            "query": query,
+            "match_count": len(matches),
+            "matches": matches,
+            "fulltext_metadata": {
+                key: value
+                for key, value in snapshot.items()
+                if key != "text"
+            },
+        }
+
     def get_paper(self, paper_id: str) -> dict | None:
         """Get a single paper by ID.
 
@@ -227,9 +418,15 @@ class StructuredStore:
             return None
 
         extraction = self.get_extraction(paper_id)
+        fulltext = self.load_text_snapshot(paper_id)
         return {
             "paper": paper,
             "extraction": extraction,
+            "fulltext": (
+                {key: value for key, value in fulltext.items() if key != "text"}
+                if fulltext
+                else None
+            ),
         }
 
     def search_papers(
@@ -354,6 +551,21 @@ class StructuredStore:
                 "generated_at": pairs_data.get("generated_at"),
             }
 
+        fulltext_manifest = self.load_fulltext_manifest()
+        fulltext_stats = {}
+        if fulltext_manifest:
+            fulltext_stats = {
+                "snapshot_count": len(fulltext_manifest),
+                "total_characters": sum(
+                    int(entry.get("char_count", 0) or 0)
+                    for entry in fulltext_manifest.values()
+                ),
+                "generated_at": safe_read_json(
+                    self.fulltext_manifest_file,
+                    default={},
+                ).get("generated_at"),
+            }
+
         summary = {
             "schema_version": SCHEMA_VERSION,
             "generated_at": datetime.now().isoformat(),
@@ -368,6 +580,8 @@ class StructuredStore:
 
         if similarity_stats:
             summary["similarity_pairs"] = similarity_stats
+        if fulltext_stats:
+            summary["fulltext"] = fulltext_stats
 
         return summary
 
@@ -516,6 +730,8 @@ class StructuredStore:
         self._extractions_mtime = _NO_MTIME
         self._dimension_profile_cache = None
         self._dimension_profile_mtime = _NO_MTIME
+        self._fulltext_manifest_cache = None
+        self._fulltext_manifest_mtime = _NO_MTIME
 
     def get_paper_ids(self) -> set[str]:
         """Get set of all paper IDs in the store.

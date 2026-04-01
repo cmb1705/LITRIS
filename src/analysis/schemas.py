@@ -828,3 +828,7 @@ class ExtractionResult(BaseModel):
         default=None,
         description="Cascade tier that produced the text (e.g. companion, marker, pymupdf).",
     )
+    text_snapshot: dict[str, object] | None = Field(
+        default=None,
+        description="Canonical cleaned full-text snapshot and metadata captured during extraction.",
+    )

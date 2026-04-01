@@ -45,6 +45,7 @@ mcp = FastMCP(
     "multi-query search with improved recall, litris_search_agentic for multi-round "
     "search with gap analysis, litris_deep_review for generating integrated "
     "literature reviews, litris_get_paper for full details, "
+    "litris_get_fulltext_context for verbatim quote/context retrieval from canonical full-text snapshots, "
     "litris_similar for related papers, litris_summary for index stats, "
     "litris_collections for available collections, litris_save_query to save "
     "query results to the query_results folder (content must include the "
@@ -443,6 +444,82 @@ async def litris_get_paper(paper_id: str) -> dict[str, Any]:
         elapsed = time.time() - start_time
         logger.error(f"[{request_id}] Get paper failed in {elapsed:.3f}s: {e}")
         return {"error": "SEARCH_FAILED", "message": str(e), "paper_id": paper_id, "found": False}
+
+
+@mcp.tool()
+async def litris_get_fulltext_context(
+    paper_id: str,
+    query: str,
+    max_hits: int = 3,
+    context_chars: int = 400,
+) -> dict[str, Any]:
+    """Retrieve verbatim context windows for a query within a paper snapshot.
+
+    Args:
+        paper_id: LITRIS paper identifier
+        query: Exact phrase or text span to locate in the canonical full text
+        max_hits: Maximum number of matches to return (default: 3, max: 10)
+        context_chars: Characters of surrounding context per hit (default: 400, max: 2000)
+
+    Returns:
+        Matching verbatim contexts plus snapshot metadata
+    """
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+    logger.info(
+        f"[{request_id}] litris_get_fulltext_context called: paper_id='{paper_id}' query='{query[:50]}...'"
+    )
+
+    try:
+        validate_paper_id(paper_id)
+        validate_query(query)
+        max_hits = max(1, min(int(max_hits), 10))
+        context_chars = max(100, min(int(context_chars), 2000))
+
+        adapter = get_adapter()
+        result = adapter.get_fulltext_context(
+            paper_id=paper_id,
+            query=query,
+            max_hits=max_hits,
+            context_chars=context_chars,
+        )
+
+        elapsed = time.time() - start_time
+        logger.info(
+            f"[{request_id}] litris_get_fulltext_context returning "
+            f"{result.get('match_count', 0)} matches in {elapsed:.3f}s"
+        )
+        return result
+
+    except ValidationError as e:
+        elapsed = time.time() - start_time
+        logger.warning(f"[{request_id}] Validation error in {elapsed:.3f}s: {e}")
+        return {
+            "error": "VALIDATION_ERROR",
+            "message": str(e),
+            "paper_id": paper_id,
+            "matches": [],
+        }
+
+    except FileNotFoundError as e:
+        elapsed = time.time() - start_time
+        logger.error(f"[{request_id}] Index not found in {elapsed:.3f}s: {e}")
+        return {
+            "error": "INDEX_NOT_FOUND",
+            "message": "Literature index not found. Run /build to create.",
+            "paper_id": paper_id,
+            "matches": [],
+        }
+
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"[{request_id}] Full-text context failed in {elapsed:.3f}s: {e}")
+        return {
+            "error": "FULLTEXT_CONTEXT_FAILED",
+            "message": str(e),
+            "paper_id": paper_id,
+            "matches": [],
+        }
 
 
 @mcp.tool()

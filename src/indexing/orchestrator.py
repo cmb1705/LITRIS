@@ -28,6 +28,7 @@ from src.indexing.pipeline import (
     compute_similarity_pairs,
     configure_extraction_runtime,
     generate_summary,
+    load_reusable_text_snapshots,
     run_embedding_generation,
     run_extraction,
     run_gap_fill,
@@ -70,6 +71,8 @@ LIVE_INDEX_ARTIFACTS = [
     "papers.json",
     "semantic_analyses.json",
     "dimension_profile.json",
+    "fulltext",
+    "fulltext_manifest.json",
     "metadata.json",
     "summary.json",
     "similarity_pairs.json",
@@ -773,6 +776,11 @@ class IndexOrchestrator:
                 if getattr(args, "clear_cache", False):
                     cleared = extractor.clear_cache()
                     self.logger.info("Cleared %d cached extractions", cleared)
+                reusable_text_snapshots = load_reusable_text_snapshots(
+                    self.store,
+                    extraction_candidate_papers,
+                    refresh_text=getattr(args, "refresh_text", False),
+                )
                 paper_dicts, updated_extractions, extraction_results = run_extraction(
                     extraction_candidate_papers,
                     extractor,
@@ -781,6 +789,7 @@ class IndexOrchestrator:
                     updated_extractions,
                     checkpoint_mgr,
                     self.logger,
+                    text_snapshots=reusable_text_snapshots,
                 )
                 checkpoint_mgr.save()
                 update_classification_extraction_methods(class_index, extraction_results)
@@ -819,6 +828,7 @@ class IndexOrchestrator:
             desired_index_ids=desired_index_ids,
         )
         if plan.resolved_mode == "full" and not getattr(args, "paper", []):
+            deleted_from_store: set[str] = set()
             final_papers = {
                 paper_id: current_papers_by_id[paper_id].to_index_dict()
                 for paper_id in sorted(desired_index_ids)
@@ -861,6 +871,9 @@ class IndexOrchestrator:
                 get_default_dimension_registry().active_profile.model_dump(mode="json")
             )
             self.store.save_extractions(final_extractions)
+            for paper_id in deleted_from_store:
+                self.store.delete_text_snapshot(paper_id, persist_manifest=False)
+            self.store.flush_fulltext_manifest()
             valid_index_ids = set(final_papers)
             prune_raptor_cache(self.index_dir, valid_index_ids)
 

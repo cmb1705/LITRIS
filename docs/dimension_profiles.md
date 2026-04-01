@@ -15,6 +15,11 @@ rebuild.
 - `data/index/dimension_profile.json`: Exact profile snapshot used by the index.
 - `data/index/semantic_analyses.json`: Extraction store. Schema `2.0.0`
   records canonical `dimensions` plus profile metadata.
+- `data/index/fulltext/<paper_id>.txt`: Canonical cleaned full-text snapshot
+  for each paper. This is the verbatim retrieval source for RAG-style context
+  lookup and quote extraction.
+- `data/index/fulltext_manifest.json`: Metadata for the canonical full-text
+  snapshots, including source method, character counts, and source-file state.
 - `data/index/index_manifest.json`: Operational manifest. Extraction metadata
   now includes `profile_id`, `profile_version`, and `profile_fingerprint`.
 
@@ -90,6 +95,14 @@ python scripts/dimensions.py backfill --index-dir data/index \
   records and embeddings but intentionally leaves the index-level
   `dimension_profile.json` snapshot unchanged until a successful full-corpus
   backfill completes.
+- Backfill reuses canonical full-text snapshots by default when the stored text
+  still matches the current paper source state.
+- `--refresh-text` is scope-limited. If you target 5 papers, only those 5
+  papers are re-cascaded. If you omit `--paper`, the full targeted corpus is
+  refreshed.
+- The canonical stored full text is not LLM-truncated. LITRIS stores the full
+  cleaned text in `data/index/fulltext/` and derives a truncated view only for
+  the LLM call itself.
 
 ## Suggestions And Approval
 
@@ -130,3 +143,6 @@ For a live-index operator checklist using the current STP/CAS profile, see
   aliases, legacy `qNN_field_name` aliases, and `dim_qNN` chunk types.
 - Legacy `SemanticAnalysis` callers continue to work, but new storage and
   backfill logic use canonical `DimensionedExtraction` internally.
+- MCP now also exposes verbatim full-text context lookup through
+  `litris_get_fulltext_context`, which searches the canonical full-text
+  snapshot for exact phrases and returns surrounding context windows.

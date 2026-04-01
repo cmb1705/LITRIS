@@ -265,6 +265,7 @@ class LitrisAdapter:
 
         paper = combined.get("paper", {})
         extraction = combined.get("extraction", {})
+        fulltext = combined.get("fulltext")
 
         return {
             "paper_id": paper_id,
@@ -285,7 +286,47 @@ class LitrisAdapter:
                 "zotero_key": paper.get("zotero_key", ""),
             },
             "extraction": self._format_extraction(extraction) if extraction else None,
+            "fulltext": fulltext,
+            "fulltext_available": bool(fulltext),
         }
+
+    def get_fulltext_context(
+        self,
+        paper_id: str,
+        query: str,
+        max_hits: int = 3,
+        context_chars: int = 400,
+    ) -> dict[str, Any]:
+        """Get verbatim context windows from a paper's canonical full-text snapshot."""
+
+        logger.info(
+            "Getting full-text context: %s query='%s...' max_hits=%d",
+            paper_id,
+            query[:40],
+            max_hits,
+        )
+
+        combined = self.engine.get_paper(paper_id)
+        if not combined:
+            return {
+                "paper_id": paper_id,
+                "found": False,
+                "error": f"Paper not found: {paper_id}",
+            }
+
+        context = self.engine.get_fulltext_context(
+            paper_id=paper_id,
+            query=query,
+            max_hits=max_hits,
+            context_chars=context_chars,
+        )
+        paper = combined.get("paper", {})
+        context["paper"] = {
+            "title": paper.get("title", ""),
+            "author_string": paper.get("author_string", ""),
+            "publication_year": paper.get("publication_year"),
+        }
+        return context
 
     def search_rrf(
         self,

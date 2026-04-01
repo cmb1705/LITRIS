@@ -100,6 +100,25 @@ def _write_legacy_index(index_dir: Path, paper_id: str = "paper_001") -> Structu
     return store
 
 
+def _write_text_snapshot(index_dir: Path, paper_id: str, text: str) -> None:
+    store = StructuredStore(index_dir)
+    paper = store.load_papers()[paper_id]
+    pdf_path = Path(paper["pdf_path"])
+    stat = pdf_path.stat()
+    store.save_text_snapshot(
+        paper_id,
+        text,
+        metadata={
+            "paper_id": paper_id,
+            "source": "test_fixture",
+            "extraction_method": "companion",
+            "pdf_path": str(pdf_path),
+            "pdf_size": int(stat.st_size),
+            "pdf_mtime_ns": int(stat.st_mtime_ns),
+        },
+    )
+
+
 def _write_profile(path: Path, profile_dict: dict) -> None:
     with open(path, "w", encoding="utf-8") as handle:
         yaml.safe_dump(profile_dict, handle, sort_keys=False, allow_unicode=False)
@@ -325,6 +344,177 @@ def test_backfill_reextracts_changed_section_only_and_preserves_other_dimensions
     assert updated.dimensions["methods"] == "Updated methods"
     assert updated.dimensions["data"] == "Updated data"
     assert updated.dimensions["power_dynamics"] == "Legacy power dynamics"
+
+
+def test_backfill_reuses_matching_fulltext_snapshot_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dimensions_cli: ModuleType,
+) -> None:
+    store = _write_legacy_index(tmp_path)
+    old_profile = build_legacy_dimension_profile()
+    store.save_dimension_profile(old_profile.model_dump(mode="json"))
+    _write_text_snapshot(tmp_path, "paper_001", "Stored canonical text for backfill reuse.")
+
+    profile_dict = old_profile.model_dump(mode="json")
+    profile_dict["profile_id"] = "legacy_semantic_methods_v2"
+    profile_dict["version"] = "2.0.0"
+    for dimension in profile_dict["dimensions"]:
+        if dimension["id"] == "methods":
+            dimension["question"] = "What updated methods and analytical techniques are used?"
+    profile_path = tmp_path / "methods_v2.yaml"
+    _write_profile(profile_path, profile_dict)
+
+    target_profile = dimensions_cli.load_dimension_profile(profile_path)
+    observed: dict[str, object] = {}
+
+    class DummyExtractor:
+        def extract_batch(self, papers, progress_callback=None, section_ids=None, text_snapshots=None):
+            observed["text_snapshots"] = text_snapshots
+            for paper in papers:
+                yield ExtractionResult(
+                    paper_id=paper.paper_id,
+                    success=True,
+                    extraction=DimensionedExtraction(
+                        paper_id=paper.paper_id,
+                        profile_id=target_profile.profile_id,
+                        profile_version=target_profile.version,
+                        profile_fingerprint=target_profile.fingerprint,
+                        prompt_version="2.0.0",
+                        extraction_model="target-model",
+                        extracted_at="2026-03-31T01:00:00",
+                        dimensions={"methods": "Updated methods"},
+                    ),
+                    model_used="target-model",
+                )
+
+    monkeypatch.setattr(
+        dimensions_cli,
+        "configure_extraction_runtime",
+        lambda *args, **kwargs: ("anthropic", "api", tmp_path, 1, False),
+    )
+    monkeypatch.setattr(
+        dimensions_cli,
+        "build_section_extractor",
+        lambda **kwargs: DummyExtractor(),
+    )
+    monkeypatch.setattr(dimensions_cli, "generate_scoped_raptor_summaries", lambda **kwargs: {})
+    monkeypatch.setattr(dimensions_cli, "run_embedding_generation", lambda **kwargs: None)
+    monkeypatch.setattr(dimensions_cli, "compute_similarity_pairs", lambda **kwargs: 0)
+    monkeypatch.setattr(dimensions_cli, "generate_summary", lambda *args, **kwargs: {})
+
+    args = argparse.Namespace(
+        index_dir=tmp_path,
+        dimension_profile=profile_path,
+        paper=[],
+        dry_run=False,
+        skip_embeddings=False,
+        skip_similarity=False,
+        provider=None,
+        mode=None,
+        model=None,
+        parallel=None,
+        no_cache=False,
+        refresh_text=False,
+        summary_model=None,
+        methodology_model=None,
+    )
+    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    config = _make_config(tmp_path)
+
+    assert dimensions_cli.backfill_dimensions(args, config, logger) == 0
+    assert "paper_001" in observed["text_snapshots"]
+
+
+def test_backfill_refresh_text_bypasses_stored_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dimensions_cli: ModuleType,
+) -> None:
+    store = _write_legacy_index(tmp_path)
+    old_profile = build_legacy_dimension_profile()
+    store.save_dimension_profile(old_profile.model_dump(mode="json"))
+    _write_text_snapshot(tmp_path, "paper_001", "Stored canonical text for backfill reuse.")
+
+    profile_dict = old_profile.model_dump(mode="json")
+    profile_dict["profile_id"] = "legacy_semantic_methods_v2"
+    profile_dict["version"] = "2.0.0"
+    for dimension in profile_dict["dimensions"]:
+        if dimension["id"] == "methods":
+            dimension["question"] = "What updated methods and analytical techniques are used?"
+    profile_path = tmp_path / "methods_v2.yaml"
+    _write_profile(profile_path, profile_dict)
+
+    target_profile = dimensions_cli.load_dimension_profile(profile_path)
+    observed: dict[str, object] = {}
+
+    class DummyExtractor:
+        def extract_batch(self, papers, progress_callback=None, section_ids=None, text_snapshots=None):
+            observed["text_snapshots"] = text_snapshots
+            for paper in papers:
+                yield ExtractionResult(
+                    paper_id=paper.paper_id,
+                    success=True,
+                    extraction=DimensionedExtraction(
+                        paper_id=paper.paper_id,
+                        profile_id=target_profile.profile_id,
+                        profile_version=target_profile.version,
+                        profile_fingerprint=target_profile.fingerprint,
+                        prompt_version="2.0.0",
+                        extraction_model="target-model",
+                        extracted_at="2026-03-31T01:00:00",
+                        dimensions={"methods": "Updated methods"},
+                    ),
+                    model_used="target-model",
+                    text_snapshot={
+                        "text": "Refreshed canonical text",
+                        "source": "refresh",
+                        "extraction_method": "pymupdf",
+                        "is_cleaned": True,
+                        "is_truncated_for_llm": False,
+                        "should_persist": True,
+                    },
+                )
+
+    monkeypatch.setattr(
+        dimensions_cli,
+        "configure_extraction_runtime",
+        lambda *args, **kwargs: ("anthropic", "api", tmp_path, 1, False),
+    )
+    monkeypatch.setattr(
+        dimensions_cli,
+        "build_section_extractor",
+        lambda **kwargs: DummyExtractor(),
+    )
+    monkeypatch.setattr(dimensions_cli, "generate_scoped_raptor_summaries", lambda **kwargs: {})
+    monkeypatch.setattr(dimensions_cli, "run_embedding_generation", lambda **kwargs: None)
+    monkeypatch.setattr(dimensions_cli, "compute_similarity_pairs", lambda **kwargs: 0)
+    monkeypatch.setattr(dimensions_cli, "generate_summary", lambda *args, **kwargs: {})
+
+    args = argparse.Namespace(
+        index_dir=tmp_path,
+        dimension_profile=profile_path,
+        paper=[],
+        dry_run=False,
+        skip_embeddings=False,
+        skip_similarity=False,
+        provider=None,
+        mode=None,
+        model=None,
+        parallel=None,
+        no_cache=False,
+        refresh_text=True,
+        summary_model=None,
+        methodology_model=None,
+    )
+    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    config = _make_config(tmp_path)
+
+    assert dimensions_cli.backfill_dimensions(args, config, logger) == 0
+    assert observed["text_snapshots"] == {}
+    snapshot = StructuredStore(tmp_path).load_text_snapshot("paper_001")
+    assert snapshot is not None
+    assert snapshot["text"] == "Refreshed canonical text"
 
 
 def test_partial_backfill_keeps_index_snapshot_on_old_profile(

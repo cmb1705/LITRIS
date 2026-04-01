@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import re
 import shutil
@@ -40,6 +41,7 @@ from src.indexing.pipeline import (
     compute_similarity_pairs,
     configure_extraction_runtime,
     generate_summary,
+    load_reusable_text_snapshots,
     run_embedding_generation,
 )
 from src.indexing.raptor_pipeline import generate_scoped_raptor_summaries
@@ -659,6 +661,11 @@ def parse_args() -> argparse.Namespace:
     backfill.add_argument("--model", type=str, default=None)
     backfill.add_argument("--parallel", type=int, default=None)
     backfill.add_argument("--no-cache", action="store_true")
+    backfill.add_argument(
+        "--refresh-text",
+        action="store_true",
+        help="Re-run source text extraction for the targeted papers instead of reusing stored full-text snapshots",
+    )
 
     return parser.parse_args()
 
@@ -1199,6 +1206,7 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
             "changed_sections": changed_sections,
             "reextract_sections": reextract_sections,
             "disable_only": disable_only,
+            "refresh_text": bool(getattr(args, "refresh_text", False)),
             "diff": diff.model_dump(mode="json"),
         }
         print(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False).strip())
@@ -1222,10 +1230,22 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
             parallel_workers=parallel_workers,
             use_cache=use_cache,
         )
+        reusable_text_snapshots = load_reusable_text_snapshots(
+            store,
+            paper_models,
+            refresh_text=bool(getattr(args, "refresh_text", False)),
+        )
+
+        extract_batch_kwargs: dict[str, Any] = {
+            "section_ids": reextract_sections,
+        }
+        signature = inspect.signature(extractor.extract_batch)
+        if "text_snapshots" in signature.parameters:
+            extract_batch_kwargs["text_snapshots"] = reusable_text_snapshots
 
         for result in extractor.extract_batch(
             paper_models,
-            section_ids=reextract_sections,
+            **extract_batch_kwargs,
         ):
             if not result.success or not result.extraction:
                 logger.warning("Backfill failed for %s: %s", result.paper_id, result.error)
@@ -1239,6 +1259,25 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
                 )
                 failed_ids.append(result.paper_id)
                 continue
+
+            snapshot = result.text_snapshot or {}
+            snapshot_text = snapshot.get("text") if isinstance(snapshot, dict) else None
+            if (
+                isinstance(snapshot_text, str)
+                and snapshot_text
+                and bool(snapshot.get("should_persist", True))
+            ):
+                metadata = {
+                    key: value
+                    for key, value in snapshot.items()
+                    if key not in {"text", "should_persist"}
+                }
+                store.save_text_snapshot(
+                    result.paper_id,
+                    snapshot_text,
+                    metadata=metadata,
+                    persist_manifest=False,
+                )
 
             existing_record = updated_extractions.get(
                 result.paper_id,
@@ -1262,6 +1301,8 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
                 "input_tokens": result.input_tokens,
                 "output_tokens": result.output_tokens,
             }
+
+        store.flush_fulltext_manifest()
 
     if failed_ids:
         logger.error(

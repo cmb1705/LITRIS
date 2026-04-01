@@ -7,6 +7,7 @@ semantic search, paper retrieval, and index analysis tools.
 Tools:
     litris_search: Semantic search with filters
     litris_get_paper: Retrieve full paper extraction
+    litris_get_fulltext_context: Retrieve verbatim full-text contexts
     litris_similar: Find similar papers
     litris_summary: Index statistics
     litris_collections: List collections

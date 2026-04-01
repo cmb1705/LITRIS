@@ -127,6 +127,20 @@ def mock_search_engine(
     mock_engine.get_paper.return_value = {
         "paper": sample_paper_data,
         "extraction": sample_extraction_data,
+        "fulltext": {"source": "cascade", "char_count": 1234},
+    }
+    mock_engine.get_fulltext_context.return_value = {
+        "paper_id": sample_paper_data["paper_id"],
+        "found": True,
+        "query": "citation prediction",
+        "match_count": 1,
+        "matches": [
+            {
+                "match_text": "citation prediction",
+                "context": "This paper presents a novel approach to citation prediction using GNNs.",
+            }
+        ],
+        "fulltext_metadata": {"source": "cascade", "char_count": 1234},
     }
     mock_engine.get_summary.return_value = {
         "total_papers": 1,

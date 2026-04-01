@@ -42,30 +42,37 @@ class ExtractionCache:
         self._lock = Lock()
 
     def compute_content_hash(
-        self, pdf_path: Path, model: str, prompt_version: str = SEMANTIC_PROMPT_VERSION,
+        self, pdf_path: Path | None, model: str, prompt_version: str = SEMANTIC_PROMPT_VERSION,
         pass_number: int | None = None,
         profile_fingerprint: str | None = None,
+        source_fingerprint: str | None = None,
     ) -> str:
         """Compute content hash for cache key.
 
-        Uses file modification time and size to detect changes without
-        reading the entire file. Includes model, prompt version, active
-        profile fingerprint, and optional pass number to invalidate cache
-        when extraction logic changes.
+        Uses either a supplied source fingerprint or file modification time
+        and size to detect changes without reading the entire file. Includes
+        model, prompt version, active profile fingerprint, and optional pass
+        number to invalidate cache when extraction logic changes.
 
         Args:
-            pdf_path: Path to PDF file.
+            pdf_path: Path to PDF file when hashing directly from the source file.
             model: Model identifier.
             prompt_version: Version string for extraction prompts.
             pass_number: Pass number (1-6) for per-pass caching. None for full result.
             profile_fingerprint: Fingerprint of the active dimension profile.
+            source_fingerprint: Explicit fingerprint for a canonical text snapshot.
 
         Returns:
             16-character hex hash string.
         """
         hasher = hashlib.sha256()
-        stat = pdf_path.stat()
-        hasher.update(f"{stat.st_mtime}:{stat.st_size}".encode())
+        if source_fingerprint:
+            hasher.update(f"source={source_fingerprint}".encode())
+        elif pdf_path is not None:
+            stat = pdf_path.stat()
+            hasher.update(f"{stat.st_mtime}:{stat.st_size}".encode())
+        else:
+            hasher.update(b"source=none")
         hasher.update(f":{model}:{prompt_version}".encode())
         if profile_fingerprint:
             hasher.update(f":profile={profile_fingerprint}".encode())
@@ -377,6 +384,7 @@ class SectionExtractor:
         paper: PaperMetadata,
         check_cache: bool = True,
         section_ids: list[str] | None = None,
+        text_snapshot: dict[str, object] | None = None,
     ) -> tuple[ExtractionResult, bool]:
         """Extract structured content from a single paper.
 
@@ -385,13 +393,29 @@ class SectionExtractor:
             check_cache: Whether to check cache before extracting.
             section_ids: Optional section IDs to extract. When omitted, run the
                 full active profile.
+            text_snapshot: Optional canonical full-text snapshot to reuse
+                instead of re-running the extraction cascade.
 
         Returns:
             Tuple of (ExtractionResult, from_cache).
         """
         with LogContext(logger, f"Extracting paper: {paper.title[:50]}..."):
-            # Check for PDF
-            if not paper.pdf_path or not paper.pdf_path.exists():
+            snapshot_text = None
+            snapshot_hash = None
+            if text_snapshot:
+                raw_snapshot_text = text_snapshot.get("text")
+                if isinstance(raw_snapshot_text, str) and raw_snapshot_text.strip():
+                    snapshot_text = raw_snapshot_text
+                    raw_snapshot_hash = text_snapshot.get("sha256")
+                    if isinstance(raw_snapshot_hash, str) and raw_snapshot_hash:
+                        snapshot_hash = raw_snapshot_hash
+                    else:
+                        snapshot_hash = hashlib.sha256(
+                            snapshot_text.encode("utf-8")
+                        ).hexdigest()
+
+            # Check for source text
+            if snapshot_text is None and (not paper.pdf_path or not paper.pdf_path.exists()):
                 logger.warning(f"No PDF available for paper {paper.paper_id}")
                 return ExtractionResult(
                     paper_id=paper.paper_id,
@@ -407,6 +431,7 @@ class SectionExtractor:
                     paper.pdf_path,
                     self.model,
                     profile_fingerprint=self.dimension_profile_fingerprint,
+                    source_fingerprint=snapshot_hash,
                 )
                 cached_result = self.extraction_cache.get_extraction_result(
                     paper.paper_id, full_hash
@@ -415,28 +440,45 @@ class SectionExtractor:
                     logger.info(f"Using cached extraction for {paper.paper_id}")
                     return cached_result, True
 
-            # Extract text from PDF (via cascade or direct)
+            snapshot_payload: dict[str, object] | None = None
+
+            # Extract text from PDF (via cascade or direct) unless a canonical
+            # snapshot is already available for this exact source state.
             cascade_result = None
-            try:
-                if self.cascade:
-                    cascade_result = self.cascade.extract_text(
-                        paper.pdf_path,
-                        doi=getattr(paper, "doi", None),
-                        url=getattr(paper, "url", None),
-                    )
-                    text = cascade_result.text
-                    method = cascade_result.method
-                else:
-                    text, method = self.pdf_extractor.extract_text_with_method(
-                        paper.pdf_path
-                    )
-            except Exception as e:
-                logger.error(f"PDF extraction failed: {e}")
-                return ExtractionResult(
-                    paper_id=paper.paper_id,
-                    success=False,
-                    error=f"PDF extraction failed: {e}",
-                ), False
+            if snapshot_text is not None:
+                text = snapshot_text
+                method = str(
+                    text_snapshot.get("extraction_method")
+                    or text_snapshot.get("source")
+                    or "stored_snapshot"
+                )
+                preserve_md = bool(text_snapshot.get("is_markdown", False))
+                is_cleaned = bool(text_snapshot.get("is_cleaned", False))
+                snapshot_payload = dict(text_snapshot)
+                snapshot_payload["should_persist"] = False
+            else:
+                try:
+                    if self.cascade:
+                        cascade_result = self.cascade.extract_text(
+                            paper.pdf_path,
+                            doi=getattr(paper, "doi", None),
+                            url=getattr(paper, "url", None),
+                        )
+                        text = cascade_result.text
+                        method = cascade_result.method
+                    else:
+                        text, method = self.pdf_extractor.extract_text_with_method(
+                            paper.pdf_path
+                        )
+                    preserve_md = cascade_result.is_markdown if cascade_result else False
+                    is_cleaned = False
+                except Exception as e:
+                    logger.error(f"PDF extraction failed: {e}")
+                    return ExtractionResult(
+                        paper_id=paper.paper_id,
+                        success=False,
+                        error=f"PDF extraction failed: {e}",
+                    ), False
 
             def evaluate_text(cleaned_text: str) -> tuple[bool, list[str]]:
                 """Evaluate text for extraction eligibility."""
@@ -470,16 +512,55 @@ class SectionExtractor:
                             )
                 return valid, reasons
 
-            # Clean text (preserve markdown for companion/marker tiers)
-            preserve_md = cascade_result.is_markdown if cascade_result else False
-            text = self.text_cleaner.clean(text, preserve_markdown=preserve_md)
+            # Clean text (preserve markdown for companion/marker tiers). Stored
+            # snapshots are already canonical cleaned text and should not be
+            # re-normalized unless explicitly marked otherwise.
+            if not is_cleaned:
+                text = self.text_cleaner.clean(text, preserve_markdown=preserve_md)
             valid_text, non_pub_reasons = evaluate_text(text)
+
+            pdf_size = None
+            pdf_mtime_ns = None
+            if paper.pdf_path and paper.pdf_path.exists():
+                try:
+                    stat = paper.pdf_path.stat()
+                    pdf_size = int(stat.st_size)
+                    pdf_mtime_ns = int(stat.st_mtime_ns)
+                except OSError:
+                    pdf_size = None
+                    pdf_mtime_ns = None
+
+            if snapshot_payload is None:
+                text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+                snapshot_payload = {
+                    "paper_id": paper.paper_id,
+                    "text": text,
+                    "sha256": text_hash,
+                    "char_count": len(text),
+                    "word_count": len(text.split()),
+                    "captured_at": datetime.now().isoformat(),
+                    "source": "cascade",
+                    "extraction_method": (
+                        cascade_result.method if cascade_result else method
+                    ),
+                    "tiers_attempted": (
+                        list(cascade_result.tiers_attempted) if cascade_result else [method]
+                    ),
+                    "is_markdown": preserve_md,
+                    "is_cleaned": True,
+                    "is_truncated_for_llm": False,
+                    "pdf_path": str(paper.pdf_path) if paper.pdf_path else None,
+                    "pdf_size": pdf_size,
+                    "pdf_mtime_ns": pdf_mtime_ns,
+                    "should_persist": True,
+                }
 
             # OCR fallback for low-quality text
             if (
                 self.ocr_on_fail
                 and self.pdf_extractor.ocr_handler
                 and method == "pymupdf"
+                and snapshot_text is None
                 and (not valid_text or non_pub_reasons)
             ):
                 logger.info(
@@ -491,6 +572,25 @@ class SectionExtractor:
                     )
                     text = self.text_cleaner.clean(ocr_result.text)
                     valid_text, non_pub_reasons = evaluate_text(text)
+                    snapshot_payload.update(
+                        {
+                            "text": text,
+                            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                            "char_count": len(text),
+                            "word_count": len(text.split()),
+                            "captured_at": datetime.now().isoformat(),
+                            "source": "ocr_fallback",
+                            "extraction_method": "ocr",
+                            "tiers_attempted": [
+                                *list(snapshot_payload.get("tiers_attempted", [])),
+                                "ocr",
+                            ],
+                            "is_markdown": False,
+                            "is_cleaned": True,
+                            "is_truncated_for_llm": False,
+                            "should_persist": True,
+                        }
+                    )
                 except Exception as ocr_error:
                     logger.warning(
                         f"OCR fallback failed for {paper.paper_id}: {ocr_error}"
@@ -502,6 +602,7 @@ class SectionExtractor:
                     paper_id=paper.paper_id,
                     success=False,
                     error="Insufficient text content",
+                    text_snapshot=snapshot_payload,
                 ), False
 
             if non_pub_reasons:
@@ -513,6 +614,7 @@ class SectionExtractor:
                     paper_id=paper.paper_id,
                     success=False,
                     error=f"Likely non-publication: {reason_text}",
+                    text_snapshot=snapshot_payload,
                 ), False
 
             # Classify document type
@@ -542,10 +644,14 @@ class SectionExtractor:
                     error=f"Non-academic document (confidence={type_confidence:.2f})",
                     document_type=doc_type.value,
                     type_confidence=type_confidence,
+                    text_snapshot=snapshot_payload,
                 ), False
 
-            # Truncate for LLM if needed
-            text = self.text_cleaner.truncate_for_llm(text)
+            full_text = text
+
+            # Truncate only the LLM input view if needed. The canonical stored
+            # snapshot remains the full cleaned text.
+            text = self.text_cleaner.truncate_for_llm(full_text)
 
             # Run 6-pass extraction
             result = self._extract_6_pass(
@@ -561,6 +667,7 @@ class SectionExtractor:
             result.extraction_method = (
                 cascade_result.method if cascade_result else method
             )
+            result.text_snapshot = snapshot_payload
 
             # Set indexed timestamp on success
             if result.success:
@@ -623,6 +730,7 @@ class SectionExtractor:
                     self.model,
                     pass_number=pass_num,
                     profile_fingerprint=self.dimension_profile_fingerprint,
+                    source_fingerprint=snapshot_hash,
                 )
                 cached_data = self.extraction_cache.get(paper.paper_id, pass_hash)
                 if cached_data and "answers" in cached_data:
@@ -797,6 +905,7 @@ class SectionExtractor:
         papers: list[PaperMetadata],
         progress_callback: Callable | None = None,
         section_ids: list[str] | None = None,
+        text_snapshots: dict[str, dict[str, object]] | None = None,
     ) -> Generator[ExtractionResult, None, ExtractionStats]:
         """Extract content from multiple papers.
 
@@ -807,6 +916,8 @@ class SectionExtractor:
             papers: List of papers to process.
             progress_callback: Optional callback(current, total, paper_title).
             section_ids: Optional section IDs to extract for every paper.
+            text_snapshots: Optional mapping of paper_id to canonical text
+                snapshots to reuse instead of re-running the extraction cascade.
 
         Yields:
             ExtractionResult for each paper.
@@ -819,11 +930,13 @@ class SectionExtractor:
                 papers,
                 progress_callback,
                 section_ids=section_ids,
+                text_snapshots=text_snapshots,
             )
         return self._extract_batch_sequential(
             papers,
             progress_callback,
             section_ids=section_ids,
+            text_snapshots=text_snapshots,
         )
 
     def _extract_batch_sequential(
@@ -831,6 +944,7 @@ class SectionExtractor:
         papers: list[PaperMetadata],
         progress_callback: Callable | None = None,
         section_ids: list[str] | None = None,
+        text_snapshots: dict[str, dict[str, object]] | None = None,
     ) -> Generator[ExtractionResult, None, ExtractionStats]:
         """Sequential batch extraction.
 
@@ -866,6 +980,7 @@ class SectionExtractor:
             result, from_cache = self.extract_paper(
                 paper,
                 section_ids=section_ids,
+                text_snapshot=(text_snapshots or {}).get(paper.paper_id),
             )
 
             if from_cache:
@@ -913,6 +1028,7 @@ class SectionExtractor:
         papers: list[PaperMetadata],
         progress_callback: Callable | None = None,
         section_ids: list[str] | None = None,
+        text_snapshots: dict[str, dict[str, object]] | None = None,
     ) -> Generator[ExtractionResult, None, ExtractionStats]:
         """Parallel batch extraction with adaptive rate limit backoff.
 
@@ -950,7 +1066,12 @@ class SectionExtractor:
 
             with ThreadPoolExecutor(max_workers=current_workers) as executor:
                 future_to_paper = {
-                    executor.submit(self._extract_single_paper, paper, section_ids): paper
+                    executor.submit(
+                        self._extract_single_paper,
+                        paper,
+                        section_ids,
+                        (text_snapshots or {}).get(paper.paper_id),
+                    ): paper
                     for paper in chunk
                 }
 
@@ -1044,6 +1165,7 @@ class SectionExtractor:
         self,
         paper: PaperMetadata,
         section_ids: list[str] | None = None,
+        text_snapshot: dict[str, object] | None = None,
     ) -> tuple[ExtractionResult, bool]:
         """Extract a single paper (for use in thread pool).
 
@@ -1053,13 +1175,17 @@ class SectionExtractor:
         Returns:
             Tuple of (ExtractionResult, from_cache).
         """
-        if not paper.pdf_path:
+        if not paper.pdf_path and text_snapshot is None:
             return ExtractionResult(
                 paper_id=paper.paper_id,
                 success=False,
                 error="No PDF path",
             ), False
-        return self.extract_paper(paper, section_ids=section_ids)
+        return self.extract_paper(
+            paper,
+            section_ids=section_ids,
+            text_snapshot=text_snapshot,
+        )
 
     # Maximum consecutive rate limit errors before triggering quota sleep
     _QUOTA_THRESHOLD = 3
