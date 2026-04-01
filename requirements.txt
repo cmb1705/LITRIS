@@ -1,5 +1,6 @@
-# Core dependencies for Literature Review Index System
-# For exact versions, see requirements.lock
+# Core dependency ranges for LITRIS.
+# requirements.lock is currently only an environment snapshot, not a
+# cross-platform reproducible lockfile.
 
 # LLM API clients
 anthropic>=0.18,<1.0

@@ -1,119 +1,45 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+## Beads Shared Server Policy
+
+This repo uses `bd` on the canonical local shared Dolt server. Run `bd prime`
+at session start to recover workflow context.
+
+Canonical shared-server root:
+
+- `C:\Users\cmb17\.beads\shared-server`
+- `127.0.0.1:3308`
+- database name: `LITRIS`
+- issue prefix: `LITRIS`
+
+Use `bd dolt show` or `bd context` if you need to verify the active server and
+database wiring. Do not create alternate repo-local beads stores, umbrella
+trackers for parent folders, or ad hoc replacement databases when configuration
+drifts. Fix the existing shared-server configuration instead.
+
+There is no remote Dolt sync for beads in this workspace. Do not run
+`bd dolt push` or `bd dolt pull`.
 
 ## Quick Reference
 
 ```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>         # Complete work
-bd sync               # Sync with git
+bd prime
+bd ready
+bd show <id>
+bd update <id> --claim
+bd close <id>
+bd sync
+bd remember "persistent insight"
 ```
 
-## Landing the Plane (Session Completion)
+## Rules
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+- Use `bd` for all task tracking.
+- Do not use `TodoWrite`, `TaskCreate`, markdown TODOs, or other side trackers.
+- Use `bd remember` for persistent knowledge. Do not use `MEMORY.md` files.
 
-**MANDATORY WORKFLOW:**
+## Session Close
 
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd sync
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-
-<!-- BEADS-AGENT-INSTRUCTIONS-START -->
-## Beads Issue Tracking
-
-This project uses **bd** (beads) for persistent issue tracking.
-
-### Quick Reference
-
-```bash
-bd ready              # Find available work
-bd show <id>          # View details
-bd update <id> --status=in_progress
-bd close <id>         # Complete work
-bd sync --flush-only  # Sync to JSONL
-```
-
-### Session Protocol
-
-#### Starting Work
-1. `bd ready` - Check what's available
-2. `bd list --status=in_progress` - Check active work
-3. `bd update <id> --status=in_progress` - Claim task
-
-#### Ending Session
-
-1. `bd list --status=in_progress` - Review active
-2. `bd close <id>` - Close completed
-3. `bd sync --flush-only` - Sync state
-4. `bd status` - Verify
-<!-- BEADS-AGENT-INSTRUCTIONS-END -->
-
-
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
-## Beads Issue Tracker
-
-This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
-
-LITRIS uses the global shared Dolt server at `C:\Users\cmb17\.beads\shared-server\dolt` on `127.0.0.1:3308`. Repo `.beads/config.yaml` expects `dolt.shared-server: true` and database name `LITRIS`.
-
-### Quick Reference
-
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work
-bd close <id>         # Complete work
-```
-
-### Rules
-
-- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
-- Run `bd prime` for detailed command reference and session close protocol
-- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
-
-## Session Completion
-
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd dolt push
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-<!-- END BEADS INTEGRATION -->
+When ending a session, update issue status, run any required quality checks,
+commit code changes, and push git changes. `bd` state persists locally on the
+shared server; use `bd sync` only for repo-side JSONL export when needed.
