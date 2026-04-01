@@ -1,0 +1,517 @@
+# Starter semantic dimension profile cloned from the built-in
+# legacy_semantic_v1 profile.
+#
+# Recommended workflow:
+# 1. Keep this file as your editable baseline.
+# 2. Change profile_id, title, and summary if you want a different long-lived profile.
+# 3. Edit question text, add dimensions, disable dimensions, or move them between sections.
+# 4. Run scripts/dimensions.py diff and backfill against your live index.
+#
+# Important:
+# - Keep dimension ids stable once you have indexed data with them.
+# - Use new ids for genuinely new dimensions.
+# - Use enabled: false to retire a dimension without deleting stored answers.
+
+profile_id: "stp_cas_v1"
+version: "1.0.0"
+title: "STP CAS Profile Starter"
+summary: "Editable starter profile based on the legacy 40-dimension semantic analysis schema."
+
+sections:
+  - id: "research_core"
+    label: "Pass 1: Research Core"
+    prompt_label: "Pass 1: Research Core"
+    order: 1
+    aliases:
+      - "pass_1"
+      - "research"
+
+  - id: "methodology"
+    label: "Pass 2: Methodology"
+    prompt_label: "Pass 2: Methodology"
+    order: 2
+    aliases:
+      - "pass_2"
+      - "methods"
+
+  - id: "context"
+    label: "Pass 3: Context & Discourse"
+    prompt_label: "Pass 3: Context & Discourse"
+    order: 3
+    aliases:
+      - "pass_3"
+
+  - id: "meta"
+    label: "Pass 4: Meta & Audience"
+    prompt_label: "Pass 4: Meta & Audience"
+    order: 4
+    aliases:
+      - "pass_4"
+
+  - id: "scholarly"
+    label: "Pass 5: Scholarly Positioning"
+    prompt_label: "Pass 5: Scholarly Positioning"
+    order: 5
+    aliases:
+      - "pass_5"
+      - "synthesis"
+
+  - id: "impact"
+    label: "Pass 6: Impact, Gaps & Domain"
+    prompt_label: "Pass 6: Impact, Gaps & Domain"
+    order: 6
+    aliases:
+      - "pass_6"
+
+roles:
+  - id: "research_question"
+    aliases: ["q01"]
+  - id: "thesis"
+    aliases: ["q02"]
+  - id: "key_claims"
+    aliases: ["q03"]
+  - id: "evidence"
+    aliases: ["q04"]
+  - id: "limitations"
+    aliases: ["q05"]
+  - id: "paradigm"
+    aliases: ["q06"]
+  - id: "methods"
+    aliases: ["q07"]
+  - id: "data"
+    aliases: ["q08"]
+  - id: "reproducibility"
+    aliases: ["q09"]
+  - id: "framework"
+    aliases: ["q10"]
+  - id: "field"
+    aliases: ["q17"]
+  - id: "implications"
+    aliases: ["q19"]
+  - id: "future_work"
+    aliases: ["q20"]
+  - id: "quality"
+    aliases: ["q21"]
+  - id: "contribution"
+    aliases: ["q22"]
+
+dimensions:
+  - id: "research_question"
+    label: "Research Question"
+    question: "What research questions or objectives does this work address?"
+    section: "research_core"
+    order: 1
+    core: true
+    reasoning_effort: "high"
+    roles: ["research_question"]
+    legacy_field_name: "q01_research_question"
+    legacy_short_name: "q01"
+    legacy_chunk_type: "dim_q01"
+
+  - id: "thesis"
+    label: "Thesis"
+    question: "What is the central thesis or main argument?"
+    section: "research_core"
+    order: 2
+    core: true
+    reasoning_effort: "high"
+    roles: ["thesis"]
+    legacy_field_name: "q02_thesis"
+    legacy_short_name: "q02"
+    legacy_chunk_type: "dim_q02"
+
+  - id: "key_claims"
+    label: "Key Claims"
+    question: "What are the key claims or propositions made?"
+    section: "research_core"
+    order: 3
+    core: true
+    reasoning_effort: "xhigh"
+    roles: ["key_claims"]
+    legacy_field_name: "q03_key_claims"
+    legacy_short_name: "q03"
+    legacy_chunk_type: "dim_q03"
+
+  - id: "evidence"
+    label: "Evidence"
+    question: "What evidence is presented and how strong is it?"
+    section: "research_core"
+    order: 4
+    core: true
+    reasoning_effort: "xhigh"
+    roles: ["evidence"]
+    legacy_field_name: "q04_evidence"
+    legacy_short_name: "q04"
+    legacy_chunk_type: "dim_q04"
+
+  - id: "limitations"
+    label: "Limitations"
+    question: "What limitations are acknowledged or apparent?"
+    section: "research_core"
+    order: 5
+    core: true
+    reasoning_effort: "xhigh"
+    roles: ["limitations"]
+    legacy_field_name: "q05_limitations"
+    legacy_short_name: "q05"
+    legacy_chunk_type: "dim_q05"
+
+  - id: "paradigm"
+    label: "Paradigm"
+    question: "What research paradigm underlies this work? (positivist, interpretivist, critical, pragmatist, etc.)"
+    section: "methodology"
+    order: 6
+    reasoning_effort: "xhigh"
+    roles: ["paradigm"]
+    legacy_field_name: "q06_paradigm"
+    legacy_short_name: "q06"
+    legacy_chunk_type: "dim_q06"
+
+  - id: "methods"
+    label: "Methods"
+    question: "What methods and analytical techniques are used?"
+    section: "methodology"
+    order: 7
+    reasoning_effort: "high"
+    roles: ["methods"]
+    legacy_field_name: "q07_methods"
+    legacy_short_name: "q07"
+    legacy_chunk_type: "dim_q07"
+
+  - id: "data"
+    label: "Data"
+    question: "What data sources, sample sizes, and time periods are involved?"
+    section: "methodology"
+    order: 8
+    reasoning_effort: "high"
+    roles: ["data"]
+    legacy_field_name: "q08_data"
+    legacy_short_name: "q08"
+    legacy_chunk_type: "dim_q08"
+
+  - id: "reproducibility"
+    label: "Reproducibility"
+    question: "How reproducible is this work? Are methods, data, and code available?"
+    section: "methodology"
+    order: 9
+    reasoning_effort: "high"
+    roles: ["reproducibility"]
+    legacy_field_name: "q09_reproducibility"
+    legacy_short_name: "q09"
+    legacy_chunk_type: "dim_q09"
+
+  - id: "framework"
+    label: "Framework"
+    question: "What theoretical or conceptual framework is used?"
+    section: "methodology"
+    order: 10
+    reasoning_effort: "high"
+    roles: ["framework"]
+    legacy_field_name: "q10_framework"
+    legacy_short_name: "q10"
+    legacy_chunk_type: "dim_q10"
+
+  - id: "traditions"
+    label: "Traditions"
+    question: "What intellectual traditions or schools of thought does this draw from?"
+    section: "context"
+    order: 11
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q11_traditions"
+    legacy_short_name: "q11"
+    legacy_chunk_type: "dim_q11"
+
+  - id: "key_citations"
+    label: "Key Citations"
+    question: "What are the most influential works cited, and how do they shape this paper?"
+    section: "context"
+    order: 12
+    reasoning_effort: "high"
+    legacy_field_name: "q12_key_citations"
+    legacy_short_name: "q12"
+    legacy_chunk_type: "dim_q12"
+
+  - id: "assumptions"
+    label: "Assumptions"
+    question: "What assumptions (stated or unstated) underlie the analysis?"
+    section: "context"
+    order: 13
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q13_assumptions"
+    legacy_short_name: "q13"
+    legacy_chunk_type: "dim_q13"
+
+  - id: "counterarguments"
+    label: "Counterarguments"
+    question: "What counterarguments or alternative interpretations are addressed?"
+    section: "context"
+    order: 14
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q14_counterarguments"
+    legacy_short_name: "q14"
+    legacy_chunk_type: "dim_q14"
+
+  - id: "novelty"
+    label: "Novelty"
+    question: "What is novel or original about this work?"
+    section: "context"
+    order: 15
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q15_novelty"
+    legacy_short_name: "q15"
+    legacy_chunk_type: "dim_q15"
+
+  - id: "stance"
+    label: "Stance"
+    question: "What is the author's stance or perspective on the topic?"
+    section: "context"
+    order: 16
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q16_stance"
+    legacy_short_name: "q16"
+    legacy_chunk_type: "dim_q16"
+
+  - id: "field"
+    label: "Field"
+    question: "What academic field(s) does this work belong to?"
+    section: "meta"
+    order: 17
+    reasoning_effort: "high"
+    roles: ["field"]
+    legacy_field_name: "q17_field"
+    legacy_short_name: "q17"
+    legacy_chunk_type: "dim_q17"
+
+  - id: "audience"
+    label: "Audience"
+    question: "Who is the intended audience?"
+    section: "meta"
+    order: 18
+    reasoning_effort: "high"
+    legacy_field_name: "q18_audience"
+    legacy_short_name: "q18"
+    legacy_chunk_type: "dim_q18"
+
+  - id: "implications"
+    label: "Implications"
+    question: "What are the broader theoretical or practical implications?"
+    section: "meta"
+    order: 19
+    reasoning_effort: "xhigh"
+    roles: ["implications"]
+    legacy_field_name: "q19_implications"
+    legacy_short_name: "q19"
+    legacy_chunk_type: "dim_q19"
+
+  - id: "future_work"
+    label: "Future Work"
+    question: "What future research directions are suggested?"
+    section: "meta"
+    order: 20
+    reasoning_effort: "xhigh"
+    roles: ["future_work"]
+    legacy_field_name: "q20_future_work"
+    legacy_short_name: "q20"
+    legacy_chunk_type: "dim_q20"
+
+  - id: "quality"
+    label: "Quality"
+    question: "How would you rate the overall quality? (methodology rigor, evidence strength, contribution significance)"
+    section: "meta"
+    order: 21
+    reasoning_effort: "xhigh"
+    roles: ["quality"]
+    legacy_field_name: "q21_quality"
+    legacy_short_name: "q21"
+    legacy_chunk_type: "dim_q21"
+
+  - id: "contribution"
+    label: "Contribution"
+    question: "What is the explicit contribution of this work to its field?"
+    section: "meta"
+    order: 22
+    reasoning_effort: "xhigh"
+    roles: ["contribution"]
+    legacy_field_name: "q22_contribution"
+    legacy_short_name: "q22"
+    legacy_chunk_type: "dim_q22"
+
+  - id: "source_type"
+    label: "Source Type"
+    question: "What type of document is this? (empirical study, review, theoretical, report, etc.)"
+    section: "meta"
+    order: 23
+    reasoning_effort: "high"
+    legacy_field_name: "q23_source_type"
+    legacy_short_name: "q23"
+    legacy_chunk_type: "dim_q23"
+
+  - id: "other"
+    label: "Other"
+    question: "What else is noteworthy that the above questions don't capture?"
+    section: "meta"
+    order: 24
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q24_other"
+    legacy_short_name: "q24"
+    legacy_chunk_type: "dim_q24"
+
+  - id: "institutional_context"
+    label: "Institutional Context"
+    question: "What institutional or organizational context shaped this work?"
+    section: "scholarly"
+    order: 25
+    reasoning_effort: "high"
+    legacy_field_name: "q25_institutional_context"
+    legacy_short_name: "q25"
+    legacy_chunk_type: "dim_q25"
+
+  - id: "historical_timing"
+    label: "Historical Timing"
+    question: "Why does this work appear now? What historical/temporal factors are relevant?"
+    section: "scholarly"
+    order: 26
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q26_historical_timing"
+    legacy_short_name: "q26"
+    legacy_chunk_type: "dim_q26"
+
+  - id: "paradigm_influence"
+    label: "Paradigm Influence"
+    question: "How does this work relate to dominant paradigms in its field?"
+    section: "scholarly"
+    order: 27
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q27_paradigm_influence"
+    legacy_short_name: "q27"
+    legacy_chunk_type: "dim_q27"
+
+  - id: "disciplines_bridged"
+    label: "Disciplines Bridged"
+    question: "What disciplines does this work bridge or draw from?"
+    section: "scholarly"
+    order: 28
+    reasoning_effort: "high"
+    legacy_field_name: "q28_disciplines_bridged"
+    legacy_short_name: "q28"
+    legacy_chunk_type: "dim_q28"
+
+  - id: "cross_domain_insights"
+    label: "Cross-Domain Insights"
+    question: "What insights transfer to or from other domains?"
+    section: "scholarly"
+    order: 29
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q29_cross_domain_insights"
+    legacy_short_name: "q29"
+    legacy_chunk_type: "dim_q29"
+
+  - id: "cultural_scope"
+    label: "Cultural Scope"
+    question: "What cultural, geographic, or demographic scope does this cover?"
+    section: "scholarly"
+    order: 30
+    reasoning_effort: "high"
+    legacy_field_name: "q30_cultural_scope"
+    legacy_short_name: "q30"
+    legacy_chunk_type: "dim_q30"
+
+  - id: "philosophical_assumptions"
+    label: "Philosophical Assumptions"
+    question: "What philosophical assumptions underlie the methodology or claims?"
+    section: "scholarly"
+    order: 31
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q31_philosophical_assumptions"
+    legacy_short_name: "q31"
+    legacy_chunk_type: "dim_q31"
+
+  - id: "deployment_gap"
+    label: "Deployment Gap"
+    question: "What gap exists between this research and real-world application?"
+    section: "impact"
+    order: 32
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q32_deployment_gap"
+    legacy_short_name: "q32"
+    legacy_chunk_type: "dim_q32"
+
+  - id: "infrastructure_contribution"
+    label: "Infrastructure Contribution"
+    question: "Does this work contribute tools, datasets, frameworks, or infrastructure?"
+    section: "impact"
+    order: 33
+    reasoning_effort: "high"
+    legacy_field_name: "q33_infrastructure_contribution"
+    legacy_short_name: "q33"
+    legacy_chunk_type: "dim_q33"
+
+  - id: "power_dynamics"
+    label: "Power Dynamics"
+    question: "What power dynamics, inequities, or stakeholder tensions are relevant?"
+    section: "impact"
+    order: 34
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q34_power_dynamics"
+    legacy_short_name: "q34"
+    legacy_chunk_type: "dim_q34"
+
+  - id: "gaps_and_omissions"
+    label: "Gaps And Omissions"
+    question: "What important aspects does this work fail to address?"
+    section: "impact"
+    order: 35
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q35_gaps_and_omissions"
+    legacy_short_name: "q35"
+    legacy_chunk_type: "dim_q35"
+
+  - id: "dual_use_concerns"
+    label: "Dual-Use Concerns"
+    question: "Are there dual-use or ethical concerns with the findings or methods?"
+    section: "impact"
+    order: 36
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q36_dual_use_concerns"
+    legacy_short_name: "q36"
+    legacy_chunk_type: "dim_q36"
+
+  - id: "emergence_claims"
+    label: "Emergence Claims"
+    question: "Does this work describe emergent phenomena or system-level behaviors?"
+    section: "impact"
+    order: 37
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q37_emergence_claims"
+    legacy_short_name: "q37"
+    legacy_chunk_type: "dim_q37"
+
+  - id: "remaining_other"
+    label: "Remaining Other"
+    question: "What else is significant that no prior question has captured?"
+    section: "impact"
+    order: 38
+    reasoning_effort: "xhigh"
+    legacy_field_name: "q38_remaining_other"
+    legacy_short_name: "q38"
+    legacy_chunk_type: "dim_q38"
+
+  - id: "network_properties"
+    label: "Network Properties"
+    question: "What network structures, metrics, or graph algorithms are central?"
+    section: "impact"
+    order: 39
+    reasoning_effort: "high"
+    legacy_field_name: "q39_network_properties"
+    legacy_short_name: "q39"
+    legacy_chunk_type: "dim_q39"
+
+  - id: "policy_recommendations"
+    label: "Policy Recommendations"
+    question: "What specific policy recommendations or actionable guidance is proposed?"
+    section: "impact"
+    order: 40
+    reasoning_effort: "high"
+    legacy_field_name: "q40_policy_recommendations"
+    legacy_short_name: "q40"
+    legacy_chunk_type: "dim_q40"
