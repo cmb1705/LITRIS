@@ -13,7 +13,7 @@
 # - Use enabled: false to retire a dimension without deleting stored answers.
 
 profile_id: "stp_cas_v1"
-version: "1.0.0"
+version: "1.0.2"
 title: "STP CAS Profile Starter"
 summary: "Editable starter profile based on the legacy 40-dimension semantic analysis schema."
 
@@ -406,11 +406,18 @@ dimensions:
     legacy_short_name: "q29"
     legacy_chunk_type: "dim_q29"
 
+  - id: "stp_cas_linkage"
+    label: "STP-CAS Linkage"
+    question: "What concrete conceptual, methodological, or system-level linkages connect science and technology policy and complex adaptive systems in this work?"
+    section: "scholarly"
+    order: 30
+    reasoning_effort: "xhigh"
+
   - id: "cultural_scope"
     label: "Cultural Scope"
     question: "What cultural, geographic, or demographic scope does this cover?"
     section: "scholarly"
-    order: 30
+    order: 31
     reasoning_effort: "high"
     legacy_field_name: "q30_cultural_scope"
     legacy_short_name: "q30"
@@ -420,7 +427,7 @@ dimensions:
     label: "Philosophical Assumptions"
     question: "What philosophical assumptions underlie the methodology or claims?"
     section: "scholarly"
-    order: 31
+    order: 32
     reasoning_effort: "xhigh"
     legacy_field_name: "q31_philosophical_assumptions"
     legacy_short_name: "q31"
@@ -430,7 +437,7 @@ dimensions:
     label: "Deployment Gap"
     question: "What gap exists between this research and real-world application?"
     section: "impact"
-    order: 32
+    order: 33
     reasoning_effort: "xhigh"
     legacy_field_name: "q32_deployment_gap"
     legacy_short_name: "q32"
@@ -440,7 +447,7 @@ dimensions:
     label: "Infrastructure Contribution"
     question: "Does this work contribute tools, datasets, frameworks, or infrastructure?"
     section: "impact"
-    order: 33
+    order: 34
     reasoning_effort: "high"
     legacy_field_name: "q33_infrastructure_contribution"
     legacy_short_name: "q33"
@@ -450,17 +457,24 @@ dimensions:
     label: "Power Dynamics"
     question: "What power dynamics, inequities, or stakeholder tensions are relevant?"
     section: "impact"
-    order: 34
+    order: 35
     reasoning_effort: "xhigh"
     legacy_field_name: "q34_power_dynamics"
     legacy_short_name: "q34"
     legacy_chunk_type: "dim_q34"
 
+  - id: "intervention_leverage_point"
+    label: "Intervention Leverage Point"
+    question: "What part of the system is treated as the most effective locus for changing outcomes: actors, incentives, information flows, standards, institutions, network structure, feedback loops, or policy/regulatory mechanisms?"
+    section: "impact"
+    order: 36
+    reasoning_effort: "xhigh"
+
   - id: "gaps_and_omissions"
     label: "Gaps And Omissions"
     question: "What important aspects does this work fail to address?"
     section: "impact"
-    order: 35
+    order: 37
     reasoning_effort: "xhigh"
     legacy_field_name: "q35_gaps_and_omissions"
     legacy_short_name: "q35"
@@ -470,7 +484,7 @@ dimensions:
     label: "Dual-Use Concerns"
     question: "Are there dual-use or ethical concerns with the findings or methods?"
     section: "impact"
-    order: 36
+    order: 38
     reasoning_effort: "xhigh"
     legacy_field_name: "q36_dual_use_concerns"
     legacy_short_name: "q36"
@@ -480,7 +494,7 @@ dimensions:
     label: "Emergence Claims"
     question: "Does this work describe emergent phenomena or system-level behaviors?"
     section: "impact"
-    order: 37
+    order: 39
     reasoning_effort: "xhigh"
     legacy_field_name: "q37_emergence_claims"
     legacy_short_name: "q37"
@@ -490,7 +504,7 @@ dimensions:
     label: "Remaining Other"
     question: "What else is significant that no prior question has captured?"
     section: "impact"
-    order: 38
+    order: 40
     reasoning_effort: "xhigh"
     legacy_field_name: "q38_remaining_other"
     legacy_short_name: "q38"
@@ -500,7 +514,7 @@ dimensions:
     label: "Network Properties"
     question: "What network structures, metrics, or graph algorithms are central?"
     section: "impact"
-    order: 39
+    order: 41
     reasoning_effort: "high"
     legacy_field_name: "q39_network_properties"
     legacy_short_name: "q39"
@@ -510,7 +524,7 @@ dimensions:
     label: "Policy Recommendations"
     question: "What specific policy recommendations or actionable guidance is proposed?"
     section: "impact"
-    order: 40
+    order: 42
     reasoning_effort: "high"
     legacy_field_name: "q40_policy_recommendations"
     legacy_short_name: "q40"
