@@ -17,6 +17,14 @@ extraction:
   # Timeout in seconds for CLI mode
   timeout: 120
 
+dimensions:
+  # Built-in legacy profile keeps the historical q01-q40 behavior.
+  active_profile: "legacy_semantic_v1"
+  # Add YAML or JSON profile definitions here when using custom dimensions.
+  profile_paths: []
+  approval_required: true
+  suggestion_sample_size: 25
+
 embeddings:
   # Sentence transformer model for embeddings
   model: "sentence-transformers/all-MiniLM-L6-v2"

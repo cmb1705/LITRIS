@@ -1,4 +1,4 @@
-"""Section extractor orchestrating PDF extraction and 6-pass LLM analysis."""
+"""Section extractor orchestrating PDF extraction and profile-driven LLM analysis."""
 
 import hashlib
 import json
@@ -10,7 +10,7 @@ from threading import Lock
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode
 from src.analysis.coverage import score_coverage
-from src.analysis.dimensions import get_dimension_value
+from src.analysis.dimensions import get_default_dimension_registry, get_dimension_value
 from src.analysis.document_classifier import classify as classify_document
 from src.analysis.document_types import DocumentType
 from src.analysis.llm_factory import create_llm_client
@@ -44,18 +44,21 @@ class ExtractionCache:
     def compute_content_hash(
         self, pdf_path: Path, model: str, prompt_version: str = SEMANTIC_PROMPT_VERSION,
         pass_number: int | None = None,
+        profile_fingerprint: str | None = None,
     ) -> str:
         """Compute content hash for cache key.
 
         Uses file modification time and size to detect changes without
-        reading the entire file. Includes model, prompt version, and
-        optional pass number to invalidate cache when extraction logic changes.
+        reading the entire file. Includes model, prompt version, active
+        profile fingerprint, and optional pass number to invalidate cache
+        when extraction logic changes.
 
         Args:
             pdf_path: Path to PDF file.
             model: Model identifier.
             prompt_version: Version string for extraction prompts.
             pass_number: Pass number (1-6) for per-pass caching. None for full result.
+            profile_fingerprint: Fingerprint of the active dimension profile.
 
         Returns:
             16-character hex hash string.
@@ -64,6 +67,8 @@ class ExtractionCache:
         stat = pdf_path.stat()
         hasher.update(f"{stat.st_mtime}:{stat.st_size}".encode())
         hasher.update(f":{model}:{prompt_version}".encode())
+        if profile_fingerprint:
+            hasher.update(f":profile={profile_fingerprint}".encode())
         if pass_number is not None:
             hasher.update(f":pass{pass_number}".encode())
         return hasher.hexdigest()[:16]
@@ -213,7 +218,7 @@ class ExtractionStats:
 
 
 class SectionExtractor:
-    """Orchestrates extraction of structured content from papers using 6-pass analysis."""
+    """Orchestrates extraction of structured content from papers using pass-based analysis."""
 
     def __init__(
         self,
@@ -308,6 +313,9 @@ class SectionExtractor:
         self.provider = provider
         self.parallel_workers = parallel_workers
         self.use_cache = use_cache
+        active_profile = get_default_dimension_registry().active_profile
+        self.dimension_profile_id = active_profile.profile_id
+        self.dimension_profile_fingerprint = active_profile.fingerprint
 
         # Initialize extraction cache
         if cache_dir and use_cache:
@@ -315,14 +323,67 @@ class SectionExtractor:
         else:
             self.extraction_cache = None
 
+    def _resolve_pass_plan(
+        self,
+        section_ids: list[str] | None = None,
+    ) -> list[tuple[int, str, list[tuple[str, str]]]]:
+        """Return the pass plan for a full or section-scoped extraction."""
+
+        pass_definitions = get_pass_definitions()
+        if not section_ids:
+            return [
+                (pass_num, pass_label, pass_questions)
+                for pass_num, (pass_label, pass_questions) in enumerate(
+                    pass_definitions,
+                    start=1,
+                )
+            ]
+
+        registry = get_default_dimension_registry()
+        profile = registry.active_profile
+        requested = list(dict.fromkeys(section_ids))
+        section_alias_map = {
+            alias: section.id
+            for section in profile.ordered_sections
+            for alias in [section.id, *section.aliases]
+        }
+        resolved_section_ids: list[str] = []
+        invalid_sections: list[str] = []
+        for section_id in requested:
+            resolved = section_alias_map.get(section_id)
+            if resolved is None:
+                invalid_sections.append(section_id)
+            elif resolved not in resolved_section_ids:
+                resolved_section_ids.append(resolved)
+
+        if invalid_sections:
+            raise ValueError(
+                "Unknown dimension section(s): " + ", ".join(sorted(invalid_sections))
+            )
+
+        selected = set(resolved_section_ids)
+        return [
+            (pass_num, pass_label, pass_questions)
+            for pass_num, ((pass_label, pass_questions), section) in enumerate(
+                zip(pass_definitions, profile.ordered_sections, strict=False),
+                start=1,
+            )
+            if section.id in selected
+        ]
+
     def extract_paper(
-        self, paper: PaperMetadata, check_cache: bool = True
+        self,
+        paper: PaperMetadata,
+        check_cache: bool = True,
+        section_ids: list[str] | None = None,
     ) -> tuple[ExtractionResult, bool]:
-        """Extract structured content from a single paper via 6-pass analysis.
+        """Extract structured content from a single paper.
 
         Args:
             paper: Paper metadata including PDF path.
             check_cache: Whether to check cache before extracting.
+            section_ids: Optional section IDs to extract. When omitted, run the
+                full active profile.
 
         Returns:
             Tuple of (ExtractionResult, from_cache).
@@ -339,9 +400,12 @@ class SectionExtractor:
 
             # Check full-result cache
             full_hash = None
-            if check_cache and self.extraction_cache:
+            use_full_result_cache = not section_ids
+            if check_cache and self.extraction_cache and use_full_result_cache:
                 full_hash = self.extraction_cache.compute_content_hash(
-                    paper.pdf_path, self.model
+                    paper.pdf_path,
+                    self.model,
+                    profile_fingerprint=self.dimension_profile_fingerprint,
                 )
                 cached_result = self.extraction_cache.get_extraction_result(
                     paper.paper_id, full_hash
@@ -487,6 +551,7 @@ class SectionExtractor:
                 paper=paper,
                 text=text,
                 document_type=doc_type.value,
+                section_ids=section_ids,
             )
 
             # Attach classification and extraction method to result
@@ -513,16 +578,18 @@ class SectionExtractor:
         paper: PaperMetadata,
         text: str,
         document_type: str,
+        section_ids: list[str] | None = None,
     ) -> ExtractionResult:
-        """Run 6-pass sequential extraction and merge results.
+        """Run pass-based extraction and merge results.
 
-        Each pass extracts a subset of the 40 semantic dimensions.
+        Each pass extracts a profile-defined section of semantic dimensions.
         Passes run sequentially per paper for consistent reasoning context.
 
         Args:
             paper: Paper metadata.
             text: Cleaned, truncated paper text.
             document_type: Document type key for prompt framing.
+            section_ids: Optional subset of section IDs to run.
 
         Returns:
             Merged ExtractionResult with all dimensions.
@@ -533,10 +600,17 @@ class SectionExtractor:
         total_duration = 0.0
         errors: list[str] = []
 
-        pass_definitions = get_pass_definitions()
-        num_passes = len(pass_definitions)
-        for pass_num in range(1, num_passes + 1):
-            pass_label, pass_questions = pass_definitions[pass_num - 1]
+        pass_plan = self._resolve_pass_plan(section_ids=section_ids)
+        num_passes = len(pass_plan)
+        if num_passes == 0:
+            return ExtractionResult(
+                paper_id=paper.paper_id,
+                success=False,
+                error="No extraction sections selected",
+                model_used=self.model,
+            )
+
+        for pass_num, pass_label, pass_questions in pass_plan:
             pass_fields = [q[0] for q in pass_questions]
 
             # Check per-pass cache
@@ -544,7 +618,10 @@ class SectionExtractor:
             pass_hash = None
             if self.extraction_cache:
                 pass_hash = self.extraction_cache.compute_content_hash(
-                    paper.pdf_path, self.model, pass_number=pass_num
+                    paper.pdf_path,
+                    self.model,
+                    pass_number=pass_num,
+                    profile_fingerprint=self.dimension_profile_fingerprint,
                 )
                 cached_data = self.extraction_cache.get(paper.paper_id, pass_hash)
                 if cached_data and "answers" in cached_data:
@@ -712,6 +789,7 @@ class SectionExtractor:
         self,
         papers: list[PaperMetadata],
         progress_callback: Callable | None = None,
+        section_ids: list[str] | None = None,
     ) -> Generator[ExtractionResult, None, ExtractionStats]:
         """Extract content from multiple papers.
 
@@ -721,6 +799,7 @@ class SectionExtractor:
         Args:
             papers: List of papers to process.
             progress_callback: Optional callback(current, total, paper_title).
+            section_ids: Optional section IDs to extract for every paper.
 
         Yields:
             ExtractionResult for each paper.
@@ -729,19 +808,29 @@ class SectionExtractor:
             ExtractionStats with overall statistics.
         """
         if self.parallel_workers > 1:
-            return self._extract_batch_parallel(papers, progress_callback)
-        return self._extract_batch_sequential(papers, progress_callback)
+            return self._extract_batch_parallel(
+                papers,
+                progress_callback,
+                section_ids=section_ids,
+            )
+        return self._extract_batch_sequential(
+            papers,
+            progress_callback,
+            section_ids=section_ids,
+        )
 
     def _extract_batch_sequential(
         self,
         papers: list[PaperMetadata],
         progress_callback: Callable | None = None,
+        section_ids: list[str] | None = None,
     ) -> Generator[ExtractionResult, None, ExtractionStats]:
         """Sequential batch extraction.
 
         Args:
             papers: List of papers to process.
             progress_callback: Optional callback(current, total, paper_title).
+            section_ids: Optional section IDs to extract for every paper.
 
         Yields:
             ExtractionResult for each paper.
@@ -767,7 +856,10 @@ class SectionExtractor:
                 i += 1
                 continue
 
-            result, from_cache = self.extract_paper(paper)
+            result, from_cache = self.extract_paper(
+                paper,
+                section_ids=section_ids,
+            )
 
             if from_cache:
                 stats.cached += 1
@@ -813,6 +905,7 @@ class SectionExtractor:
         self,
         papers: list[PaperMetadata],
         progress_callback: Callable | None = None,
+        section_ids: list[str] | None = None,
     ) -> Generator[ExtractionResult, None, ExtractionStats]:
         """Parallel batch extraction with adaptive rate limit backoff.
 
@@ -822,6 +915,7 @@ class SectionExtractor:
         Args:
             papers: List of papers to process.
             progress_callback: Optional callback(current, total, paper_title).
+            section_ids: Optional section IDs to extract for every paper.
 
         Yields:
             ExtractionResult for each paper.
@@ -849,7 +943,7 @@ class SectionExtractor:
 
             with ThreadPoolExecutor(max_workers=current_workers) as executor:
                 future_to_paper = {
-                    executor.submit(self._extract_single_paper, paper): paper
+                    executor.submit(self._extract_single_paper, paper, section_ids): paper
                     for paper in chunk
                 }
 
@@ -940,7 +1034,9 @@ class SectionExtractor:
         return stats
 
     def _extract_single_paper(
-        self, paper: PaperMetadata,
+        self,
+        paper: PaperMetadata,
+        section_ids: list[str] | None = None,
     ) -> tuple[ExtractionResult, bool]:
         """Extract a single paper (for use in thread pool).
 
@@ -956,7 +1052,7 @@ class SectionExtractor:
                 success=False,
                 error="No PDF path",
             ), False
-        return self.extract_paper(paper)
+        return self.extract_paper(paper, section_ids=section_ids)
 
     # Maximum consecutive rate limit errors before triggering quota sleep
     _QUOTA_THRESHOLD = 3

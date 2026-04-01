@@ -24,8 +24,15 @@ from src.analysis.dimensions import (
     get_dimension_map,
     load_dimension_profile,
 )
-from src.analysis.schemas import DimensionedExtraction
+from src.analysis.coverage import score_coverage
+from src.analysis.schemas import DimensionedExtraction, SemanticAnalysis
 from src.config import Config
+from src.indexing.orchestrator import (
+    EXTRACTION_SCHEMA_VERSION,
+    MANIFEST_FILENAME,
+    IndexManifest,
+    fingerprint_payload,
+)
 from src.indexing.pipeline import (
     build_section_extractor,
     compute_similarity_pairs,
@@ -300,6 +307,118 @@ def _load_extractions_payload(index_dir: Path) -> tuple[dict[str, Any], dict[str
     raise ValueError("Unsupported semantic_analyses.json structure")
 
 
+def _section_dimension_ids(
+    profile: DimensionProfile,
+    section_ids: list[str],
+) -> list[str]:
+    """Return ordered dimension IDs covered by the selected sections."""
+
+    selected = set(section_ids)
+    return [
+        dimension.id
+        for section in profile.ordered_sections
+        if section.id in selected
+        for dimension in profile.dimensions_for_section(section.id)
+    ]
+
+
+def _retarget_extraction(
+    extraction: DimensionedExtraction,
+    target_profile: DimensionProfile,
+    dimensions: dict[str, str | None] | None = None,
+) -> DimensionedExtraction:
+    """Retarget an extraction to a profile and recompute profile-driven coverage."""
+
+    retargeted = DimensionedExtraction(
+        paper_id=extraction.paper_id,
+        profile_id=target_profile.profile_id,
+        profile_version=target_profile.version,
+        profile_fingerprint=target_profile.fingerprint,
+        prompt_version=extraction.prompt_version,
+        extraction_model=extraction.extraction_model,
+        extracted_at=extraction.extracted_at,
+        dimensions=dict(dimensions or extraction.dimensions),
+        dimension_coverage=extraction.dimension_coverage,
+        coverage_flags=list(extraction.coverage_flags),
+    )
+    coverage = score_coverage(SemanticAnalysis(**retargeted.to_index_dict()))
+    retargeted.dimension_coverage = coverage.coverage
+    retargeted.coverage_flags = list(coverage.flags)
+    return retargeted
+
+
+def _merge_reextracted_dimensions(
+    old_extraction: DimensionedExtraction,
+    new_extraction: DimensionedExtraction,
+    target_profile: DimensionProfile,
+    section_ids: list[str],
+) -> DimensionedExtraction:
+    """Merge only the dimensions touched by a scoped re-extraction."""
+
+    targeted_dimension_ids = _section_dimension_ids(target_profile, section_ids)
+    merged_dimensions = dict(old_extraction.dimensions)
+    for dimension_id in targeted_dimension_ids:
+        merged_dimensions[dimension_id] = new_extraction.dimensions.get(dimension_id)
+    return _retarget_extraction(
+        old_extraction,
+        target_profile=target_profile,
+        dimensions=merged_dimensions,
+    )
+
+
+def _extraction_manifest_info(
+    args: argparse.Namespace,
+    config: Config,
+    profile: DimensionProfile,
+) -> dict[str, Any]:
+    """Build manifest extraction metadata for a profile backfill run."""
+
+    provider = getattr(args, "provider", None) or config.extraction.provider
+    provider_settings = config.extraction.get_provider_settings(provider)
+    payload = {
+        "schema_version": EXTRACTION_SCHEMA_VERSION,
+        "provider": provider,
+        "mode": getattr(args, "mode", None)
+        or provider_settings.mode
+        or config.extraction.mode,
+        "model": getattr(args, "model", None)
+        or provider_settings.model
+        or config.extraction.model,
+        "summary_model": getattr(args, "summary_model", None),
+        "methodology_model": getattr(args, "methodology_model", None),
+        "profile_id": profile.profile_id,
+        "profile_version": profile.version,
+        "profile_fingerprint": profile.fingerprint,
+    }
+    return {**payload, "fingerprint": fingerprint_payload(payload)}
+
+
+def _update_manifest_profile_snapshot(
+    index_dir: Path,
+    args: argparse.Namespace,
+    config: Config,
+    profile: DimensionProfile,
+) -> None:
+    """Update manifest extraction metadata after a successful backfill."""
+
+    manifest_path = index_dir / MANIFEST_FILENAME
+    manifest, _error = IndexManifest.load(manifest_path)
+    if manifest is None:
+        return
+
+    manifest.extraction = _extraction_manifest_info(args, config, profile)
+    manifest.last_run = {
+        **manifest.last_run,
+        "dimension_backfill": {
+            "completed_at": datetime.now().isoformat(),
+            "profile_id": profile.profile_id,
+            "profile_version": profile.version,
+            "profile_fingerprint": profile.fingerprint,
+        },
+    }
+    manifest.save(manifest_path)
+
+
 def migrate_store(args: argparse.Namespace, logger) -> int:
     """Rewrite extraction storage into canonical dimension-map form."""
 
@@ -537,7 +656,7 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
     registry.register_profile(old_profile)
     registry.register_profile(target_profile)
     diff = registry.diff_profiles(old_profile.profile_id, target_profile.profile_id)
-    touched_sections = sorted(
+    changed_sections = sorted(
         {
             entry.new_section or entry.old_section
             for entry in diff.entries
@@ -545,6 +664,15 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
             and (entry.new_section or entry.old_section)
         }
     )
+    reextract_sections = sorted(
+        {
+            entry.new_section or entry.old_section
+            for entry in diff.entries
+            if entry.status in {"added", "reworded", "replaced"}
+            and (entry.new_section or entry.old_section)
+        }
+    )
+    disable_only = bool(diff.entries) and not reextract_sections
 
     papers = store.load_papers()
     extractions = store.load_extractions()
@@ -560,62 +688,87 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
             "paper_count": len(target_ids),
             "old_profile": old_profile.profile_id,
             "new_profile": target_profile.profile_id,
-            "changed_sections": touched_sections,
+            "changed_sections": changed_sections,
+            "reextract_sections": reextract_sections,
+            "disable_only": disable_only,
             "diff": diff.model_dump(mode="json"),
         }
         print(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False).strip())
         return 0
 
-    provider, mode, cache_dir, parallel_workers, use_cache = configure_extraction_runtime(
-        args,
-        config,
-        logger,
-    )
-    extractor = build_section_extractor(
-        args=args,
-        config=config,
-        cache_dir=cache_dir,
-        mode=mode,
-        parallel_workers=parallel_workers,
-        use_cache=use_cache,
-    )
-
-    paper_models = [_paper_from_index_dict(paper_id, papers[paper_id]) for paper_id in target_ids]
     updated_extractions = dict(extractions)
-    for result in extractor.extract_batch(paper_models):
-        if not result.success or not result.extraction:
-            logger.warning("Backfill failed for %s: %s", result.paper_id, result.error)
-            continue
+    failed_ids: list[str] = []
+    paper_models = [_paper_from_index_dict(paper_id, papers[paper_id]) for paper_id in target_ids]
 
-        existing_record = updated_extractions.get(result.paper_id, {"paper_id": result.paper_id})
-        old_extraction = DimensionedExtraction.from_record(existing_record)
-        new_extraction = result.extraction.to_dimensioned_extraction()
-        merged_dimensions = {**old_extraction.dimensions, **new_extraction.dimensions}
-        merged = DimensionedExtraction(
-            paper_id=result.paper_id,
-            profile_id=new_extraction.profile_id,
-            profile_version=new_extraction.profile_version,
-            profile_fingerprint=new_extraction.profile_fingerprint,
-            prompt_version=new_extraction.prompt_version,
-            extraction_model=new_extraction.extraction_model,
-            extracted_at=new_extraction.extracted_at,
-            dimensions=merged_dimensions,
-            dimension_coverage=new_extraction.dimension_coverage,
-            coverage_flags=new_extraction.coverage_flags,
+    if reextract_sections:
+        provider, mode, cache_dir, parallel_workers, use_cache = configure_extraction_runtime(
+            args,
+            config,
+            logger,
         )
-        updated_extractions[result.paper_id] = {
+        extractor = build_section_extractor(
+            args=args,
+            config=config,
+            cache_dir=cache_dir,
+            mode=mode,
+            parallel_workers=parallel_workers,
+            use_cache=use_cache,
+        )
+
+        for result in extractor.extract_batch(
+            paper_models,
+            section_ids=reextract_sections,
+        ):
+            if not result.success or not result.extraction:
+                logger.warning("Backfill failed for %s: %s", result.paper_id, result.error)
+                failed_ids.append(result.paper_id)
+                continue
+
+            existing_record = updated_extractions.get(
+                result.paper_id,
+                {"paper_id": result.paper_id},
+            )
+            old_extraction = DimensionedExtraction.from_record(existing_record)
+            new_extraction = DimensionedExtraction.from_record(result.extraction)
+            merged = _merge_reextracted_dimensions(
+                old_extraction=old_extraction,
+                new_extraction=new_extraction,
+                target_profile=target_profile,
+                section_ids=reextract_sections,
+            )
+            updated_extractions[result.paper_id] = {
+                **existing_record,
+                "paper_id": result.paper_id,
+                "extraction": merged.to_index_dict(),
+                "timestamp": result.timestamp.isoformat(),
+                "model": result.model_used,
+                "duration": result.duration_seconds,
+                "input_tokens": result.input_tokens,
+                "output_tokens": result.output_tokens,
+            }
+
+    if failed_ids:
+        logger.error(
+            "Aborting backfill; %d paper(s) failed targeted re-extraction",
+            len(failed_ids),
+        )
+        return 1
+
+    for paper_id in target_ids:
+        existing_record = updated_extractions.get(paper_id)
+        if not existing_record:
+            continue
+        extraction = DimensionedExtraction.from_record(existing_record)
+        retargeted = _retarget_extraction(extraction, target_profile)
+        updated_extractions[paper_id] = {
             **existing_record,
-            "paper_id": result.paper_id,
-            "extraction": merged.to_index_dict(),
-            "timestamp": result.timestamp.isoformat(),
-            "model": result.model_used,
-            "duration": result.duration_seconds,
-            "input_tokens": result.input_tokens,
-            "output_tokens": result.output_tokens,
+            "paper_id": paper_id,
+            "extraction": retargeted.to_index_dict(),
         }
 
     store.save_dimension_profile(target_profile.model_dump(mode="json"))
     store.save_extractions(updated_extractions)
+    _update_manifest_profile_snapshot(args.index_dir, args, config, target_profile)
 
     if not args.skip_embeddings:
         scoped_papers = [
@@ -660,10 +813,12 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
 
     generate_summary(args.index_dir, logger)
     logger.info(
-        "Backfilled %d papers from profile %s to %s",
+        "Backfilled %d papers from profile %s to %s (%d changed sections, %d re-extracted)",
         len(target_ids),
         old_profile.profile_id,
         target_profile.profile_id,
+        len(changed_sections),
+        len(reextract_sections),
     )
     return 0
 

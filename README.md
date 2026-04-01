@@ -19,8 +19,8 @@ Reference Source --> Metadata Extraction --> Paper Records
 (Zotero/Mendeley/EndNote/Paperpile/BibTeX/PDF Folder)
       |
       v
-PDF Storage --> Text Extraction --> 6-Pass LLM Analysis --> 40-Dimension Extractions
-      |                               (SemanticAnalysis)
+PDF Storage --> Text Extraction --> Profile-Driven LLM Analysis --> Dimensioned Extractions
+      |                               (legacy profile: 6 passes / 40 dimensions)
       v
 Embedding Generation --> ChromaDB Vector Store --> Semantic Search
       |
@@ -33,6 +33,7 @@ LLM Council (optional) --> Multi-Provider Consensus --> Aggregated Extraction
 - **Multi-Provider LLM Support**: Anthropic Claude, OpenAI GPT, Google Gemini, Ollama, and llama.cpp
 - **Multiple Reference Sources**: Zotero, BibTeX, PDF folders, Mendeley, EndNote, and Paperpile
 - **Flexible Extraction Modes**: CLI (free with subscriptions) or API (pay-per-use)
+- **Portable Dimension Profiles**: Swap, extend, disable, diff, and backfill semantic dimensions per index
 - **PDF Processing**: PyMuPDF extraction with OCR fallback for scanned documents
 - **Semantic Search**: Vector similarity search with metadata filtering
 - **RRF Search**: Reciprocal Rank Fusion combining semantic and keyword search for better recall
@@ -111,7 +112,7 @@ Direct tool access for Claude Code enables seamless research collaboration:
 | `litris_summary` | Index coverage and statistics |
 | `litris_collections` | List available Zotero collections |
 | `litris_save_query` | Save search results to query_results/ folder |
-| `litris_search_dimension` | Search within a specific SemanticAnalysis dimension (q01-q40) |
+| `litris_search_dimension` | Search within a specific semantic dimension using canonical ids, legacy `qNN` aliases, or roles |
 | `litris_search_group` | Search across a group of dimensions by analysis pass |
 
 **Setup**: Configure `.mcp.json` in project root and enable in `.claude/settings.json`:
@@ -277,6 +278,12 @@ extraction:
   mode: "cli"            # "cli" (subscription) or "api" (pay-per-use)
   model: ""              # Leave empty for provider default
 
+dimensions:
+  active_profile: "legacy_semantic_v1"
+  profile_paths: []
+  approval_required: true
+  suggestion_sample_size: 25
+
 embeddings:
   backend: "ollama"
   model: "qwen3-embedding:8b-q8_0"
@@ -299,6 +306,19 @@ for a run.
 | llama.cpp | N/A | Local file | llama-3 |
 
 See [docs/guides/openai-integration.md](docs/guides/openai-integration.md), [docs/guides/gemini-integration.md](docs/guides/gemini-integration.md), and [docs/guides/local-llm-integration.md](docs/guides/local-llm-integration.md) for setup details.
+
+### Portable Dimension Profiles
+
+Every index now carries an active semantic profile snapshot in
+`dimension_profile.json`. The built-in fallback profile,
+`legacy_semantic_v1`, preserves the historical `q01` through `q40`
+aliases and `dim_qNN` chunk types so older indexes keep working without
+forced re-extraction.
+
+Use `scripts/dimensions.py` to migrate storage, diff profiles, suggest
+additions, approve proposals, and backfill an existing corpus. The
+operator workflow and storage format are documented in
+[docs/dimension_profiles.md](docs/dimension_profiles.md).
 
 ### Reference Source Options
 
@@ -477,6 +497,9 @@ python scripts/build_index.py --collection "Machine Learning" --use-subscription
 # Force update-only mode (Zotero only; fails if compatibility checks require full rebuild)
 python scripts/build_index.py --sync-mode update --use-subscription
 
+# Build or update with a custom dimension profile
+python scripts/build_index.py --dimension-profile ./profiles/sts_policy.yaml --use-subscription
+
 # Refresh a specific paper by Zotero key or paper_id
 python scripts/build_index.py --paper ABC123_DEF456 --use-subscription
 ```
@@ -501,6 +524,26 @@ python scripts/build_index.py --sync-mode full --use-subscription
 ```
 
 The legacy `scripts/update_index.py` command still exists as a deprecated compatibility wrapper, but new workflows should use `scripts/build_index.py`.
+
+### Profile Migration And Backfill
+
+For an existing index, migrate the extraction store once, diff the target
+profile, then dry-run backfill before touching the full corpus:
+
+```bash
+python scripts/dimensions.py migrate-store --index-dir data/index --dry-run
+python scripts/dimensions.py migrate-store --index-dir data/index
+python scripts/dimensions.py diff --index-dir data/index --new-profile \
+  ./profiles/sts_policy.yaml
+python scripts/dimensions.py backfill --index-dir data/index \
+  --dimension-profile ./profiles/sts_policy.yaml --dry-run
+```
+
+`backfill` now re-extracts only the sections touched by `added`,
+`reworded`, and `replaced` dimensions. `disabled` dimensions do not
+trigger LLM work; LITRIS retargets the stored records to the new profile
+and refreshes embeddings so retired chunks drop out of active search.
+Retired answers remain in storage by default.
 
 ### Gap Analysis
 

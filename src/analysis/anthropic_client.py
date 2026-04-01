@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode, LLMProvider
 from src.analysis.cli_executor import ClaudeCliExecutor, CliExecutionError
 from src.analysis.dimensions import (
+    DEFAULT_DIMENSION_PROFILE,
     EXTRACTION_METADATA_KEYS,
     is_dimension_payload,
     normalize_dimension_payload,
@@ -302,7 +303,7 @@ class AnthropicLLMClient(BaseLLMClient):
             # The caller (section_extractor._extract_6_pass) builds the final
             # SemanticAnalysis from merged answers; these placeholders are
             # only used by _extract_pass_answers via getattr.
-            profile_id = data.get("profile_id")
+            profile_id = data.get("profile_id") or DEFAULT_DIMENSION_PROFILE
             return SemanticAnalysis(
                 paper_id=data.get("paper_id", "pending"),
                 profile_id=profile_id,

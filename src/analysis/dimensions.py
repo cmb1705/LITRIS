@@ -34,6 +34,18 @@ EXTRACTION_METADATA_KEYS = {
     "type_confidence",
     "dimensions",
 }
+LEGACY_PAPER_EXTRACTION_MARKER_KEYS = {
+    "thesis_statement",
+    "research_questions",
+    "theoretical_framework",
+    "key_findings",
+    "conclusions",
+    "future_directions",
+    "contribution_summary",
+    "discipline_tags",
+    "extraction_confidence",
+    "extraction_notes",
+}
 
 
 class DimensionRole(BaseModel):
@@ -697,7 +709,10 @@ class DimensionRegistry:
                         new_question=new_dimension.question,
                     )
                 )
-            elif old_dimension.question != new_dimension.question:
+            elif (
+                old_dimension.question != new_dimension.question
+                or old_dimension.section != new_dimension.section
+            ):
                 entries.append(
                     DimensionProfileDiffEntry(
                         status="reworded",
@@ -752,6 +767,11 @@ def is_dimension_payload(
 
     if isinstance(values.get("dimensions"), Mapping):
         return True
+
+    if not values.get("profile_id") and any(
+        key in values for key in LEGACY_PAPER_EXTRACTION_MARKER_KEYS
+    ):
+        return False
 
     try:
         profile = active_registry.get_profile(resolved_profile_id or None)

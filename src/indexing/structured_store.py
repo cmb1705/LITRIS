@@ -14,6 +14,7 @@ _NO_MTIME = -1.0
 logger = get_logger(__name__)
 
 SCHEMA_VERSION = "1.0"
+EXTRACTION_STORE_SCHEMA_VERSION = "2.0.0"
 
 
 class StructuredStore:
@@ -151,7 +152,7 @@ class StructuredStore:
             extractions: Dictionary mapping paper_id to extraction data.
         """
         data = {
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": EXTRACTION_STORE_SCHEMA_VERSION,
             "generated_at": datetime.now().isoformat(),
             "extraction_count": len(extractions),
             "extractions": extractions,

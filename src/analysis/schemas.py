@@ -731,12 +731,24 @@ class SemanticAnalysis(BaseModel):
         return None
 
     def non_none_dimensions(self) -> dict[str, str]:
-        """Return dict of dimension field name -> value for non-None dimensions."""
-        return {
-            dimension_id: value
-            for dimension_id, value in self.dimensions.items()
-            if value is not None
-        }
+        """Return populated dimensions keyed by legacy field when available."""
+        registry = get_default_dimension_registry()
+        profile = registry.profiles.get(self.profile_id)
+        if profile is None:
+            return {
+                field_name: getattr(self, field_name, None)
+                for field_name in self.DIMENSION_FIELDS
+                if getattr(self, field_name, None) is not None
+            }
+
+        populated: dict[str, str] = {}
+        for dimension in profile.dimensions:
+            value = self.dimensions.get(dimension.id)
+            if value is None:
+                continue
+            key = dimension.legacy_field_name or dimension.id
+            populated[key] = value
+        return populated
 
     def to_dimensioned_extraction(self) -> DimensionedExtraction:
         """Convert to the canonical map-based extraction model."""
@@ -761,8 +773,10 @@ class SemanticAnalysis(BaseModel):
         }
 
     def to_index_dict(self) -> dict:
-        """Convert to the canonical storage dictionary."""
-        return self.to_dimensioned_extraction().to_index_dict()
+        """Convert to a storage dictionary with canonical and legacy fields."""
+        payload = self.model_dump()
+        payload["dimensions"] = dict(self.dimensions)
+        return payload
 
 
 class ExtractionResult(BaseModel):

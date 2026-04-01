@@ -64,11 +64,44 @@ python scripts/build_index.py --paper ABC123_DEF456
 | `--estimate-cost` | Estimate API costs |
 | `--skip-extraction` | Skip LLM analysis and reuse existing extractions |
 | `--skip-embeddings` | Skip vector store |
+| `--dimension-profile PATH` | Activate a YAML or JSON dimension profile for this run |
 | `--paper PAPER_ID` | Treat a specific paper as the target scope (repeatable) |
 | `--retry-failed` | Retry failed papers |
 | `--classify-only` | Run classification pre-pass only (no extraction) |
 | `--index-all` | Extract all papers regardless of classification |
 | `--source SOURCE` | Reference source: zotero, bibtex, pdffolder, mendeley, endnote, paperpile |
+
+### Dimension Profiles
+
+Semantic dimensions are now profile-driven. Each index stores the active
+snapshot in `dimension_profile.json`, and the extraction store keeps canonical
+answers in a `dimensions` map keyed by stable dimension IDs.
+
+The built-in fallback profile is `legacy_semantic_v1`. It preserves the
+historical `q01` through `q40` aliases, `qNN_field_name` access, and
+`dim_qNN` chunk types so existing indexes continue to load without a forced
+rebuild.
+
+Use `--dimension-profile` to run a build or update against a custom profile:
+
+```bash
+python scripts/build_index.py --dimension-profile ./profiles/sts_policy.yaml
+python scripts/update_index.py --dimension-profile ./profiles/sts_policy.yaml
+```
+
+For an existing index, the normal migration workflow is:
+
+```bash
+python scripts/dimensions.py migrate-store --index-dir data/index --dry-run
+python scripts/dimensions.py migrate-store --index-dir data/index
+python scripts/dimensions.py diff --index-dir data/index --new-profile \
+  ./profiles/sts_policy.yaml
+python scripts/dimensions.py backfill --index-dir data/index \
+  --dimension-profile ./profiles/sts_policy.yaml --dry-run
+```
+
+See [docs/dimension_profiles.md](dimension_profiles.md) for the storage model,
+backfill semantics, and proposal workflow.
 
 ### CLI Mode (Recommended)
 
@@ -303,18 +336,11 @@ python scripts/export_results.py summary -f markdown -o summary.md
 
 ## Working with Extractions
 
-The system extracts structured information from each paper:
-
-- **Thesis statement**: Main argument
-- **Research questions**: Explicit questions addressed
-- **Methodology**: Approach, design, data sources
-- **Key findings**: Results with evidence types
-- **Key claims**: Arguments with support types
-- **Conclusions**: Summary of conclusions
-- **Limitations**: Acknowledged limitations
-- **Future directions**: Suggested research
-- **Keywords**: Searchable terms
-- **Discipline tags**: Academic fields
+The active dimension profile defines which semantic answers are extracted for
+each paper. The built-in legacy profile preserves the historical
+research-question, thesis, methods, field, contribution, and future-work
+axes, while custom profiles can add, disable, or replace dimensions by
+discipline.
 
 ### Viewing Extraction Data
 
@@ -323,14 +349,15 @@ The system extracts structured information from each paper:
 python scripts/export_results.py full --include-extractions -o data.json
 ```
 
-The extraction data is stored in `data/index/extractions.json`.
+The extraction data is stored in `data/index/semantic_analyses.json`.
 
 ## Data Locations
 
 | Path | Contents |
 |------|----------|
 | `data/index/papers.json` | Paper metadata |
-| `data/index/extractions.json` | LLM extractions |
+| `data/index/semantic_analyses.json` | Canonical extraction store with `dimensions` maps |
+| `data/index/dimension_profile.json` | Active dimension profile snapshot for the index |
 | `data/index/summary.json` | Statistics |
 | `data/index/metadata.json` | Build metadata |
 | `data/index/index_manifest.json` | Sync manifest and pending-work state |
@@ -340,6 +367,25 @@ The extraction data is stored in `data/index/extractions.json`.
 ## Configuration Reference
 
 LITRIS uses `config.yaml` for all settings. See `config.example.yaml` for the full template.
+
+### Dimension Profile Configuration
+
+Add the `dimensions` section to `config.yaml` when you want to activate custom
+profiles or use the proposal workflow:
+
+```yaml
+dimensions:
+  active_profile: "legacy_semantic_v1"
+  profile_paths:
+    - "./profiles/sts_policy.yaml"
+  approval_required: true
+  suggestion_sample_size: 25
+```
+
+- `active_profile`: Active profile id for build and query operations.
+- `profile_paths`: Additional YAML or JSON profiles to register.
+- `approval_required`: Require explicit approval for `scripts/dimensions.py suggest` output.
+- `suggestion_sample_size`: Number of papers sampled by the heuristic suggestion workflow.
 
 ### Configuration Versioning
 
