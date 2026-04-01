@@ -103,6 +103,9 @@ python scripts/dimensions.py backfill --index-dir data/index \
 See [docs/dimension_profiles.md](dimension_profiles.md) for the storage model,
 backfill semantics, and proposal workflow.
 
+For a concrete live-index checklist and exact Windows commands, see
+[portable-dimensions-live-test.md](guides/portable-dimensions-live-test.md).
+
 To generate candidate dimensions from the corpus, use:
 
 ```bash

@@ -120,6 +120,9 @@ python scripts/dimensions.py approve --profile ./profiles/sts_policy.yaml \
   `--max-proposals` trims the final output.
 - `approve` appends approved dimensions to a profile file and bumps the patch version.
 
+For a live-index operator checklist using the current STP/CAS profile, see
+[portable-dimensions-live-test.md](d:/Git_Repos/LITRIS/docs/guides/portable-dimensions-live-test.md).
+
 ## Compatibility
 
 - Existing indexes without `dimension_profile.json` automatically load `legacy_semantic_v1`.

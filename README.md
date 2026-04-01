@@ -548,6 +548,9 @@ trigger LLM work; LITRIS retargets the stored records to the new profile
 and refreshes embeddings so retired chunks drop out of active search.
 Retired answers remain in storage by default.
 
+For a concrete operator workflow against a live index, see
+[portable-dimensions-live-test.md](docs/guides/portable-dimensions-live-test.md).
+
 ### Gap Analysis
 
 Identify underexplored topics, sparse publication years, and future research directions:
