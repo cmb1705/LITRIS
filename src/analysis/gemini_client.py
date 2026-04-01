@@ -17,8 +17,8 @@ from pydantic import ValidationError
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode, LLMProvider
 from src.analysis.constants import DEFAULT_MODELS, GEMINI_MODELS, GEMINI_PRICING
 from src.analysis.dimensions import (
-    DEFAULT_DIMENSION_PROFILE,
     EXTRACTION_METADATA_KEYS,
+    get_default_dimension_registry,
     is_dimension_payload,
     normalize_dimension_payload,
 )
@@ -260,7 +260,7 @@ class GeminiLLMClient(BaseLLMClient):
         data = json.loads(text)
 
         if is_dimension_payload(data):
-            profile_id = data.get("profile_id") or DEFAULT_DIMENSION_PROFILE
+            profile_id = data.get("profile_id") or get_default_dimension_registry().active_profile_id
             return SemanticAnalysis(
                 paper_id=data.get("paper_id", "pending"),
                 profile_id=profile_id,

@@ -315,6 +315,7 @@ class SectionExtractor:
         self.use_cache = use_cache
         active_profile = get_default_dimension_registry().active_profile
         self.dimension_profile_id = active_profile.profile_id
+        self.dimension_profile_version = active_profile.version
         self.dimension_profile_fingerprint = active_profile.fingerprint
 
         # Initialize extraction cache
@@ -699,11 +700,15 @@ class SectionExtractor:
                 model_used=self.model,
                 input_tokens=total_input_tokens,
                 output_tokens=total_output_tokens,
+                pass_errors=list(errors),
             )
 
         # Build SemanticAnalysis from merged answers
         analysis = SemanticAnalysis(
             paper_id=paper.paper_id,
+            profile_id=self.dimension_profile_id,
+            profile_version=self.dimension_profile_version,
+            profile_fingerprint=self.dimension_profile_fingerprint,
             prompt_version=SEMANTIC_PROMPT_VERSION,
             extraction_model=self.model,
             extracted_at=datetime.now().isoformat(),
@@ -735,6 +740,7 @@ class SectionExtractor:
                 model_used=self.model,
                 input_tokens=total_input_tokens,
                 output_tokens=total_output_tokens,
+                pass_errors=list(errors),
             )
 
         logger.info(
@@ -751,6 +757,7 @@ class SectionExtractor:
             model_used=self.model,
             input_tokens=total_input_tokens,
             output_tokens=total_output_tokens,
+            pass_errors=list(errors),
         )
 
     def _extract_pass_answers(

@@ -283,6 +283,9 @@ dimensions:
   profile_paths: []
   approval_required: true
   suggestion_sample_size: 25
+  suggestion_max_proposals: 5
+  suggestion_neighbor_count: 3
+  suggestion_use_llm: true
 
 embeddings:
   backend: "ollama"

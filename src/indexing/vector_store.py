@@ -393,7 +393,19 @@ class VectorStore:
         If the delete+add sequence fails, the original chunks are restored.
         """
         affected_paper_ids = sorted(set(scope_paper_ids) | set(delete_paper_ids or []))
-        backup_chunks = self.export_paper_chunks(affected_paper_ids)
+        backup_chunks: list[EmbeddingChunk] = []
+        backup_available = True
+        if affected_paper_ids:
+            try:
+                backup_chunks = self.export_paper_chunks(affected_paper_ids)
+            except Exception as exc:
+                backup_available = False
+                logger.warning(
+                    "Could not export existing chunks for transactional restore; "
+                    "continuing without backup for %d papers: %s",
+                    len(affected_paper_ids),
+                    exc,
+                )
 
         try:
             if affected_paper_ids:
@@ -404,6 +416,10 @@ class VectorStore:
                 )
             return self.add_chunks(chunks, batch_size=batch_size)
         except Exception as exc:
+            if not backup_available:
+                raise RuntimeError(
+                    "Vector store write failed after backup export was unavailable"
+                ) from exc
             logger.error(
                 "Vector store write failed for %d papers; restoring previous chunks",
                 len(affected_paper_ids),

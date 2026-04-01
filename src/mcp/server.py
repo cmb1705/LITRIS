@@ -52,7 +52,7 @@ mcp = FastMCP(
     "litris_search_dimension to search within a specific SemanticAnalysis "
     "dimension (canonical ids plus legacy qNN aliases, e.g. thesis or q07_methods), and "
     "litris_search_group to search across a group of dimensions by analysis "
-    "pass (research_core, methodology, contribution, context, synthesis, deep).",
+    "pass (research_core, methodology, context, meta, scholarly, impact).",
 )
 
 @lru_cache(maxsize=1)

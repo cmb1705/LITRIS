@@ -29,6 +29,9 @@ dimensions:
     - "./profiles/sts_policy.yaml"
   approval_required: true
   suggestion_sample_size: 25
+  suggestion_max_proposals: 5
+  suggestion_neighbor_count: 3
+  suggestion_use_llm: true
 ```
 
 - `active_profile`: Profile id to activate for a build or update run.
@@ -36,6 +39,11 @@ dimensions:
 - `approval_required`: Whether generated proposals need explicit approval.
 - `suggestion_sample_size`: Corpus sample size for
   `scripts/dimensions.py suggest`.
+- `suggestion_max_proposals`: Maximum proposal count emitted by `suggest`.
+- `suggestion_neighbor_count`: Number of similarity neighbors to use per sampled
+  paper when building semantic suggestion evidence.
+- `suggestion_use_llm`: Enable corpus-aware LLM proposal synthesis. When false,
+  `suggest` runs in heuristic-only mode.
 
 You can also override the active profile for a single build or update:
 
@@ -78,22 +86,38 @@ python scripts/dimensions.py backfill --index-dir data/index \
   what is visible and searchable.
 - If a targeted re-extraction fails, the backfill command aborts before
   advancing the profile snapshot.
+- For partial pilot runs (`--paper`), LITRIS updates the selected extraction
+  records and embeddings but intentionally leaves the index-level
+  `dimension_profile.json` snapshot unchanged until a successful full-corpus
+  backfill completes.
 
 ## Suggestions And Approval
 
-The current suggestion flow is heuristic. It samples stored papers and
-extractions, looks for repeated keyword patterns, and writes proposals to
-`dimension_proposals.json`.
+The suggestion workflow now has two layers:
+
+- Semantic proposals: An optional LLM pass reads sampled extraction content plus
+  vectorstore-derived similarity neighbors from `similarity_pairs.json` and
+  proposes genuinely new candidate dimensions.
+- Heuristic proposals: A fallback keyword scanner continues to suggest a small
+  built-in set of common missing dimensions.
+
+If the semantic LLM pass fails, `suggest` falls back to heuristic output only
+and still writes `dimension_proposals.json`.
 
 ```bash
 python scripts/dimensions.py suggest --index-dir data/index
+python scripts/dimensions.py suggest --index-dir data/index \
+  --provider openai --mode api --model gpt-5.4 --sample-size 12
+python scripts/dimensions.py suggest --index-dir data/index --heuristic-only
 python scripts/dimensions.py approve --profile ./profiles/sts_policy.yaml \
   --proposals data/index/dimension_proposals.json \
   --dimension-id stakeholders
 ```
 
-- `suggest` is useful for initial discovery, but it is not yet a corpus-wide
-  LLM reasoning workflow.
+- `suggest` writes proposal metadata including proposal sources, example papers,
+  confidence, and sampled paper ids.
+- Semantic proposals are prioritized ahead of heuristic proposals when
+  `--max-proposals` trims the final output.
 - `approve` appends approved dimensions to a profile file and bumps the patch version.
 
 ## Compatibility

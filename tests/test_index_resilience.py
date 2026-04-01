@@ -102,3 +102,48 @@ def test_replace_papers_restores_previous_chunks_on_failure(
     restored = store.collection.get(where={"paper_id": "P1"}, include=["documents"])
     assert restored["ids"] == ["P1_old"]
     assert restored["documents"] == ["old text"]
+
+
+def test_replace_papers_continues_when_backup_export_is_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = VectorStore(tmp_path / "chroma")
+    store.add_chunks(
+        [
+            EmbeddingChunk(
+                paper_id="P1",
+                chunk_id="P1_old",
+                chunk_type="abstract",
+                text="old text",
+                embedding=[0.1, 0.2],
+                metadata={"title": "Old"},
+            )
+        ]
+    )
+
+    monkeypatch.setattr(
+        store,
+        "export_paper_chunks",
+        lambda paper_ids: (_ for _ in ()).throw(RuntimeError("backup export failed")),
+    )
+
+    added = store.replace_papers(
+        chunks=[
+            EmbeddingChunk(
+                paper_id="P1",
+                chunk_id="P1_new",
+                chunk_type="abstract",
+                text="new text",
+                embedding=[0.3, 0.4],
+                metadata={"title": "New"},
+            )
+        ],
+        scope_paper_ids=["P1"],
+        delete_paper_ids=[],
+    )
+
+    assert added == 1
+    current = store.collection.get(where={"paper_id": "P1"}, include=["documents"])
+    assert current["ids"] == ["P1_new"]
+    assert current["documents"] == ["new text"]

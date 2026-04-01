@@ -297,6 +297,9 @@ class DimensionsConfig(BaseModel):
     profile_paths: list[Path] = Field(default_factory=list)
     approval_required: bool = True
     suggestion_sample_size: int = 25
+    suggestion_max_proposals: int = 5
+    suggestion_neighbor_count: int = 3
+    suggestion_use_llm: bool = True
 
     @field_validator("profile_paths", mode="before")
     @classmethod
@@ -314,6 +317,14 @@ class DimensionsConfig(BaseModel):
         """Require a positive suggestion sample size."""
         if value < 1:
             raise ValueError("suggestion_sample_size must be at least 1")
+        return value
+
+    @field_validator("suggestion_max_proposals", "suggestion_neighbor_count")
+    @classmethod
+    def validate_positive_suggestion_limits(cls, value: int) -> int:
+        """Require positive limits for suggestion generation."""
+        if value < 1:
+            raise ValueError("Suggestion limits must be at least 1")
         return value
 
 

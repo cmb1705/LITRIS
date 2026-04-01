@@ -820,6 +820,10 @@ class ExtractionResult(BaseModel):
         default=0,
         description="Number of output tokens generated",
     )
+    pass_errors: list[str] = Field(
+        default_factory=list,
+        description="Per-pass errors captured during multi-pass extraction.",
+    )
     extraction_method: str | None = Field(
         default=None,
         description="Cascade tier that produced the text (e.g. companion, marker, pymupdf).",

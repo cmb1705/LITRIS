@@ -96,8 +96,19 @@ dimensions:
   # scripts/dimensions.py suggest.
   approval_required: true
 
-  # Number of papers sampled by the heuristic suggestion workflow.
+  # Number of papers sampled when generating dimension proposals.
   suggestion_sample_size: 25
+
+  # Maximum number of proposals emitted by scripts/dimensions.py suggest.
+  suggestion_max_proposals: 5
+
+  # Number of similarity neighbors to use per sampled paper when building
+  # semantic suggestion evidence from similarity_pairs.json.
+  suggestion_neighbor_count: 3
+
+  # Enable the optional LLM-driven proposal generator. When false, suggest runs
+  # in heuristic-only mode.
+  suggestion_use_llm: true
 
 # =============================================================================
 # Embedding Model Configuration

@@ -270,10 +270,13 @@ class SearchEngine:
 
         # Search using the summary text
         summary_chunk_types = ["raptor_overview"]
+        registry = getattr(self, "dimension_registry", get_default_dimension_registry())
+        profile = getattr(self, "dimension_profile", None)
+        profile_id = profile.profile_id if profile else None
         for role_name in ("thesis", "contribution"):
-            dimension = self.dimension_registry.resolve_role(
+            dimension = registry.resolve_role(
                 role_name,
-                profile_id=self.dimension_profile.profile_id,
+                profile_id=profile_id,
             )
             if not dimension:
                 continue

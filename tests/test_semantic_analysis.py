@@ -1,7 +1,15 @@
 """Tests for SemanticAnalysis schema."""
 
-import pytest
+from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
+import yaml
+
+from src.analysis.dimensions import build_legacy_dimension_profile, configure_dimension_registry
+from src.analysis.openai_client import OpenAILLMClient
 from src.analysis.schemas import SemanticAnalysis
 
 
@@ -15,6 +23,31 @@ def _make_analysis(**overrides) -> SemanticAnalysis:
     }
     defaults.update(overrides)
     return SemanticAnalysis(**defaults)
+
+
+def _write_custom_profile(profile_path: Path) -> None:
+    profile = build_legacy_dimension_profile().model_dump(mode="json")
+    profile["profile_id"] = "stp_cas_test"
+    profile["version"] = "1.0.0"
+    profile["dimensions"].append(
+        {
+            "id": "stp_cas_linkage",
+            "label": "STP-CAS Linkage",
+            "question": "What linkage connects science and technology policy and complex adaptive systems in this work?",
+            "section": "scholarly",
+            "order": 41,
+            "aliases": ["stp_cas_linkage"],
+        }
+    )
+    with profile_path.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(profile, handle, sort_keys=False, allow_unicode=False)
+
+
+@pytest.fixture(autouse=True)
+def _reset_dimension_registry() -> None:
+    configure_dimension_registry()
+    yield
+    configure_dimension_registry()
 
 
 class TestConstruction:
@@ -65,6 +98,50 @@ class TestConstruction:
                 extraction_model="test-model",
                 extracted_at="2026-01-01T00:00:00Z",
             )
+
+    def test_custom_profile_dimension_is_captured(self, tmp_path: Path):
+        """Explicit profile IDs should preserve custom dimensions."""
+        profile_path = tmp_path / "stp_cas_test.yaml"
+        _write_custom_profile(profile_path)
+        configure_dimension_registry(
+            active_profile_id="stp_cas_test",
+            profile_paths=[profile_path],
+        )
+
+        sa = _make_analysis(
+            profile_id="stp_cas_test",
+            stp_cas_linkage="Feedback and governance coupling",
+        )
+
+        assert sa.profile_id == "stp_cas_test"
+        assert sa.dimensions["stp_cas_linkage"] == "Feedback and governance coupling"
+
+    def test_openai_dimension_parser_uses_active_profile_for_custom_dimensions(
+        self,
+        tmp_path: Path,
+    ):
+        """Provider parsers should not drop custom profile-defined dimensions."""
+        profile_path = tmp_path / "stp_cas_test.yaml"
+        _write_custom_profile(profile_path)
+        configure_dimension_registry(
+            active_profile_id="stp_cas_test",
+            profile_paths=[profile_path],
+        )
+
+        client = OpenAILLMClient.__new__(OpenAILLMClient)
+        client.model = "gpt-5.4"
+        payload = json.dumps(
+            {
+                "stp_cas_linkage": "Network governance parallels complex contagion",
+            }
+        )
+
+        analysis = client._parse_response(payload)
+
+        assert analysis.profile_id == "stp_cas_test"
+        assert analysis.dimensions["stp_cas_linkage"] == (
+            "Network governance parallels complex contagion"
+        )
 
     def test_dimension_coverage_bounds(self):
         """dimension_coverage is clamped to 0.0-1.0."""

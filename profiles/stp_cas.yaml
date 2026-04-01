@@ -13,7 +13,7 @@
 # - Use enabled: false to retire a dimension without deleting stored answers.
 
 profile_id: "stp_cas_v1"
-version: "1.0.2"
+version: "1.0.4"
 title: "STP CAS Profile Starter"
 summary: "Editable starter profile based on the legacy 40-dimension semantic analysis schema."
 
@@ -408,7 +408,7 @@ dimensions:
 
   - id: "stp_cas_linkage"
     label: "STP-CAS Linkage"
-    question: "What concrete conceptual, methodological, or system-level linkages connect science and technology policy and complex adaptive systems in this work?"
+    question: "What concrete conceptual, methodological, or system-level linkages connect science and technology policy and complex adaptive systems in this work? If the linkage is indirect rather than explicit, infer the strongest defensible connection from the paper's problem framing, methods, dynamics, governance implications, or network logic."
     section: "scholarly"
     order: 30
     reasoning_effort: "xhigh"
@@ -465,7 +465,7 @@ dimensions:
 
   - id: "intervention_leverage_point"
     label: "Intervention Leverage Point"
-    question: "What part of the system is treated as the most effective locus for changing outcomes: actors, incentives, information flows, standards, institutions, network structure, feedback loops, or policy/regulatory mechanisms?"
+    question: "What intervention, coordination mechanism, design parameter, institutional change, network feature, or feedback loop is treated as the main leverage point for shifting outcomes or system behavior? If the paper does not name a leverage point directly, infer the strongest supported leverage point from its proposed interventions, optimization target, causal model, or system diagnosis, including methodological papers that implicitly privilege one system element as the main handle for change."
     section: "impact"
     order: 36
     reasoning_effort: "xhigh"

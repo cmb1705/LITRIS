@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -324,3 +325,418 @@ def test_backfill_reextracts_changed_section_only_and_preserves_other_dimensions
     assert updated.dimensions["methods"] == "Updated methods"
     assert updated.dimensions["data"] == "Updated data"
     assert updated.dimensions["power_dynamics"] == "Legacy power dynamics"
+
+
+def test_partial_backfill_keeps_index_snapshot_on_old_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dimensions_cli: ModuleType,
+) -> None:
+    store = _write_legacy_index(tmp_path)
+    old_profile = build_legacy_dimension_profile()
+    store.save_dimension_profile(old_profile.model_dump(mode="json"))
+    IndexManifest(extraction={"profile_id": old_profile.profile_id}).save(
+        tmp_path / "index_manifest.json"
+    )
+
+    profile_dict = old_profile.model_dump(mode="json")
+    profile_dict["profile_id"] = "legacy_semantic_methods_v2"
+    profile_dict["version"] = "2.0.0"
+    for dimension in profile_dict["dimensions"]:
+        if dimension["id"] == "methods":
+            dimension["question"] = "What updated methods and analytical techniques are used?"
+    profile_path = tmp_path / "methods_v2.yaml"
+    _write_profile(profile_path, profile_dict)
+
+    target_profile = dimensions_cli.load_dimension_profile(profile_path)
+
+    class DummyExtractor:
+        def extract_batch(self, papers, progress_callback=None, section_ids=None):
+            for paper in papers:
+                yield ExtractionResult(
+                    paper_id=paper.paper_id,
+                    success=True,
+                    extraction=DimensionedExtraction(
+                        paper_id=paper.paper_id,
+                        profile_id=target_profile.profile_id,
+                        profile_version=target_profile.version,
+                        profile_fingerprint=target_profile.fingerprint,
+                        prompt_version="2.0.0",
+                        extraction_model="target-model",
+                        extracted_at="2026-03-31T01:00:00",
+                        dimensions={
+                            "paradigm": "Updated paradigm",
+                            "methods": "Updated methods",
+                            "data": "Updated data",
+                            "reproducibility": "Updated reproducibility",
+                            "framework": "Updated framework",
+                        },
+                    ),
+                    model_used="target-model",
+                )
+
+    monkeypatch.setattr(
+        dimensions_cli,
+        "configure_extraction_runtime",
+        lambda *args, **kwargs: ("anthropic", "api", tmp_path, 1, False),
+    )
+    monkeypatch.setattr(
+        dimensions_cli,
+        "build_section_extractor",
+        lambda **kwargs: DummyExtractor(),
+    )
+    monkeypatch.setattr(dimensions_cli, "generate_scoped_raptor_summaries", lambda **kwargs: {})
+    monkeypatch.setattr(dimensions_cli, "run_embedding_generation", lambda **kwargs: None)
+    monkeypatch.setattr(dimensions_cli, "compute_similarity_pairs", lambda **kwargs: 0)
+    monkeypatch.setattr(dimensions_cli, "generate_summary", lambda *args, **kwargs: {})
+
+    args = argparse.Namespace(
+        index_dir=tmp_path,
+        dimension_profile=profile_path,
+        paper=["paper_001"],
+        dry_run=False,
+        skip_embeddings=False,
+        skip_similarity=False,
+        provider=None,
+        mode=None,
+        model=None,
+        parallel=None,
+        no_cache=False,
+        summary_model=None,
+        methodology_model=None,
+    )
+    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    config = _make_config(tmp_path)
+
+    assert dimensions_cli.backfill_dimensions(args, config, logger) == 0
+
+    updated = DimensionedExtraction.from_record(
+        StructuredStore(tmp_path).load_extractions()["paper_001"]
+    )
+    manifest, manifest_error = IndexManifest.load(tmp_path / "index_manifest.json")
+
+    assert updated.profile_id == "legacy_semantic_methods_v2"
+    assert StructuredStore(tmp_path).load_dimension_profile()["profile_id"] == LEGACY_PROFILE_ID
+    assert manifest_error is None
+    assert manifest is not None
+    assert manifest.extraction["profile_id"] == LEGACY_PROFILE_ID
+
+
+def test_backfill_does_not_advance_profile_if_embedding_refresh_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dimensions_cli: ModuleType,
+) -> None:
+    store = _write_legacy_index(tmp_path)
+    old_profile = build_legacy_dimension_profile()
+    store.save_dimension_profile(old_profile.model_dump(mode="json"))
+    IndexManifest(extraction={"profile_id": old_profile.profile_id}).save(
+        tmp_path / "index_manifest.json"
+    )
+
+    profile_dict = old_profile.model_dump(mode="json")
+    profile_dict["profile_id"] = "legacy_semantic_methods_v2"
+    profile_dict["version"] = "2.0.0"
+    for dimension in profile_dict["dimensions"]:
+        if dimension["id"] == "methods":
+            dimension["question"] = "What updated methods and analytical techniques are used?"
+    profile_path = tmp_path / "methods_v2.yaml"
+    _write_profile(profile_path, profile_dict)
+
+    target_profile = dimensions_cli.load_dimension_profile(profile_path)
+
+    class DummyExtractor:
+        def extract_batch(self, papers, progress_callback=None, section_ids=None):
+            for paper in papers:
+                yield ExtractionResult(
+                    paper_id=paper.paper_id,
+                    success=True,
+                    extraction=DimensionedExtraction(
+                        paper_id=paper.paper_id,
+                        profile_id=target_profile.profile_id,
+                        profile_version=target_profile.version,
+                        profile_fingerprint=target_profile.fingerprint,
+                        prompt_version="2.0.0",
+                        extraction_model="target-model",
+                        extracted_at="2026-03-31T01:00:00",
+                        dimensions={
+                            "paradigm": "Updated paradigm",
+                            "methods": "Updated methods",
+                            "data": "Updated data",
+                            "reproducibility": "Updated reproducibility",
+                            "framework": "Updated framework",
+                        },
+                    ),
+                    model_used="target-model",
+                )
+
+    monkeypatch.setattr(
+        dimensions_cli,
+        "configure_extraction_runtime",
+        lambda *args, **kwargs: ("anthropic", "api", tmp_path, 1, False),
+    )
+    monkeypatch.setattr(
+        dimensions_cli,
+        "build_section_extractor",
+        lambda **kwargs: DummyExtractor(),
+    )
+    monkeypatch.setattr(dimensions_cli, "generate_scoped_raptor_summaries", lambda **kwargs: {})
+    monkeypatch.setattr(
+        dimensions_cli,
+        "run_embedding_generation",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("embedding refresh failed")),
+    )
+    monkeypatch.setattr(dimensions_cli, "compute_similarity_pairs", lambda **kwargs: 0)
+    monkeypatch.setattr(dimensions_cli, "generate_summary", lambda *args, **kwargs: {})
+
+    args = argparse.Namespace(
+        index_dir=tmp_path,
+        dimension_profile=profile_path,
+        paper=[],
+        dry_run=False,
+        skip_embeddings=False,
+        skip_similarity=False,
+        provider=None,
+        mode=None,
+        model=None,
+        parallel=None,
+        no_cache=False,
+        summary_model=None,
+        methodology_model=None,
+    )
+    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    config = _make_config(tmp_path)
+
+    with pytest.raises(RuntimeError, match="embedding refresh failed"):
+        dimensions_cli.backfill_dimensions(args, config, logger)
+
+    stored = DimensionedExtraction.from_record(
+        StructuredStore(tmp_path).load_extractions()["paper_001"]
+    )
+    manifest, manifest_error = IndexManifest.load(tmp_path / "index_manifest.json")
+
+    assert stored.profile_id == LEGACY_PROFILE_ID
+    assert StructuredStore(tmp_path).load_dimension_profile()["profile_id"] == LEGACY_PROFILE_ID
+    assert manifest_error is None
+    assert manifest is not None
+    assert manifest.extraction["profile_id"] == LEGACY_PROFILE_ID
+
+
+def test_backfill_aborts_when_any_targeted_section_pass_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dimensions_cli: ModuleType,
+) -> None:
+    store = _write_legacy_index(tmp_path)
+    old_profile = build_legacy_dimension_profile()
+    store.save_dimension_profile(old_profile.model_dump(mode="json"))
+
+    profile_dict = old_profile.model_dump(mode="json")
+    profile_dict["profile_id"] = "legacy_semantic_methods_v2"
+    profile_dict["version"] = "2.0.0"
+    for dimension in profile_dict["dimensions"]:
+        if dimension["id"] == "methods":
+            dimension["question"] = "What updated methods and analytical techniques are used?"
+    profile_path = tmp_path / "methods_v2.yaml"
+    _write_profile(profile_path, profile_dict)
+
+    target_profile = dimensions_cli.load_dimension_profile(profile_path)
+
+    class DummyExtractor:
+        def extract_batch(self, papers, progress_callback=None, section_ids=None):
+            for paper in papers:
+                yield ExtractionResult(
+                    paper_id=paper.paper_id,
+                    success=True,
+                    extraction=DimensionedExtraction(
+                        paper_id=paper.paper_id,
+                        profile_id=target_profile.profile_id,
+                        profile_version=target_profile.version,
+                        profile_fingerprint=target_profile.fingerprint,
+                        prompt_version="2.0.0",
+                        extraction_model="target-model",
+                        extracted_at="2026-03-31T01:00:00",
+                        dimensions={
+                            "methods": "Updated methods",
+                        },
+                    ),
+                    model_used="target-model",
+                    pass_errors=["pass 2 (Pass 2: Methodology): upstream API failure"],
+                )
+
+    monkeypatch.setattr(
+        dimensions_cli,
+        "configure_extraction_runtime",
+        lambda *args, **kwargs: ("anthropic", "api", tmp_path, 1, False),
+    )
+    monkeypatch.setattr(
+        dimensions_cli,
+        "build_section_extractor",
+        lambda **kwargs: DummyExtractor(),
+    )
+    monkeypatch.setattr(dimensions_cli, "generate_scoped_raptor_summaries", lambda **kwargs: {})
+    monkeypatch.setattr(dimensions_cli, "run_embedding_generation", lambda **kwargs: None)
+    monkeypatch.setattr(dimensions_cli, "compute_similarity_pairs", lambda **kwargs: 0)
+    monkeypatch.setattr(dimensions_cli, "generate_summary", lambda *args, **kwargs: {})
+
+    args = argparse.Namespace(
+        index_dir=tmp_path,
+        dimension_profile=profile_path,
+        paper=[],
+        dry_run=False,
+        skip_embeddings=False,
+        skip_similarity=False,
+        provider=None,
+        mode=None,
+        model=None,
+        parallel=None,
+        no_cache=False,
+        summary_model=None,
+        methodology_model=None,
+    )
+    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    config = _make_config(tmp_path)
+
+    assert dimensions_cli.backfill_dimensions(args, config, logger) == 1
+
+    stored = DimensionedExtraction.from_record(
+        StructuredStore(tmp_path).load_extractions()["paper_001"]
+    )
+    assert stored.profile_id == LEGACY_PROFILE_ID
+    assert stored.dimensions["methods"] == "Legacy methods"
+
+
+def test_suggest_dimensions_merges_semantic_and_heuristic_proposals(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dimensions_cli: ModuleType,
+) -> None:
+    store = _write_legacy_index(tmp_path)
+    papers = store.load_papers()
+    papers["paper_001"]["abstract"] = (
+        "Stakeholder communities coordinate around risk and governance."
+    )
+    papers["paper_002"] = _paper_record(tmp_path, "paper_002")
+    papers["paper_002"]["abstract"] = (
+        "Complex systems research studies adaptation and coordination."
+    )
+    store.save_papers(papers)
+    store.save_extractions(
+        {
+            "paper_001": {
+                "paper_id": "paper_001",
+                "extraction": _legacy_extraction_record("paper_001"),
+            },
+            "paper_002": {
+                "paper_id": "paper_002",
+                "extraction": {
+                    **_legacy_extraction_record("paper_002"),
+                    "q17_field": "Complex systems",
+                    "q28_disciplines_bridged": "Policy and network science",
+                },
+            },
+        }
+    )
+    store.save_similarity_pairs(
+        {
+            "paper_001": [{"similar_paper_id": "paper_002", "similarity_score": 0.71}],
+            "paper_002": [{"similar_paper_id": "paper_001", "similarity_score": 0.71}],
+        }
+    )
+
+    monkeypatch.setattr(
+        dimensions_cli,
+        "_call_raw_llm_prompt",
+        lambda **kwargs: json.dumps(
+            {
+                "proposals": [
+                    {
+                        "dimension_id": "coordination_regime",
+                        "label": "Coordination Regime",
+                        "question": "How does the work characterize coordination across actors or system components?",
+                        "rationale": "Coordination logic recurs across the sample but is not isolated as a dimension.",
+                        "suggested_section": "impact",
+                        "suggested_roles": ["coordination"],
+                        "confidence": 0.82,
+                        "example_papers": ["paper_001", "paper_002"],
+                        "bridge_value": "Links governance and systems papers through coordination structure.",
+                    }
+                ]
+            }
+        ),
+    )
+
+    args = argparse.Namespace(
+        index_dir=tmp_path,
+        paper=[],
+        sample_size=5,
+        min_hits=1,
+        max_proposals=5,
+        provider="openai",
+        mode="api",
+        model="gpt-5.4",
+        heuristic_only=False,
+        output=tmp_path / "dimension_proposals.json",
+        config=None,
+        verbose=False,
+    )
+    config = _make_config(tmp_path)
+
+    assert dimensions_cli.suggest_dimensions(args, config) == 0
+
+    payload = safe_read_json(args.output, default={})
+    proposal_ids = {proposal["dimension_id"] for proposal in payload["proposals"]}
+
+    assert "coordination_regime" in proposal_ids
+    assert "stakeholders" in proposal_ids
+    coordination = next(
+        proposal
+        for proposal in payload["proposals"]
+        if proposal["dimension_id"] == "coordination_regime"
+    )
+    assert coordination["proposal_sources"] == ["semantic_llm"]
+    assert coordination["example_papers"][0]["paper_id"] == "paper_001"
+    assert payload["semantic_candidate_count"] == 1
+    assert payload["heuristic_candidate_count"] >= 1
+
+
+def test_suggest_dimensions_can_run_heuristic_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dimensions_cli: ModuleType,
+) -> None:
+    store = _write_legacy_index(tmp_path)
+    papers = store.load_papers()
+    papers["paper_001"]["abstract"] = "Stakeholder groups face safety risk and coordination costs."
+    store.save_papers(papers)
+
+    called = {"llm": False}
+
+    def _unexpected_llm_call(**kwargs):
+        called["llm"] = True
+        raise AssertionError("heuristic-only mode should not call the LLM")
+
+    monkeypatch.setattr(dimensions_cli, "_call_raw_llm_prompt", _unexpected_llm_call)
+
+    args = argparse.Namespace(
+        index_dir=tmp_path,
+        paper=[],
+        sample_size=3,
+        min_hits=1,
+        max_proposals=5,
+        provider=None,
+        mode=None,
+        model=None,
+        heuristic_only=True,
+        output=tmp_path / "dimension_proposals.json",
+        config=None,
+        verbose=False,
+    )
+    config = _make_config(tmp_path)
+
+    assert dimensions_cli.suggest_dimensions(args, config) == 0
+
+    payload = safe_read_json(args.output, default={})
+    assert called["llm"] is False
+    assert payload["semantic_candidate_count"] == 0
+    assert payload["proposal_count"] >= 1

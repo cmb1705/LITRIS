@@ -103,6 +103,15 @@ python scripts/dimensions.py backfill --index-dir data/index \
 See [docs/dimension_profiles.md](dimension_profiles.md) for the storage model,
 backfill semantics, and proposal workflow.
 
+To generate candidate dimensions from the corpus, use:
+
+```bash
+python scripts/dimensions.py suggest --index-dir data/index
+python scripts/dimensions.py suggest --index-dir data/index \
+  --provider openai --mode api --model gpt-5.4 --sample-size 12
+python scripts/dimensions.py suggest --index-dir data/index --heuristic-only
+```
+
 ### CLI Mode (Recommended)
 
 CLI mode uses your existing subscription for free extraction:
@@ -380,12 +389,20 @@ dimensions:
     - "./profiles/sts_policy.yaml"
   approval_required: true
   suggestion_sample_size: 25
+  suggestion_max_proposals: 5
+  suggestion_neighbor_count: 3
+  suggestion_use_llm: true
 ```
 
 - `active_profile`: Active profile id for build and query operations.
 - `profile_paths`: Additional YAML or JSON profiles to register.
 - `approval_required`: Require explicit approval for `scripts/dimensions.py suggest` output.
-- `suggestion_sample_size`: Number of papers sampled by the heuristic suggestion workflow.
+- `suggestion_sample_size`: Number of papers sampled for proposal generation.
+- `suggestion_max_proposals`: Maximum proposal count written by `suggest`.
+- `suggestion_neighbor_count`: Number of vectorstore-derived neighbors used per
+  sampled paper in semantic suggestion prompts.
+- `suggestion_use_llm`: Enable the semantic LLM proposal generator; when false,
+  `suggest` falls back to heuristic-only output.
 
 ### Configuration Versioning
 

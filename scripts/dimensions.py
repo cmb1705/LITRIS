@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from datetime import datetime
@@ -25,6 +26,7 @@ from src.analysis.dimensions import (
     load_dimension_profile,
 )
 from src.analysis.coverage import score_coverage
+from src.analysis.llm_factory import create_llm_client
 from src.analysis.schemas import DimensionedExtraction, SemanticAnalysis
 from src.config import Config
 from src.indexing.orchestrator import (
@@ -96,6 +98,431 @@ SUGGESTION_HEURISTICS = [
         "rationale": "Risk language is common across the sampled corpus and may bridge technical and policy-oriented work.",
     },
 ]
+
+SUGGESTION_SYSTEM_PROMPT = """\
+You are designing new semantic analysis dimensions for a literature review index.
+Propose dimensions that are genuinely missing from the active profile, recur across
+multiple papers, and improve comparison or bridge discovery across the corpus.
+
+Rules:
+1. Do not rename, duplicate, or trivially rephrase existing dimensions.
+2. Prefer portable analytic axes that can be extracted from many papers.
+3. Ground proposals in the provided corpus evidence and similarity-neighbor context.
+4. Use stable snake_case dimension IDs.
+5. Return ONLY valid JSON matching the requested schema."""
+
+
+def _strip_json_fence(text: str) -> str:
+    """Remove common markdown fencing before JSON parsing."""
+
+    cleaned = text.strip()
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[7:]
+    elif cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    return cleaned.strip()
+
+
+def _slugify_dimension_id(value: str) -> str:
+    """Normalize candidate dimension IDs into stable snake_case."""
+
+    slug = re.sub(r"[^a-z0-9]+", "_", value.strip().lower())
+    slug = re.sub(r"_+", "_", slug).strip("_")
+    return slug
+
+
+def _truncate_text(value: str | None, max_chars: int = 480) -> str:
+    """Compact long evidence text for prompts and proposal payloads."""
+
+    if not value:
+        return ""
+    text = " ".join(value.split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3].rstrip() + "..."
+
+
+def _resolve_llm_runtime(
+    args: argparse.Namespace,
+    config: Config,
+) -> tuple[str, str, str]:
+    """Resolve provider, mode, and model for semantic suggestion generation."""
+
+    provider = getattr(args, "provider", None) or config.extraction.provider
+    provider_settings = config.extraction.get_provider_settings(provider)
+    mode = (
+        getattr(args, "mode", None)
+        or provider_settings.mode
+        or config.extraction.mode
+    )
+    model = (
+        getattr(args, "model", None)
+        or provider_settings.model
+        or config.extraction.model
+    )
+    return provider, mode, model
+
+
+def _call_raw_llm_prompt(
+    prompt: str,
+    provider: str,
+    mode: str,
+    model: str,
+) -> str:
+    """Execute a raw prompt against an LLM client and return response text."""
+
+    client = create_llm_client(
+        provider=provider,
+        mode=mode,
+        model=model,
+        max_tokens=8192,
+        timeout=180,
+        reasoning_effort="high",
+    )
+
+    if mode == "api" and hasattr(client, "_call_api"):
+        response = client._call_api(prompt)
+        if isinstance(response, tuple):
+            return str(response[0])
+        return str(response)
+
+    if mode == "cli" and hasattr(client, "_call_cli"):
+        response = client._call_cli(prompt)
+        if isinstance(response, tuple):
+            return str(response[0])
+        return str(response)
+
+    if hasattr(client, "_call_llm"):
+        return str(client._call_llm(prompt))
+
+    response_text, success, error = client.raw_query(prompt)
+    if not success or not response_text:
+        raise RuntimeError(error or "LLM returned no response text")
+    return response_text
+
+
+def _sample_suggestion_ids(
+    papers: dict[str, dict],
+    extractions: dict[str, dict],
+    similarity_pairs: dict[str, list[dict]],
+    sample_size: int,
+    requested_ids: list[str] | None = None,
+) -> list[str]:
+    """Choose high-signal papers for dimension suggestion analysis."""
+
+    if requested_ids:
+        return [paper_id for paper_id in requested_ids if paper_id in papers and paper_id in extractions]
+
+    scored: list[tuple[float, float, float, str]] = []
+    for paper_id, record in extractions.items():
+        if paper_id not in papers:
+            continue
+        extraction = record.get("extraction", record) if isinstance(record, dict) else {}
+        dims = get_dimension_map(record)
+        bridge_score = sum(
+            1.0
+            for key in [
+                "disciplines_bridged",
+                "cross_domain_insights",
+                "policy_recommendations",
+                "power_dynamics",
+                "stp_cas_linkage",
+            ]
+            if dims.get(key)
+        )
+        coverage = float(extraction.get("dimension_coverage", 0.0) or 0.0)
+        neighbor_score = float(len(similarity_pairs.get(paper_id, [])))
+        scored.append((bridge_score, coverage, neighbor_score, paper_id))
+
+    if not scored:
+        return []
+
+    ordered = [paper_id for *_scores, paper_id in sorted(scored, reverse=True)]
+    return ordered[:sample_size]
+
+
+def _build_paper_briefs(
+    paper_ids: list[str],
+    papers: dict[str, dict],
+    extractions: dict[str, dict],
+) -> list[dict[str, Any]]:
+    """Build compact paper summaries for suggestion prompts and outputs."""
+
+    briefs: list[dict[str, Any]] = []
+    for paper_id in paper_ids:
+        paper = papers.get(paper_id, {})
+        dims = get_dimension_map(extractions.get(paper_id, {}))
+        briefs.append(
+            {
+                "paper_id": paper_id,
+                "title": paper.get("title", "Unknown"),
+                "year": paper.get("publication_year"),
+                "abstract": _truncate_text(paper.get("abstract"), max_chars=700),
+                "signals": {
+                    key: _truncate_text(dims.get(key))
+                    for key in [
+                        "field",
+                        "disciplines_bridged",
+                        "cross_domain_insights",
+                        "deployment_gap",
+                        "power_dynamics",
+                        "policy_recommendations",
+                        "stp_cas_linkage",
+                        "intervention_leverage_point",
+                    ]
+                    if dims.get(key)
+                },
+            }
+        )
+    return briefs
+
+
+def _build_similarity_context(
+    paper_ids: list[str],
+    papers: dict[str, dict],
+    extractions: dict[str, dict],
+    similarity_pairs: dict[str, list[dict]],
+    neighbor_count: int,
+    max_pairs: int,
+) -> list[dict[str, Any]]:
+    """Build vectorstore-derived bridge examples from similarity neighbors."""
+
+    contexts: list[dict[str, Any]] = []
+    for paper_id in paper_ids:
+        source_paper = papers.get(paper_id, {})
+        source_dims = get_dimension_map(extractions.get(paper_id, {}))
+        source_field = source_dims.get("field")
+        source_bridge = source_dims.get("disciplines_bridged") or source_dims.get("stp_cas_linkage")
+        for neighbor in similarity_pairs.get(paper_id, [])[:neighbor_count]:
+            neighbor_id = neighbor.get("similar_paper_id")
+            if not neighbor_id or neighbor_id not in papers:
+                continue
+            neighbor_dims = get_dimension_map(extractions.get(neighbor_id, {}))
+            neighbor_field = neighbor_dims.get("field")
+            contexts.append(
+                {
+                    "source_paper_id": paper_id,
+                    "source_title": source_paper.get("title", "Unknown"),
+                    "source_field": source_field,
+                    "source_bridge_signal": _truncate_text(source_bridge, max_chars=220),
+                    "neighbor_paper_id": neighbor_id,
+                    "neighbor_title": papers[neighbor_id].get("title", "Unknown"),
+                    "neighbor_field": neighbor_field,
+                    "neighbor_bridge_signal": _truncate_text(
+                        neighbor_dims.get("disciplines_bridged")
+                        or neighbor_dims.get("stp_cas_linkage"),
+                        max_chars=220,
+                    ),
+                    "similarity_score": neighbor.get("similarity_score"),
+                }
+            )
+    ranked = sorted(
+        contexts,
+        key=lambda item: (
+            item["source_field"] != item["neighbor_field"],
+            item.get("similarity_score", 0.0) or 0.0,
+        ),
+        reverse=True,
+    )
+    return ranked[:max_pairs]
+
+
+def _build_suggestion_prompt(
+    profile: DimensionProfile,
+    paper_briefs: list[dict[str, Any]],
+    similarity_context: list[dict[str, Any]],
+    max_proposals: int,
+) -> str:
+    """Compose the semantic suggestion prompt for LLM generation."""
+
+    existing_dimensions = "\n".join(
+        f"- {dimension.id} [{dimension.section}]: {dimension.question}"
+        for dimension in profile.ordered_dimensions
+    )
+    sample_payload = json.dumps(
+        {
+            "paper_samples": paper_briefs,
+            "similarity_bridges": similarity_context,
+        },
+        indent=2,
+        ensure_ascii=False,
+    )
+    sections = ", ".join(section.id for section in profile.ordered_sections)
+
+    return f"""{SUGGESTION_SYSTEM_PROMPT}
+
+ACTIVE PROFILE:
+- profile_id: {profile.profile_id}
+- version: {profile.version}
+- title: {profile.title}
+- available_sections: {sections}
+
+EXISTING DIMENSIONS:
+{existing_dimensions}
+
+CORPUS EVIDENCE:
+{sample_payload}
+
+Return a JSON object in this exact shape:
+{{
+  "proposals": [
+    {{
+      "dimension_id": "snake_case_id",
+      "label": "Readable Label",
+      "question": "Extraction question phrased for analysts",
+      "rationale": "Why this recurring axis adds value beyond the existing profile",
+      "suggested_section": "one of the available section ids",
+      "suggested_roles": ["optional_role_alias"],
+      "confidence": 0.0,
+      "example_papers": ["paper_id_1", "paper_id_2"],
+      "bridge_value": "How this helps compare or bridge disparate papers"
+    }}
+  ]
+}}
+
+Constraints:
+- Propose at most {max_proposals} dimensions.
+- Prefer dimensions that recur across multiple sampled papers or similarity bridges.
+- Do not repeat ids already present in the active profile.
+- Confidence must be between 0 and 1."""
+
+
+def _normalize_example_papers(
+    raw_examples: Any,
+    papers: dict[str, dict],
+) -> list[dict[str, str]]:
+    """Normalize proposal example-paper references into structured entries."""
+
+    normalized: list[dict[str, str]] = []
+    seen: set[str] = set()
+    candidates = raw_examples if isinstance(raw_examples, list) else []
+    for candidate in candidates:
+        if isinstance(candidate, dict):
+            paper_id = str(candidate.get("paper_id") or "").strip()
+            title = str(candidate.get("title") or papers.get(paper_id, {}).get("title") or "Unknown")
+        else:
+            paper_id = str(candidate).strip()
+            title = str(papers.get(paper_id, {}).get("title") or "Unknown")
+        if not paper_id or paper_id in seen:
+            continue
+        seen.add(paper_id)
+        normalized.append({"paper_id": paper_id, "title": title})
+    return normalized
+
+
+def _normalize_llm_proposals(
+    raw_payload: dict[str, Any],
+    profile: DimensionProfile,
+    papers: dict[str, dict],
+) -> list[dict[str, Any]]:
+    """Validate and normalize semantic LLM proposals into the CLI payload shape."""
+
+    existing_ids = set(profile.dimension_map)
+    section_ids = {section.id for section in profile.sections}
+    raw_proposals = raw_payload.get("proposals", [])
+    if not isinstance(raw_proposals, list):
+        raise ValueError("LLM suggestion payload is missing a proposals list")
+
+    normalized: list[dict[str, Any]] = []
+    for proposal in raw_proposals:
+        if not isinstance(proposal, dict):
+            continue
+        dimension_id = _slugify_dimension_id(
+            str(proposal.get("dimension_id") or proposal.get("label") or "")
+        )
+        if not dimension_id or dimension_id in existing_ids:
+            continue
+        question = str(proposal.get("question") or "").strip()
+        label = str(proposal.get("label") or dimension_id.replace("_", " ").title()).strip()
+        if not question:
+            continue
+
+        suggested_section = str(proposal.get("suggested_section") or "").strip()
+        if suggested_section not in section_ids:
+            suggested_section = profile.ordered_sections[-1].id
+
+        try:
+            confidence = float(proposal.get("confidence", 0.5))
+        except (TypeError, ValueError):
+            confidence = 0.5
+
+        normalized.append(
+            {
+                "dimension_id": dimension_id,
+                "label": label,
+                "question": question,
+                "rationale": str(proposal.get("rationale") or "").strip(),
+                "suggested_section": suggested_section,
+                "suggested_roles": [
+                    str(role).strip()
+                    for role in proposal.get("suggested_roles", [])
+                    if str(role).strip()
+                ],
+                "confidence": max(0.0, min(1.0, confidence)),
+                "example_papers": _normalize_example_papers(
+                    proposal.get("example_papers", []),
+                    papers,
+                ),
+                "bridge_value": str(proposal.get("bridge_value") or "").strip(),
+                "proposal_sources": ["semantic_llm"],
+            }
+        )
+    return normalized
+
+
+def _merge_dimension_proposals(*proposal_lists: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge proposal lists by dimension id while preserving evidence."""
+
+    merged: dict[str, dict[str, Any]] = {}
+    for proposals in proposal_lists:
+        for proposal in proposals:
+            proposal_id = proposal["dimension_id"]
+            if proposal_id not in merged:
+                merged[proposal_id] = {
+                    **proposal,
+                    "proposal_sources": list(proposal.get("proposal_sources", [])),
+                    "example_papers": list(proposal.get("example_papers", [])),
+                }
+                continue
+
+            current = merged[proposal_id]
+            current["confidence"] = max(
+                float(current.get("confidence", 0.0)),
+                float(proposal.get("confidence", 0.0)),
+            )
+            if not current.get("rationale") and proposal.get("rationale"):
+                current["rationale"] = proposal["rationale"]
+            if not current.get("bridge_value") and proposal.get("bridge_value"):
+                current["bridge_value"] = proposal["bridge_value"]
+            if len(proposal.get("question", "")) > len(current.get("question", "")):
+                current["question"] = proposal["question"]
+            if len(proposal.get("label", "")) > len(current.get("label", "")):
+                current["label"] = proposal["label"]
+
+            existing_sources = set(current.get("proposal_sources", []))
+            for source in proposal.get("proposal_sources", []):
+                if source not in existing_sources:
+                    current.setdefault("proposal_sources", []).append(source)
+                    existing_sources.add(source)
+
+            seen_examples = {item["paper_id"] for item in current.get("example_papers", [])}
+            for example in proposal.get("example_papers", []):
+                if example["paper_id"] not in seen_examples:
+                    current.setdefault("example_papers", []).append(example)
+                    seen_examples.add(example["paper_id"])
+
+    return sorted(
+        merged.values(),
+        key=lambda proposal: (
+            "semantic_llm" in proposal.get("proposal_sources", []),
+            float(proposal.get("confidence", 0.0)),
+            len(proposal.get("example_papers", [])),
+            proposal["dimension_id"],
+        ),
+        reverse=True,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -169,8 +596,23 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=project_root / "data" / "index",
     )
+    suggest.add_argument(
+        "--paper",
+        action="append",
+        default=[],
+        help="Restrict suggestion generation to these paper_ids (repeatable)",
+    )
     suggest.add_argument("--sample-size", type=int, default=None)
     suggest.add_argument("--min-hits", type=int, default=3)
+    suggest.add_argument("--max-proposals", type=int, default=None)
+    suggest.add_argument(
+        "--provider",
+        choices=["anthropic", "openai", "google", "ollama", "llamacpp"],
+        default=None,
+    )
+    suggest.add_argument("--mode", choices=["api", "cli"], default=None)
+    suggest.add_argument("--model", type=str, default=None)
+    suggest.add_argument("--heuristic-only", action="store_true")
     suggest.add_argument("--output", type=Path, default=None)
 
     approve = subparsers.add_parser(
@@ -517,18 +959,27 @@ def diff_profiles(args: argparse.Namespace) -> int:
 
 
 def suggest_dimensions(args: argparse.Namespace, config: Config) -> int:
-    """Generate heuristic dimension proposals from stored papers/extractions."""
+    """Generate profile extension proposals from corpus evidence and heuristics."""
 
     store = StructuredStore(args.index_dir)
     papers = store.load_papers()
     extractions = store.load_extractions()
     profile = DimensionProfile(**store.load_dimension_profile())
+    similarity_pairs = store.load_similarity_pairs()
 
     sample_size = args.sample_size or config.dimensions.suggestion_sample_size
-    sampled_ids = sorted(extractions)[:sample_size]
+    max_proposals = args.max_proposals or config.dimensions.suggestion_max_proposals
+    neighbor_count = config.dimensions.suggestion_neighbor_count
+    sampled_ids = _sample_suggestion_ids(
+        papers=papers,
+        extractions=extractions,
+        similarity_pairs=similarity_pairs,
+        sample_size=sample_size,
+        requested_ids=args.paper,
+    )
     existing_ids = set(profile.dimension_map)
     section_ids = {section.id for section in profile.sections}
-    proposals: list[dict[str, Any]] = []
+    heuristic_proposals: list[dict[str, Any]] = []
 
     for heuristic in SUGGESTION_HEURISTICS:
         if heuristic["dimension_id"] in existing_ids:
@@ -562,7 +1013,7 @@ def suggest_dimensions(args: argparse.Namespace, config: Config) -> int:
         if suggested_section not in section_ids:
             suggested_section = profile.ordered_sections[-1].id
 
-        proposals.append(
+        heuristic_proposals.append(
             {
                 "dimension_id": heuristic["dimension_id"],
                 "label": heuristic["label"],
@@ -573,15 +1024,71 @@ def suggest_dimensions(args: argparse.Namespace, config: Config) -> int:
                 "confidence": round(min(0.95, len(hits) / max(len(sampled_ids), 1)), 3),
                 "keyword_hits": len(hits),
                 "example_papers": hits[:5],
+                "proposal_sources": ["heuristic"],
             }
         )
+
+    semantic_proposals: list[dict[str, Any]] = []
+    suggestion_runtime: dict[str, str | None] = {
+        "provider": None,
+        "mode": None,
+        "model": None,
+    }
+    if (
+        config.dimensions.suggestion_use_llm
+        and not args.heuristic_only
+        and sampled_ids
+    ):
+        provider, mode, model = _resolve_llm_runtime(args, config)
+        suggestion_runtime = {"provider": provider, "mode": mode, "model": model}
+        paper_briefs = _build_paper_briefs(sampled_ids[: min(len(sampled_ids), 8)], papers, extractions)
+        similarity_context = _build_similarity_context(
+            paper_ids=sampled_ids[: min(len(sampled_ids), 8)],
+            papers=papers,
+            extractions=extractions,
+            similarity_pairs=similarity_pairs,
+            neighbor_count=neighbor_count,
+            max_pairs=max_proposals * 2,
+        )
+        prompt = _build_suggestion_prompt(
+            profile=profile,
+            paper_briefs=paper_briefs,
+            similarity_context=similarity_context,
+            max_proposals=max_proposals,
+        )
+        try:
+            raw_response = _call_raw_llm_prompt(
+                prompt=prompt,
+                provider=provider,
+                mode=mode,
+                model=model,
+            )
+            semantic_payload = json.loads(_strip_json_fence(raw_response))
+            semantic_proposals = _normalize_llm_proposals(
+                raw_payload=semantic_payload,
+                profile=profile,
+                papers=papers,
+            )
+        except Exception as exc:  # pragma: no cover - exercised in tests via monkeypatch
+            print(
+                f"Warning: semantic suggestion generation failed; "
+                f"falling back to heuristic proposals only ({exc})",
+                file=sys.stderr,
+            )
+
+    proposals = _merge_dimension_proposals(semantic_proposals, heuristic_proposals)
+    proposals = proposals[:max_proposals]
 
     output_path = args.output or (args.index_dir / PROPOSALS_FILENAME)
     payload = {
         "generated_at": datetime.now().isoformat(),
         "profile_id": profile.profile_id,
         "sample_size": len(sampled_ids),
+        "sampled_paper_ids": sampled_ids,
         "proposal_count": len(proposals),
+        "heuristic_candidate_count": len(heuristic_proposals),
+        "semantic_candidate_count": len(semantic_proposals),
+        "semantic_runtime": suggestion_runtime,
         "proposals": proposals,
     }
     safe_write_json(output_path, payload)
@@ -677,6 +1184,7 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
     papers = store.load_papers()
     extractions = store.load_extractions()
     target_ids = sorted(set(args.paper) if args.paper else set(extractions))
+    partial_scope = bool(args.paper)
     missing_papers = [paper_id for paper_id in target_ids if paper_id not in papers]
     if missing_papers:
         logger.warning("Ignoring %d paper ids missing from papers.json", len(missing_papers))
@@ -723,6 +1231,14 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
                 logger.warning("Backfill failed for %s: %s", result.paper_id, result.error)
                 failed_ids.append(result.paper_id)
                 continue
+            if result.pass_errors:
+                logger.warning(
+                    "Backfill failed for %s due to incomplete targeted section extraction: %s",
+                    result.paper_id,
+                    "; ".join(result.pass_errors),
+                )
+                failed_ids.append(result.paper_id)
+                continue
 
             existing_record = updated_extractions.get(
                 result.paper_id,
@@ -766,10 +1282,6 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
             "extraction": retargeted.to_index_dict(),
         }
 
-    store.save_dimension_profile(target_profile.model_dump(mode="json"))
-    store.save_extractions(updated_extractions)
-    _update_manifest_profile_snapshot(args.index_dir, args, config, target_profile)
-
     if not args.skip_embeddings:
         scoped_papers = [
             _paper_from_index_dict(paper_id, papers[paper_id])
@@ -810,6 +1322,17 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
                 top_n=20,
                 logger=logger,
             )
+
+    store.save_extractions(updated_extractions)
+    if partial_scope:
+        logger.info(
+            "Partial backfill completed for %d paper(s); leaving the index-level "
+            "profile snapshot unchanged until a full-corpus backfill succeeds",
+            len(target_ids),
+        )
+    else:
+        store.save_dimension_profile(target_profile.model_dump(mode="json"))
+        _update_manifest_profile_snapshot(args.index_dir, args, config, target_profile)
 
     generate_summary(args.index_dir, logger)
     logger.info(
