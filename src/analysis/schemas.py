@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Pydantic schemas for LLM extraction results."""
+
+from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
@@ -294,7 +294,7 @@ class DimensionedExtraction(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _populate_profile_defaults(self) -> "DimensionedExtraction":
+    def _populate_profile_defaults(self) -> DimensionedExtraction:
         registry = get_default_dimension_registry()
         normalized = dict(self.dimensions)
         profile = registry.profiles.get(self.profile_id)
@@ -359,8 +359,8 @@ class DimensionedExtraction(BaseModel):
     @classmethod
     def from_record(
         cls,
-        record: dict | "SemanticAnalysis" | "DimensionedExtraction",
-    ) -> "DimensionedExtraction":
+        record: dict | SemanticAnalysis | DimensionedExtraction,
+    ) -> DimensionedExtraction:
         if isinstance(record, cls):
             return record
         if hasattr(record, "to_dimensioned_extraction"):
@@ -598,7 +598,7 @@ class SemanticAnalysis(BaseModel):
     # Dimension field names for iteration
     @model_validator(mode="before")
     @classmethod
-    def _expand_dimensions_map(cls, data: dict | "SemanticAnalysis") -> dict | "SemanticAnalysis":
+    def _expand_dimensions_map(cls, data: dict | SemanticAnalysis) -> dict | SemanticAnalysis:
         if not isinstance(data, dict):
             return data
 
@@ -643,7 +643,7 @@ class SemanticAnalysis(BaseModel):
         return data
 
     @model_validator(mode="after")
-    def _sync_dimensions_map(self) -> "SemanticAnalysis":
+    def _sync_dimensions_map(self) -> SemanticAnalysis:
         registry = get_default_dimension_registry()
         dimension_map = dict(self.dimensions)
         profile = registry.profiles.get(self.profile_id)

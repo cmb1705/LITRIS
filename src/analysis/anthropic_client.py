@@ -12,17 +12,17 @@ from src.analysis.cli_executor import (
     CliExecutionError,
     PromptTooLongError,
 )
-from src.analysis.dimensions import (
-    EXTRACTION_METADATA_KEYS,
-    get_default_dimension_registry,
-    is_dimension_payload,
-    normalize_dimension_payload,
-)
 from src.analysis.constants import (
     ANTHROPIC_BATCH_PRICING,
     ANTHROPIC_MODELS,
     ANTHROPIC_PRICING,
     DEFAULT_MODELS,
+)
+from src.analysis.dimensions import (
+    EXTRACTION_METADATA_KEYS,
+    get_default_dimension_registry,
+    is_dimension_payload,
+    normalize_dimension_payload,
 )
 from src.analysis.prompts import (
     EXTRACTION_SYSTEM_PROMPT,

@@ -21,17 +21,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.analysis.llm_council import (
-    CouncilConfig,
-    LLMCouncil,
-    ProviderConfig,
-    identify_gap_passes,
-)
 from src.analysis.constants import (
     ANTHROPIC_MODELS,
     DEFAULT_MODELS,
     GEMINI_MODELS,
     OPENAI_MODELS,
+)
+from src.analysis.llm_council import (
+    CouncilConfig,
+    LLMCouncil,
+    ProviderConfig,
+    identify_gap_passes,
 )
 from src.analysis.schemas import SemanticAnalysis
 from src.config import Config

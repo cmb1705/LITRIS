@@ -752,7 +752,7 @@ def test_backfill_resume_reuses_staged_extractions_and_skips_completed_ids(
 
 
 def test_missing_fulltext_manifest_rebuilds_from_snapshot_files(tmp_path: Path) -> None:
-    store = _write_legacy_index(tmp_path)
+    _write_legacy_index(tmp_path)
     _write_text_snapshot(tmp_path, "paper_001", "Snapshot body for manifest rebuild")
 
     manifest_path = tmp_path / "fulltext_manifest.json"

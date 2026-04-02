@@ -117,7 +117,7 @@ class PaperSnapshot:
     indexed: bool | None = None
 
     @classmethod
-    def from_paper(cls, paper: PaperMetadata) -> "PaperSnapshot":
+    def from_paper(cls, paper: PaperMetadata) -> PaperSnapshot:
         pdf_size = None
         pdf_mtime_ns = None
         if paper.pdf_path and Path(paper.pdf_path).exists():
@@ -167,7 +167,7 @@ class PaperSnapshot:
         )
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PaperSnapshot":
+    def from_dict(cls, data: dict[str, Any]) -> PaperSnapshot:
         return cls(
             paper_id=data["paper_id"],
             zotero_key=data.get("zotero_key", ""),
@@ -228,7 +228,7 @@ class IndexArtifactSnapshot:
     artifact_names: list[str]
 
     @classmethod
-    def capture(cls, index_dir: Path, artifact_names: list[str]) -> "IndexArtifactSnapshot":
+    def capture(cls, index_dir: Path, artifact_names: list[str]) -> IndexArtifactSnapshot:
         backup_dir = Path(tempfile.mkdtemp(prefix="index_snapshot_", dir=index_dir))
         snapshot = cls(index_dir=index_dir, backup_dir=backup_dir, artifact_names=artifact_names)
         for name in artifact_names:
@@ -271,7 +271,7 @@ class PendingStageWork:
     all: bool = False
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "PendingStageWork":
+    def from_dict(cls, data: dict[str, Any] | None) -> PendingStageWork:
         data = data or {}
         return cls(
             paper_ids=list(data.get("paper_ids", [])),
@@ -307,7 +307,7 @@ class IndexManifest:
     raptor_schema_version: str = RAPTOR_SCHEMA_VERSION
     similarity_schema_version: str = SIMILARITY_SCHEMA_VERSION
     stage_health: dict[str, str] = field(
-        default_factory=lambda: {stage: "unknown" for stage in STAGE_NAMES}
+        default_factory=lambda: dict.fromkeys(STAGE_NAMES, "unknown")
     )
     pending_work: dict[str, PendingStageWork] = field(
         default_factory=lambda: {
@@ -323,7 +323,7 @@ class IndexManifest:
     last_run: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def load(cls, path: Path) -> tuple["IndexManifest | None", str | None]:
+    def load(cls, path: Path) -> tuple[IndexManifest | None, str | None]:
         if not path.exists():
             return None, "missing"
         raw = safe_read_json(path, default=None)
@@ -356,7 +356,7 @@ class IndexManifest:
                     ),
                     stage_health=raw.get(
                         "stage_health",
-                        {stage: "unknown" for stage in STAGE_NAMES},
+                        dict.fromkeys(STAGE_NAMES, "unknown"),
                     ),
                     pending_work=pending_work,
                     paper_snapshots=snapshots,
@@ -885,7 +885,7 @@ class IndexOrchestrator:
                 failed_extraction_ids=failed_extraction_ids,
             )
             delete_embedding_ids = sorted(
-                (set(plan.change_set.deleted_items) | removed_from_index_ids)
+                set(plan.change_set.deleted_items) | removed_from_index_ids
             )
 
             if getattr(args, "skip_embeddings", False):

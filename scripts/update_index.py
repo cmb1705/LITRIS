@@ -139,11 +139,12 @@ def main() -> int:
     except Exception as exc:
         logger.error(f"Failed to load configuration: {exc}")
         return 1
-    if args.dimension_profile is not None:
-        profile = load_dimension_profile(args.dimension_profile)
+    dimension_profile = getattr(args, "dimension_profile", None)
+    if dimension_profile is not None:
+        profile = load_dimension_profile(dimension_profile)
         profile_paths = [Path(path) for path in config.dimensions.profile_paths]
-        if args.dimension_profile not in profile_paths:
-            config.dimensions.profile_paths = [*profile_paths, args.dimension_profile]
+        if dimension_profile not in profile_paths:
+            config.dimensions.profile_paths = [*profile_paths, dimension_profile]
         config.dimensions.active_profile = profile.profile_id
         config.configure_dimension_registry()
     if args.embedding_batch_size is not None:

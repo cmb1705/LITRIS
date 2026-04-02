@@ -10,13 +10,13 @@ from types import SimpleNamespace
 from src.config import Config
 from src.indexing.orchestrator import (
     CHUNK_SCHEMA_VERSION,
+    RAPTOR_SCHEMA_VERSION,
     SIMILARITY_SCHEMA_VERSION,
     ChangeSet,
     IndexManifest,
     IndexOrchestrator,
     PaperSnapshot,
     PendingStageWork,
-    RAPTOR_SCHEMA_VERSION,
     detect_snapshot_changes,
 )
 
@@ -297,7 +297,7 @@ def test_plan_sync_no_changes_with_matching_manifest_is_noop(tmp_path):
 
 
 def test_describe_extraction_requirements_reports_missing_full_rebuild_items(tmp_path):
-    config = _make_config(tmp_path)
+    _make_config(tmp_path)
     orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))
     args = _make_args(sync_mode="full")
     plan = SimpleNamespace(

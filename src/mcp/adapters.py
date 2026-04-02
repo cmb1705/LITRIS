@@ -217,24 +217,29 @@ class LitrisAdapter:
             extraction = extraction["extraction"]
 
         groups = {}
-        registry = getattr(self.engine, "dimension_registry", None)
+        engine = getattr(self, "_engine", None)
+        registry = getattr(engine, "dimension_registry", None)
         if registry is None:
             from src.analysis.dimensions import get_default_dimension_registry
 
             registry = get_default_dimension_registry()
+        dimensions = extraction.get("dimensions", {})
+        if not isinstance(dimensions, dict):
+            dimensions = {}
         for group_name, dimension_ids in registry.get_dimension_groups().items():
             group_data = {}
             for dimension_id in dimension_ids:
-                value = extraction.get("dimensions", {}).get(dimension_id)
+                dimension = registry.resolve_optional_dimension(dimension_id)
+                output_key = (
+                    dimension.legacy_field_name if dimension and dimension.legacy_field_name else dimension_id
+                )
+                value = dimensions.get(dimension_id)
+                if value is None:
+                    value = extraction.get(output_key)
                 if value is None:
                     value = extraction.get(dimension_id)
-                if value is None:
-                    # Legacy fallback
-                    dimension = registry.resolve_optional_dimension(dimension_id)
-                    if dimension and dimension.legacy_field_name:
-                        value = extraction.get(dimension.legacy_field_name)
                 if value is not None:
-                    group_data[dimension_id] = value
+                    group_data[output_key] = value
             if group_data:
                 groups[group_name] = group_data
 

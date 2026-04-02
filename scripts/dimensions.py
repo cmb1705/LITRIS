@@ -18,6 +18,7 @@ import yaml
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from src.analysis.coverage import score_coverage
 from src.analysis.dimensions import (
     DimensionDefinition,
     DimensionProfile,
@@ -26,7 +27,6 @@ from src.analysis.dimensions import (
     get_dimension_map,
     load_dimension_profile,
 )
-from src.analysis.coverage import score_coverage
 from src.analysis.llm_factory import create_llm_client
 from src.analysis.schemas import DimensionedExtraction, SemanticAnalysis
 from src.config import Config

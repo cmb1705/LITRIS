@@ -2,7 +2,6 @@
 """Build the literature review index from a reference library."""
 
 import argparse
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -13,12 +12,11 @@ sys.path.insert(0, str(project_root))
 
 from tqdm import tqdm
 
-from src.analysis.dimensions import load_dimension_profile
 from src.analysis.classification_store import (
     ClassificationIndex,
-    ClassificationStore,
 )
 from src.analysis.cli_executor import ClaudeCliAuthenticator
+from src.analysis.dimensions import load_dimension_profile
 from src.analysis.schemas import SemanticAnalysis
 from src.analysis.section_extractor import SectionExtractor
 from src.config import Config, parse_embedding_batch_size_setting
@@ -28,15 +26,9 @@ from src.indexing.embeddings import EmbeddingGenerator
 from src.indexing.orchestrator import IndexOrchestrator
 from src.indexing.structured_store import StructuredStore
 from src.indexing.vector_store import VectorStore
-from src.references.factory import create_reference_db
 from src.utils.checkpoint import CheckpointManager
-from src.utils.deduplication import (
-    analyze_doi_overlap,
-    extract_existing_dois,
-    filter_by_doi,
-)
 from src.utils.file_utils import safe_read_json, safe_write_json
-from src.utils.logging_config import LogContext, setup_logging
+from src.utils.logging_config import setup_logging
 from src.zotero.models import PaperMetadata
 
 

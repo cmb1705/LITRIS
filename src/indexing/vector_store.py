@@ -452,7 +452,7 @@ class VectorStore:
         try:
             all_results = self.collection.get(include=["metadatas"])
             paper_ids = set()
-            chunk_type_counts = {chunk_type: 0 for chunk_type in CHUNK_TYPES}
+            chunk_type_counts = dict.fromkeys(CHUNK_TYPES, 0)
             metadatas = all_results.get("metadatas") if isinstance(all_results, dict) else None
             if metadatas:
                 for meta in metadatas:

@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -113,7 +114,7 @@ class DimensionDefinition(BaseModel):
         return normalized
 
     @model_validator(mode="after")
-    def _populate_aliases(self) -> "DimensionDefinition":
+    def _populate_aliases(self) -> DimensionDefinition:
         seen: set[str] = set()
         merged: list[str] = []
         for candidate in [
@@ -155,7 +156,7 @@ class DimensionProfile(BaseModel):
         return value.strip()
 
     @model_validator(mode="after")
-    def _validate_uniqueness(self) -> "DimensionProfile":
+    def _validate_uniqueness(self) -> DimensionProfile:
         section_ids = [section.id for section in self.sections]
         if len(section_ids) != len(set(section_ids)):
             raise ValueError("Duplicate section IDs in dimension profile")
@@ -478,10 +479,7 @@ class DimensionRegistry:
         active_profile_id: str = DEFAULT_DIMENSION_PROFILE,
     ):
         base_profiles = profiles or {LEGACY_PROFILE_ID: build_legacy_dimension_profile()}
-        self._profiles = {
-            profile_id: profile
-            for profile_id, profile in base_profiles.items()
-        }
+        self._profiles = dict(base_profiles.items())
         self.set_active_profile(active_profile_id)
 
     @property
@@ -838,7 +836,7 @@ def get_profile_id_from_record(record: Any) -> str:
 
     unwrapped = unwrap_extraction_record(record)
     if hasattr(unwrapped, "profile_id"):
-        return getattr(unwrapped, "profile_id") or DEFAULT_DIMENSION_PROFILE
+        return unwrapped.profile_id or DEFAULT_DIMENSION_PROFILE
     if isinstance(unwrapped, Mapping):
         return str(unwrapped.get("profile_id") or DEFAULT_DIMENSION_PROFILE)
     return DEFAULT_DIMENSION_PROFILE
@@ -912,7 +910,7 @@ def get_dimension_map(
 
     unwrapped = unwrap_extraction_record(record)
     if hasattr(unwrapped, "dimension_map"):
-        return dict(getattr(unwrapped, "dimension_map"))
+        return dict(unwrapped.dimension_map)
 
     if isinstance(unwrapped, Mapping):
         local_registry = registry or get_default_dimension_registry()

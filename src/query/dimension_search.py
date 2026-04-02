@@ -14,7 +14,6 @@ from src.analysis.dimensions import (
     DimensionRegistry,
     get_default_dimension_registry,
 )
-from src.analysis.schemas import SemanticAnalysis
 
 if TYPE_CHECKING:
     from src.query.search import EnrichedResult, SearchEngine
@@ -58,7 +57,7 @@ def search_dimension(
     Raises:
         ValueError: If the dimension identifier is invalid.
     """
-    registry = _get_registry(engine)
+    _get_registry(engine)
     definition = _resolve_dimension_definition(dimension, engine=engine)
     chunk_type = definition.chunk_type
 

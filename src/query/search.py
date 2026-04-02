@@ -109,7 +109,7 @@ class SearchEngine:
         """Release vector-store resources owned by this engine."""
         self.vector_store.close()
 
-    def __enter__(self) -> "SearchEngine":
+    def __enter__(self) -> SearchEngine:
         return self
 
     def __exit__(self, *exc: object) -> None:

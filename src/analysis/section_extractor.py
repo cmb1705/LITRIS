@@ -677,6 +677,7 @@ class SectionExtractor:
                 text=text,
                 document_type=doc_type.value,
                 section_ids=section_ids,
+                source_fingerprint=snapshot_hash,
             )
 
             # Attach classification and extraction method to result
@@ -705,6 +706,7 @@ class SectionExtractor:
         text: str,
         document_type: str,
         section_ids: list[str] | None = None,
+        source_fingerprint: str | None = None,
     ) -> ExtractionResult:
         """Run pass-based extraction and merge results.
 
@@ -716,6 +718,8 @@ class SectionExtractor:
             text: Cleaned, truncated paper text.
             document_type: Document type key for prompt framing.
             section_ids: Optional subset of section IDs to run.
+            source_fingerprint: Optional canonical snapshot fingerprint for
+                pass-cache invalidation.
 
         Returns:
             Merged ExtractionResult with all dimensions.
@@ -748,7 +752,7 @@ class SectionExtractor:
                     self.model,
                     pass_number=pass_num,
                     profile_fingerprint=self.dimension_profile_fingerprint,
-                    source_fingerprint=snapshot_hash,
+                    source_fingerprint=source_fingerprint,
                 )
                 cached_data = self.extraction_cache.get(paper.paper_id, pass_hash)
                 if cached_data and "answers" in cached_data:

@@ -691,7 +691,6 @@ def configure_extraction_runtime(
         config.extraction.model = args.model
 
     mode = config.extraction.mode
-    resolved_model = config.extraction.model
     use_cache = config.extraction.use_cache and not getattr(args, "no_cache", False)
     parallel_workers = (
         args.parallel if getattr(args, "parallel", None) else config.extraction.parallel_workers
