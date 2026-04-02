@@ -232,6 +232,7 @@ docs/analysis/
 .claude/settings.local.json
 .claude/settings.private.json
 .claude/local/
+.github/copilot-instructions.md
 
 # Security - never track these patterns
 *.pem
