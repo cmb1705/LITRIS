@@ -22,7 +22,7 @@ from src.analysis.section_extractor import SectionExtractor
 from src.config import Config, parse_embedding_batch_size_setting
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
-from src.indexing.embeddings import EmbeddingGenerator
+from src.indexing.embeddings import EmbeddingChunk, EmbeddingGenerator
 from src.indexing.orchestrator import IndexOrchestrator
 from src.indexing.structured_store import StructuredStore
 from src.indexing.vector_store import VectorStore
@@ -876,6 +876,11 @@ def compute_similarity_pairs(
     index_dir: Path,
     embedding_model: str,
     top_n: int = 20,
+    embedding_backend: str = "sentence-transformers",
+    ollama_base_url: str = "http://localhost:11434",
+    query_prefix: str | None = None,
+    document_prefix: str | None = None,
+    embedding_batch_size: int | str | None = None,
     logger=None,
 ) -> int:
     """Compute pairwise paper similarity from raptor_overview embeddings.
@@ -898,31 +903,90 @@ def compute_similarity_pairs(
     chroma_dir = index_dir / "chroma"
     store = StructuredStore(index_dir)
     with VectorStore(chroma_dir) as vector_store:
-        # Get all raptor_overview chunks with embeddings
-        results = vector_store.collection.get(
-            where={"chunk_type": "raptor_overview"},
-            include=["embeddings", "metadatas"],
-        )
+        try:
+            results = vector_store.collection.get(
+                where={"chunk_type": "raptor_overview"},
+                include=["embeddings", "metadatas"],
+            )
+            if logger:
+                logger.info("Loaded stored raptor_overview embeddings from vector store")
+            paper_ids = []
+            embeddings = []
+            for i, _chunk_id in enumerate(results["ids"]):
+                meta = results["metadatas"][i] if results["metadatas"] is not None else {}
+                paper_id = meta.get("paper_id", "")
+                embedding = results["embeddings"][i] if results["embeddings"] is not None else None
+                if paper_id and embedding is not None:
+                    paper_ids.append(paper_id)
+                    embeddings.append(embedding)
+        except Exception as exc:
+            if logger:
+                logger.warning(
+                    "Bulk raptor_overview embedding fetch failed (%s); "
+                    "re-embedding stored overview texts for similarity rebuild",
+                    exc,
+                )
+            results = vector_store.collection.get(
+                where={"chunk_type": "raptor_overview"},
+                include=["documents", "metadatas"],
+            )
+            if not results["ids"]:
+                paper_ids = []
+                embeddings = []
+            else:
+                overview_chunks: list[EmbeddingChunk] = []
+                for i, chunk_id in enumerate(results["ids"]):
+                    meta = results["metadatas"][i] if results["metadatas"] is not None else {}
+                    paper_id = meta.get("paper_id", "")
+                    document = results["documents"][i] if results["documents"] is not None else None
+                    if paper_id and document:
+                        overview_chunks.append(
+                            EmbeddingChunk(
+                                paper_id=paper_id,
+                                chunk_id=chunk_id,
+                                chunk_type="raptor_overview",
+                                text=document,
+                            )
+                        )
 
-    if not results["ids"]:
+                if overview_chunks:
+                    embedding_gen = EmbeddingGenerator(
+                        model_name=embedding_model,
+                        backend=embedding_backend,
+                        ollama_base_url=ollama_base_url,
+                        query_prefix=query_prefix,
+                        document_prefix=document_prefix,
+                    )
+                    resolved_batch_size = embedding_gen.resolve_batch_size(
+                        embedding_batch_size,
+                        texts=[chunk.text for chunk in overview_chunks],
+                    )
+                    if logger:
+                        logger.info(
+                            "Re-embedding %d raptor_overview chunks with batch size %d",
+                            len(overview_chunks),
+                            resolved_batch_size,
+                        )
+                    overview_chunks = embedding_gen.generate_embeddings(
+                        overview_chunks,
+                        batch_size=resolved_batch_size,
+                        show_progress=False,
+                    )
+                    paper_ids = [chunk.paper_id for chunk in overview_chunks if chunk.embedding]
+                    embeddings = [chunk.embedding for chunk in overview_chunks if chunk.embedding]
+                else:
+                    paper_ids = []
+                    embeddings = []
+
+    if not paper_ids:
         if logger:
             logger.warning("No raptor_overview chunks found for similarity computation")
         return 0
 
-    paper_ids = []
-    embeddings = []
-    for i, _chunk_id in enumerate(results["ids"]):
-        meta = results["metadatas"][i] if results["metadatas"] is not None else {}
-        paper_id = meta.get("paper_id", "")
-        embedding = results["embeddings"][i] if results["embeddings"] is not None else None
-        if paper_id and embedding is not None:
-            paper_ids.append(paper_id)
-            embeddings.append(embedding)
-
     if len(embeddings) < 2:
         if logger:
             logger.info("Fewer than 2 papers with raptor_overview -- skipping similarity")
-        return 0
+            return 0
 
     if logger:
         logger.info(f"Computing similarity for {len(embeddings)} papers...")

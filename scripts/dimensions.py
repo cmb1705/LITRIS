@@ -1571,6 +1571,11 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
                 index_dir=args.index_dir,
                 embedding_model=config.embeddings.model,
                 top_n=20,
+                embedding_backend=config.embeddings.backend,
+                ollama_base_url=config.embeddings.ollama_base_url,
+                query_prefix=config.embeddings.query_prefix,
+                document_prefix=config.embeddings.document_prefix,
+                embedding_batch_size=config.embeddings.batch_size,
                 logger=logger,
             )
 

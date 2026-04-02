@@ -11,7 +11,8 @@ import scripts.build_index as build_index
 from src.config import EmbeddingsConfig, parse_embedding_batch_size_setting
 from src.indexing.embeddings import EmbeddingChunk, EmbeddingGenerator
 from src.indexing.orchestrator import IndexOrchestrator
-from src.indexing.pipeline import run_embedding_generation
+from src.indexing.pipeline import compute_similarity_pairs, run_embedding_generation
+from src.indexing.structured_store import StructuredStore
 
 
 def test_parse_embedding_batch_size_setting_accepts_auto_and_positive_ints() -> None:
@@ -211,3 +212,139 @@ def test_run_embedding_generation_uses_resolved_batch_size(
     assert captured["resolved_batch_size"] == 24
     assert run_metadata["embedding_batch_size_setting"] == "auto"
     assert run_metadata["embedding_batch_size_resolved"] == 24
+
+
+def test_compute_similarity_pairs_uses_stored_overview_embeddings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    class DummyCollection:
+        def get(self, *, where=None, include=None):
+            assert where == {"chunk_type": "raptor_overview"}
+            assert include == ["embeddings", "metadatas"]
+            return {
+                "ids": ["p1_raptor_overview", "p2_raptor_overview", "p3_raptor_overview"],
+                "embeddings": [
+                    [1.0, 0.0],
+                    [0.9, 0.1],
+                    [0.0, 1.0],
+                ],
+                "metadatas": [
+                    {"paper_id": "p1"},
+                    {"paper_id": "p2"},
+                    {"paper_id": "p3"},
+                ],
+            }
+
+    class DummyVectorStore:
+        def __init__(self, path) -> None:
+            self.collection = DummyCollection()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc) -> None:
+            return None
+
+    monkeypatch.setattr("src.indexing.pipeline.VectorStore", DummyVectorStore)
+    monkeypatch.setattr(
+        "src.indexing.pipeline.EmbeddingGenerator",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("fallback should not be used")),
+    )
+
+    total_pairs = compute_similarity_pairs(
+        index_dir=tmp_path,
+        embedding_model="embed-test",
+        top_n=1,
+    )
+
+    assert total_pairs == 3
+    pairs = StructuredStore(tmp_path).load_similarity_pairs()
+    assert pairs["p1"][0]["similar_paper_id"] == "p2"
+    assert pairs["p2"][0]["similar_paper_id"] == "p1"
+    assert pairs["p3"][0]["similar_paper_id"] == "p2"
+
+
+def test_compute_similarity_pairs_reembeds_overview_texts_on_chroma_embedding_read_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class DummyCollection:
+        def get(self, *, where=None, include=None):
+            if include == ["embeddings", "metadatas"]:
+                raise RuntimeError("Error executing plan: Internal error: Error finding id")
+            assert where == {"chunk_type": "raptor_overview"}
+            assert include == ["documents", "metadatas"]
+            return {
+                "ids": ["p1_raptor_overview", "p2_raptor_overview", "p3_raptor_overview"],
+                "documents": ["alpha", "alphabet", "zeta"],
+                "metadatas": [
+                    {"paper_id": "p1"},
+                    {"paper_id": "p2"},
+                    {"paper_id": "p3"},
+                ],
+            }
+
+    class DummyVectorStore:
+        def __init__(self, path) -> None:
+            self.collection = DummyCollection()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc) -> None:
+            return None
+
+    class DummyEmbeddingGenerator:
+        def __init__(self, **kwargs) -> None:
+            captured["init_kwargs"] = kwargs
+
+        def resolve_batch_size(self, batch_size, texts):
+            captured["requested_batch_size"] = batch_size
+            captured["texts"] = list(texts)
+            return 11
+
+        def generate_embeddings(self, chunks, batch_size, show_progress):
+            captured["resolved_batch_size"] = batch_size
+            captured["show_progress"] = show_progress
+            embedding_map = {
+                "alpha": [1.0, 0.0],
+                "alphabet": [0.95, 0.05],
+                "zeta": [0.0, 1.0],
+            }
+            for chunk in chunks:
+                chunk.embedding = embedding_map[chunk.text]
+            return chunks
+
+    monkeypatch.setattr("src.indexing.pipeline.VectorStore", DummyVectorStore)
+    monkeypatch.setattr("src.indexing.pipeline.EmbeddingGenerator", DummyEmbeddingGenerator)
+
+    total_pairs = compute_similarity_pairs(
+        index_dir=tmp_path,
+        embedding_model="embed-test",
+        top_n=1,
+        embedding_backend="ollama",
+        ollama_base_url="http://localhost:11434",
+        query_prefix="query: ",
+        document_prefix="doc: ",
+        embedding_batch_size="auto",
+    )
+
+    assert total_pairs == 3
+    assert captured["init_kwargs"] == {
+        "model_name": "embed-test",
+        "backend": "ollama",
+        "ollama_base_url": "http://localhost:11434",
+        "query_prefix": "query: ",
+        "document_prefix": "doc: ",
+    }
+    assert captured["requested_batch_size"] == "auto"
+    assert captured["texts"] == ["alpha", "alphabet", "zeta"]
+    assert captured["resolved_batch_size"] == 11
+    assert captured["show_progress"] is False
+    pairs = StructuredStore(tmp_path).load_similarity_pairs()
+    assert pairs["p1"][0]["similar_paper_id"] == "p2"
+    assert pairs["p2"][0]["similar_paper_id"] == "p1"
+    assert pairs["p3"][0]["similar_paper_id"] == "p2"
