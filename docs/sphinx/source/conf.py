@@ -10,7 +10,7 @@ sys.path.insert(0, PROJECT_ROOT)
 
 project = "LITRIS"
 author = "LITRIS Contributors"
-release = "0.1.0"
+release = "0.3.0"
 
 extensions = [
     "sphinx.ext.autodoc",

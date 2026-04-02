@@ -1,6 +1,6 @@
 [project]
 name = "lit_review"
-version = "0.2.1"
+version = "0.3.0"
 description = "AI-assisted literature review system for Zotero libraries"
 readme = "README.md"
 license = {text = "MIT"}

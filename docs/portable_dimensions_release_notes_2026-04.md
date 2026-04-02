@@ -1,6 +1,7 @@
 # Portable Dimensions Release Notes
 
 Date: 2026-04-01
+Release: v0.3.0
 
 ## Summary
 
