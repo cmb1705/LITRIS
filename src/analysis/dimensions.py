@@ -47,6 +47,67 @@ LEGACY_PAPER_EXTRACTION_MARKER_KEYS = {
     "extraction_confidence",
     "extraction_notes",
 }
+DIMENSION_VALUE_TEXT_KEYS = (
+    "description",
+    "summary",
+    "analysis",
+    "answer",
+    "text",
+    "explanation",
+    "rationale",
+    "value",
+    "finding",
+    "claim",
+    "recommendation",
+    "implication",
+    "note",
+)
+
+
+def normalize_dimension_value(value: Any) -> str | None:
+    """Convert a raw dimension payload into a compact string value."""
+
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        return text or None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, Mapping):
+        preferred: list[str] = []
+        extras: list[str] = []
+
+        for key in DIMENSION_VALUE_TEXT_KEYS:
+            if key not in value:
+                continue
+            text = normalize_dimension_value(value.get(key))
+            if text:
+                preferred.append(text)
+
+        for key, item in value.items():
+            if key in DIMENSION_VALUE_TEXT_KEYS:
+                continue
+            text = normalize_dimension_value(item)
+            if not text:
+                continue
+            extras.append(f"{str(key).replace('_', ' ')}: {text}")
+
+        parts = list(dict.fromkeys([*preferred, *extras]))
+        if parts:
+            return "; ".join(parts)
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if isinstance(value, (list, tuple, set)):
+        parts = [
+            normalized
+            for item in value
+            if (normalized := normalize_dimension_value(item)) is not None
+        ]
+        unique = list(dict.fromkeys(parts))
+        return "; ".join(unique) if unique else None
+    return str(value)
 
 
 class DimensionRole(BaseModel):
@@ -565,7 +626,7 @@ class DimensionRegistry:
             )
             if not dimension:
                 continue
-            normalized[dimension.id] = None if value is None else str(value)
+            normalized[dimension.id] = normalize_dimension_value(value)
         for dimension in profile.dimensions:
             normalized.setdefault(dimension.id, None)
         return normalized
@@ -819,6 +880,37 @@ def normalize_dimension_payload(
     )
 
 
+def normalize_dimension_input_values(
+    values: Mapping[str, Any],
+    profile_id: str | None = None,
+    registry: DimensionRegistry | None = None,
+) -> dict[str, Any]:
+    """Normalize only dimension-like fields in a raw provider payload."""
+
+    active_registry = registry or get_default_dimension_registry()
+    resolved_profile_id = profile_id or str(values.get("profile_id") or "")
+    try:
+        profile = active_registry.get_profile(resolved_profile_id or None)
+    except KeyError:
+        profile = active_registry.get_profile(DEFAULT_DIMENSION_PROFILE)
+
+    normalized = dict(values)
+    raw_dimensions = values.get("dimensions")
+    if isinstance(raw_dimensions, Mapping):
+        normalized["dimensions"] = {
+            str(key): normalize_dimension_value(value)
+            for key, value in raw_dimensions.items()
+        }
+
+    for key, value in values.items():
+        if key in EXTRACTION_METADATA_KEYS:
+            continue
+        if active_registry.resolve_optional_dimension(str(key), profile_id=profile.profile_id):
+            normalized[key] = normalize_dimension_value(value)
+
+    return normalized
+
+
 def unwrap_extraction_record(record: Any) -> Any:
     """Unwrap nested extraction wrappers when present."""
 
@@ -871,7 +963,7 @@ def get_dimension_value(
         if isinstance(raw_dimensions, Mapping) and identifier in raw_dimensions:
             value = raw_dimensions.get(identifier)
             if value is not None:
-                return str(value)
+                return normalize_dimension_value(value)
         dimension = local_registry.resolve_optional_dimension(
             identifier,
             profile_id=profile_id,
@@ -885,9 +977,9 @@ def get_dimension_value(
         ):
             value = unwrapped["dimensions"].get(dimension.id)
             if value is not None:
-                return str(value)
+                return normalize_dimension_value(value)
         if identifier in unwrapped and unwrapped[identifier] is not None:
-            return str(unwrapped[identifier])
+            return normalize_dimension_value(unwrapped[identifier])
         if dimension:
             if (
                 dimension.legacy_field_name

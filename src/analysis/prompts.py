@@ -4,6 +4,8 @@
 # Prompt version for tracking extraction compatibility
 EXTRACTION_PROMPT_VERSION = "1.4.0"  # Added reference_list for citation graph ground truth
 
+PAPER_TEXT_STDIN_PLACEHOLDER = "[PAPER TEXT PROVIDED VIA STDIN - SEE BELOW]"
+
 EXTRACTION_SYSTEM_PROMPT = """You are an expert academic research analyst specializing in extracting structured information from scholarly papers. Your task is to analyze the provided paper text and extract key information in a structured format.
 
 Guidelines:
@@ -413,7 +415,7 @@ def build_cli_extraction_prompt(
         authors=authors,
         year=year or "Unknown",
         item_type=item_type,
-        text="[PAPER TEXT PROVIDED VIA STDIN - SEE BELOW]",
+        text=PAPER_TEXT_STDIN_PLACEHOLDER,
     )
 
 

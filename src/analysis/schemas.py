@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -13,6 +13,7 @@ from src.analysis.dimensions import (
     LEGACY_PROFILE_ID,
     build_legacy_dimension_profile,
     get_default_dimension_registry,
+    normalize_dimension_value,
 )
 
 _LEGACY_PROFILE = build_legacy_dimension_profile()
@@ -292,6 +293,26 @@ class DimensionedExtraction(BaseModel):
         default_factory=list,
         description="Coverage flags derived from the active profile",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_dimensions_payload(
+        cls,
+        data: dict | DimensionedExtraction,
+    ) -> dict | DimensionedExtraction:
+        if not isinstance(data, dict):
+            return data
+
+        raw_dimensions = data.get("dimensions")
+        if not isinstance(raw_dimensions, dict):
+            return data
+
+        normalized = dict(data)
+        normalized["dimensions"] = {
+            str(key): normalize_dimension_value(value)
+            for key, value in raw_dimensions.items()
+        }
+        return normalized
 
     @model_validator(mode="after")
     def _populate_profile_defaults(self) -> DimensionedExtraction:
@@ -607,7 +628,10 @@ class SemanticAnalysis(BaseModel):
         registry = get_default_dimension_registry()
         profile = registry.profiles.get(profile_id, _LEGACY_PROFILE)
         dimension_map = (
-            {str(key): value for key, value in dimensions.items()}
+            {
+                str(key): normalize_dimension_value(value)
+                for key, value in dimensions.items()
+            }
             if isinstance(dimensions, dict)
             else {}
         )
@@ -615,7 +639,10 @@ class SemanticAnalysis(BaseModel):
         if isinstance(dimensions, dict):
             for dimension in profile.dimensions:
                 if dimension.id in dimensions and dimension.legacy_field_name:
-                    data.setdefault(dimension.legacy_field_name, dimensions.get(dimension.id))
+                    data.setdefault(
+                        dimension.legacy_field_name,
+                        normalize_dimension_value(dimensions.get(dimension.id)),
+                    )
                 if (
                     dimension.legacy_short_name
                     and dimension.legacy_short_name in dimensions
@@ -623,20 +650,30 @@ class SemanticAnalysis(BaseModel):
                 ):
                     data.setdefault(
                         dimension.legacy_field_name,
-                        dimensions.get(dimension.legacy_short_name),
+                        normalize_dimension_value(
+                            dimensions.get(dimension.legacy_short_name)
+                        ),
                     )
 
         for dimension in profile.dimensions:
             if dimension.id in data:
-                dimension_map.setdefault(dimension.id, data[dimension.id])
+                dimension_map.setdefault(
+                    dimension.id,
+                    normalize_dimension_value(data[dimension.id]),
+                )
                 if dimension.legacy_field_name:
-                    data.setdefault(dimension.legacy_field_name, data[dimension.id])
+                    data.setdefault(
+                        dimension.legacy_field_name,
+                        normalize_dimension_value(data[dimension.id]),
+                    )
             if (
                 dimension.legacy_short_name
                 and dimension.legacy_short_name in data
                 and dimension.id not in dimension_map
             ):
-                dimension_map[dimension.id] = data[dimension.legacy_short_name]
+                dimension_map[dimension.id] = normalize_dimension_value(
+                    data[dimension.legacy_short_name]
+                )
 
         if dimension_map:
             data["dimensions"] = dimension_map
@@ -695,6 +732,127 @@ class SemanticAnalysis(BaseModel):
             profile_id=LEGACY_PROFILE_ID
         ).items()
     }
+
+    @classmethod
+    def from_legacy_paper_extraction(
+        cls,
+        extraction: PaperExtraction | dict[str, Any],
+        *,
+        paper_id: str,
+        profile_id: str = DEFAULT_DIMENSION_PROFILE,
+        profile_version: str = "",
+        profile_fingerprint: str = "",
+        prompt_version: str = "2.0.0",
+        extraction_model: str = "",
+        extracted_at: str = "",
+    ) -> SemanticAnalysis:
+        """Adapt a legacy ``PaperExtraction`` into the semantic schema."""
+
+        if isinstance(extraction, dict):
+            extraction = PaperExtraction(**extraction)
+
+        def _join(values: list[str]) -> str | None:
+            parts = [value.strip() for value in values if value and value.strip()]
+            unique = list(dict.fromkeys(parts))
+            return " ".join(unique) if unique else None
+
+        methodology = extraction.methodology
+
+        methods_parts = []
+        if methodology.approach:
+            methods_parts.append(f"Approach: {methodology.approach}.")
+        if methodology.design:
+            methods_parts.append(f"Design: {methodology.design}.")
+        if methodology.analysis_methods:
+            methods_parts.append(
+                "Analysis methods: " + ", ".join(methodology.analysis_methods) + "."
+            )
+
+        data_parts = []
+        if methodology.data_sources:
+            data_parts.append("Data sources: " + ", ".join(methodology.data_sources) + ".")
+        if methodology.sample_size:
+            data_parts.append(f"Sample size: {methodology.sample_size}.")
+        if methodology.time_period:
+            data_parts.append(f"Time period: {methodology.time_period}.")
+
+        findings = []
+        for finding in extraction.key_findings:
+            detail = finding.finding.strip()
+            qualifiers = []
+            if finding.evidence_type:
+                qualifiers.append(f"evidence: {finding.evidence_type.value}")
+            if finding.significance:
+                qualifiers.append(f"significance: {finding.significance.value}")
+            if finding.page_reference:
+                qualifiers.append(f"page: {finding.page_reference}")
+            if qualifiers:
+                detail = f"{detail} ({'; '.join(qualifiers)})"
+            findings.append(detail)
+
+        claims = []
+        for claim in extraction.key_claims:
+            detail = claim.claim.strip()
+            qualifiers = []
+            if claim.support_type:
+                qualifiers.append(f"support: {claim.support_type.value}")
+            if claim.strength:
+                qualifiers.append(f"strength: {claim.strength.value}")
+            if claim.page_reference:
+                qualifiers.append(f"page: {claim.page_reference}")
+            if qualifiers:
+                detail = f"{detail} ({'; '.join(qualifiers)})"
+            claims.append(detail)
+
+        references = []
+        for reference in extraction.reference_list[:5]:
+            parts = [
+                reference.parsed_authors or "",
+                str(reference.parsed_year) if reference.parsed_year is not None else "",
+                reference.parsed_title or reference.raw_text,
+            ]
+            references.append(", ".join(part for part in parts if part))
+
+        quality_summary = None
+        if extraction.quality_rating is not None and extraction.quality_explanation:
+            quality_summary = (
+                f"{extraction.quality_rating}/5. {extraction.quality_explanation}"
+            )
+        elif extraction.quality_rating is not None:
+            quality_summary = f"{extraction.quality_rating}/5."
+        elif extraction.quality_explanation:
+            quality_summary = extraction.quality_explanation
+
+        return cls(
+            paper_id=paper_id,
+            profile_id=profile_id,
+            profile_version=profile_version,
+            profile_fingerprint=profile_fingerprint,
+            prompt_version=prompt_version,
+            extraction_model=extraction_model,
+            extracted_at=extracted_at,
+            q01_research_question=_join(extraction.research_questions),
+            q02_thesis=normalize_dimension_value(extraction.thesis_statement),
+            q03_key_claims=_join(claims),
+            q04_evidence=_join(findings),
+            q05_limitations=_join(extraction.limitations),
+            q06_paradigm=normalize_dimension_value(
+                extraction.theoretical_framework or methodology.approach
+            ),
+            q07_methods=_join(methods_parts),
+            q08_data=_join(data_parts),
+            q10_framework=normalize_dimension_value(extraction.theoretical_framework),
+            q12_key_citations=_join(references),
+            q15_novelty=normalize_dimension_value(extraction.contribution_summary),
+            q17_field=_join(extraction.discipline_tags),
+            q19_implications=normalize_dimension_value(extraction.conclusions),
+            q20_future_work=_join(extraction.future_directions),
+            q21_quality=quality_summary,
+            q22_contribution=normalize_dimension_value(extraction.contribution_summary),
+            q23_source_type=normalize_dimension_value(extraction.document_type),
+            q24_other=normalize_dimension_value(extraction.extraction_notes),
+            q38_remaining_other=normalize_dimension_value(extraction.extraction_notes),
+        )
 
     def get_dimension_value(self, field_name: str) -> str | None:
         """Get the value of a dimension field by name."""

@@ -769,6 +769,9 @@ class SectionExtractor:
                 continue
 
             # Build pass-specific prompt
+            embed_text_in_prompt = not (
+                self.provider == "anthropic" and self.mode == "cli"
+            )
             prompt = build_pass_user_prompt(
                 pass_number=pass_num,
                 title=paper.title,
@@ -776,6 +779,7 @@ class SectionExtractor:
                 year=paper.publication_year,
                 document_type=document_type,
                 text=text,
+                embed_text=embed_text_in_prompt,
             )
 
             # Execute LLM call
@@ -925,18 +929,14 @@ class SectionExtractor:
     def _truncate_text_for_provider(self, text: str) -> str:
         """Apply provider-aware truncation for LLM input.
 
-        Anthropic CLI has stricter practical prompt limits than the API path,
-        so use a smaller input cap there while keeping canonical stored text
-        complete on disk.
+        Anthropic CLI now routes oversized prompts to API fallback on a
+        per-paper basis, so preserve the full cleaned text there. Other
+        providers continue to use a bounded LLM view while the canonical
+        snapshot on disk stays complete.
         """
 
         if self.provider == "anthropic" and self.mode == "cli":
-            return self.text_cleaner.truncate_for_llm(
-                text,
-                max_chars=500000,
-                preserve_start=30000,
-                preserve_end=15000,
-            )
+            return text
         return self.text_cleaner.truncate_for_llm(text)
 
     def extract_batch(

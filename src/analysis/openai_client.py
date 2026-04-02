@@ -25,11 +25,12 @@ from src.analysis.dimensions import (
     EXTRACTION_METADATA_KEYS,
     get_default_dimension_registry,
     is_dimension_payload,
+    normalize_dimension_input_values,
     normalize_dimension_payload,
 )
 from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
 from src.analysis.retry import with_retry
-from src.analysis.schemas import ExtractionResult, PaperExtraction, SemanticAnalysis
+from src.analysis.schemas import ExtractionResult, SemanticAnalysis
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -409,17 +410,17 @@ class OpenAILLMClient(BaseLLMClient):
 
     def _parse_response(
         self, response_text: str
-    ) -> SemanticAnalysis | PaperExtraction:
-        """Parse JSON response into SemanticAnalysis or PaperExtraction.
+    ) -> SemanticAnalysis:
+        """Parse JSON response into SemanticAnalysis.
 
         Detects q-field keys (from 6-pass pipeline) and returns SemanticAnalysis.
-        Falls back to PaperExtraction for legacy single-pass responses.
+        Legacy single-pass responses are adapted into SemanticAnalysis.
 
         Args:
             response_text: Raw response text.
 
         Returns:
-            Parsed SemanticAnalysis (6-pass) or PaperExtraction (legacy).
+            Parsed SemanticAnalysis.
         """
         # Clean response - remove any markdown formatting
         text = response_text.strip()
@@ -444,23 +445,25 @@ class OpenAILLMClient(BaseLLMClient):
             # SemanticAnalysis from merged answers; these placeholders are
             # only used by _extract_pass_answers via getattr.
             profile_id = data.get("profile_id") or get_default_dimension_registry().active_profile_id
+            normalized_data = normalize_dimension_input_values(data, profile_id=profile_id)
             return SemanticAnalysis(
-                paper_id=data.get("paper_id", "pending"),
+                paper_id=normalized_data.get("paper_id", "pending"),
                 profile_id=profile_id,
-                profile_version=data.get("profile_version", ""),
-                profile_fingerprint=data.get("profile_fingerprint", ""),
-                prompt_version=data.get("prompt_version", "2.0.0"),
-                extraction_model=data.get("extraction_model", self.model),
-                extracted_at=data.get("extracted_at", ""),
-                dimensions=normalize_dimension_payload(data, profile_id=profile_id),
+                profile_version=normalized_data.get("profile_version", ""),
+                profile_fingerprint=normalized_data.get("profile_fingerprint", ""),
+                prompt_version=normalized_data.get("prompt_version", "2.0.0"),
+                extraction_model=normalized_data.get("extraction_model", self.model),
+                extracted_at=normalized_data.get("extracted_at", ""),
+                dimensions=normalize_dimension_payload(normalized_data, profile_id=profile_id),
                 **{
                     k: v
-                    for k, v in data.items()
+                    for k, v in normalized_data.items()
                     if k not in EXTRACTION_METADATA_KEYS
                 },
             )
 
-        # Legacy single-pass: normalize GPT responses for PaperExtraction
+        # Legacy single-pass: normalize GPT responses and adapt them into
+        # SemanticAnalysis for schema compatibility.
 
         def _coerce_str_list(value: object) -> list[str]:
             """Coerce a value into a list of strings."""
@@ -763,7 +766,17 @@ class OpenAILLMClient(BaseLLMClient):
                 for c in data["key_claims"]
             ]
 
-        return PaperExtraction(**data)
+        profile_id = data.get("profile_id") or get_default_dimension_registry().active_profile_id
+        return SemanticAnalysis.from_legacy_paper_extraction(
+            data,
+            paper_id=data.get("paper_id", "pending"),
+            profile_id=profile_id,
+            profile_version=data.get("profile_version", ""),
+            profile_fingerprint=data.get("profile_fingerprint", ""),
+            prompt_version=data.get("prompt_version", "2.0.0"),
+            extraction_model=data.get("extraction_model", self.model),
+            extracted_at=data.get("extracted_at", ""),
+        )
 
     def estimate_cost(self, text_length: int) -> float:
         """Estimate cost for extraction.

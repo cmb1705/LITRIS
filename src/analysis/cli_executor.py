@@ -8,6 +8,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from src.analysis.prompts import PAPER_TEXT_STDIN_PLACEHOLDER
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -685,9 +686,8 @@ class ClaudeCliExecutor:
         """
         # Combine prompt and text into a single message
         # Replace placeholder if present, otherwise append text
-        placeholder = "[PAPER TEXT PROVIDED VIA STDIN - SEE BELOW]"
-        if placeholder in prompt:
-            combined_prompt = prompt.replace(placeholder, input_text)
+        if PAPER_TEXT_STDIN_PLACEHOLDER in prompt:
+            combined_prompt = prompt.replace(PAPER_TEXT_STDIN_PLACEHOLDER, input_text)
         else:
             combined_prompt = f"{prompt}\n\nPAPER TEXT:\n{input_text}"
 

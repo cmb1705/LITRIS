@@ -7,7 +7,8 @@ References:
 - https://github.com/ollama/ollama-python
 """
 
-# NOTE: This module constructs PaperExtraction objects and is non-functional after the SemanticAnalysis migration. Retained for future multi-provider support.
+# NOTE: This module is retained for future multi-provider support and adapts
+# legacy payloads into SemanticAnalysis for compatibility with the migrated schema.
 
 import json
 import os
@@ -20,10 +21,11 @@ from src.analysis.dimensions import (
     EXTRACTION_METADATA_KEYS,
     get_default_dimension_registry,
     is_dimension_payload,
+    normalize_dimension_input_values,
     normalize_dimension_payload,
 )
 from src.analysis.prompts import EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
-from src.analysis.schemas import ExtractionResult, PaperExtraction, SemanticAnalysis
+from src.analysis.schemas import ExtractionResult, SemanticAnalysis
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -253,14 +255,14 @@ class OllamaLLMClient(BaseLLMClient):
 
         return response["message"]["content"]
 
-    def _parse_response(self, response_text: str) -> SemanticAnalysis | PaperExtraction:
-        """Parse JSON response into SemanticAnalysis or PaperExtraction.
+    def _parse_response(self, response_text: str) -> SemanticAnalysis:
+        """Parse JSON response into SemanticAnalysis.
 
         Args:
             response_text: Raw response text.
 
         Returns:
-            Parsed PaperExtraction.
+            Parsed SemanticAnalysis.
         """
         # Clean response - remove any markdown formatting
         text = response_text.strip()
@@ -281,23 +283,24 @@ class OllamaLLMClient(BaseLLMClient):
 
         if is_dimension_payload(data):
             profile_id = data.get("profile_id") or get_default_dimension_registry().active_profile_id
+            normalized_data = normalize_dimension_input_values(data, profile_id=profile_id)
             return SemanticAnalysis(
-                paper_id=data.get("paper_id", "pending"),
+                paper_id=normalized_data.get("paper_id", "pending"),
                 profile_id=profile_id,
-                profile_version=data.get("profile_version", ""),
-                profile_fingerprint=data.get("profile_fingerprint", ""),
-                prompt_version=data.get("prompt_version", "2.0.0"),
-                extraction_model=data.get("extraction_model", self.model),
-                extracted_at=data.get("extracted_at", ""),
-                dimensions=normalize_dimension_payload(data, profile_id=profile_id),
+                profile_version=normalized_data.get("profile_version", ""),
+                profile_fingerprint=normalized_data.get("profile_fingerprint", ""),
+                prompt_version=normalized_data.get("prompt_version", "2.0.0"),
+                extraction_model=normalized_data.get("extraction_model", self.model),
+                extracted_at=normalized_data.get("extracted_at", ""),
+                dimensions=normalize_dimension_payload(normalized_data, profile_id=profile_id),
                 **{
                     k: v
-                    for k, v in data.items()
+                    for k, v in normalized_data.items()
                     if k not in EXTRACTION_METADATA_KEYS
                 },
             )
 
-        # Handle nested methodology
+        # Handle legacy single-pass nested fields before adapting them.
         if "methodology" in data and isinstance(data["methodology"], dict):
             from src.analysis.schemas import Methodology
             data["methodology"] = Methodology(**data["methodology"])
@@ -318,7 +321,17 @@ class OllamaLLMClient(BaseLLMClient):
                 for c in data["key_claims"]
             ]
 
-        return PaperExtraction(**data)
+        profile_id = data.get("profile_id") or get_default_dimension_registry().active_profile_id
+        return SemanticAnalysis.from_legacy_paper_extraction(
+            data,
+            paper_id=data.get("paper_id", "pending"),
+            profile_id=profile_id,
+            profile_version=data.get("profile_version", ""),
+            profile_fingerprint=data.get("profile_fingerprint", ""),
+            prompt_version=data.get("prompt_version", "2.0.0"),
+            extraction_model=data.get("extraction_model", self.model),
+            extracted_at=data.get("extracted_at", ""),
+        )
 
     def estimate_cost(self, text_length: int) -> float:
         """Estimate cost for extraction.

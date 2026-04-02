@@ -8,6 +8,7 @@ Cache keys include this version so bumping it invalidates all cached results.
 """
 
 from src.analysis.dimensions import get_default_dimension_registry
+from src.analysis.prompts import PAPER_TEXT_STDIN_PLACEHOLDER
 
 # Prompt version for SemanticAnalysis extraction.
 # Bump this when any prompt text changes; cache keys include it.
@@ -193,6 +194,8 @@ def build_pass_user_prompt(
     year: int | str | None,
     document_type: str,
     text: str,
+    *,
+    embed_text: bool = True,
 ) -> str:
     """Build the user prompt for a specific extraction pass.
 
@@ -202,7 +205,8 @@ def build_pass_user_prompt(
         authors: Author string.
         year: Publication year.
         document_type: Document type key for framing note.
-        text: Truncated paper text.
+        text: Paper text or placeholder token.
+        embed_text: Whether to embed ``text`` directly in the prompt body.
 
     Returns:
         Formatted user prompt string.
@@ -219,6 +223,7 @@ def build_pass_user_prompt(
     pass_label, questions = pass_definitions[pass_number - 1]
     framing = _get_framing(document_type)
     formatted_questions = _format_questions(questions)
+    prompt_text = text if embed_text else PAPER_TEXT_STDIN_PLACEHOLDER
 
     return f"""\
 Analyze the following document and answer the questions below.
@@ -231,7 +236,7 @@ Authors: {authors}
 Year: {year or "Unknown"}
 
 PAPER TEXT:
-{text}
+{prompt_text}
 
 {pass_label} -- Answer each question with 2-5 sentences of prose analysis. \
 Return null for dimensions that do not apply to this document.

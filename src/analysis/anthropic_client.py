@@ -22,15 +22,17 @@ from src.analysis.dimensions import (
     EXTRACTION_METADATA_KEYS,
     get_default_dimension_registry,
     is_dimension_payload,
+    normalize_dimension_input_values,
     normalize_dimension_payload,
 )
 from src.analysis.prompts import (
     EXTRACTION_SYSTEM_PROMPT,
+    PAPER_TEXT_STDIN_PLACEHOLDER,
     build_cli_extraction_prompt,
     build_extraction_prompt,
 )
 from src.analysis.retry import with_retry
-from src.analysis.schemas import ExtractionResult, PaperExtraction, SemanticAnalysis
+from src.analysis.schemas import ExtractionResult, SemanticAnalysis
 from src.utils.logging_config import get_logger
 from src.utils.secrets import get_anthropic_api_key
 
@@ -44,6 +46,7 @@ class AnthropicLLMClient(BaseLLMClient):
     MODELS = ANTHROPIC_MODELS
     MODEL_PRICING = ANTHROPIC_PRICING
     BATCH_PRICING = ANTHROPIC_BATCH_PRICING
+    CLI_API_FALLBACK_CHAR_THRESHOLD = 500_000
 
     def __init__(
         self,
@@ -160,9 +163,35 @@ class AnthropicLLMClient(BaseLLMClient):
                         item_type=item_type,
                     )
                     prompt = f"{EXTRACTION_SYSTEM_PROMPT}\n\n---\n\n{user_prompt}"
-                response_dict = self.cli_executor.extract(prompt, text)
-                response_text = json.dumps(response_dict)
-                input_tokens, output_tokens = 0, 0
+                estimated_chars = self._estimate_cli_prompt_chars(prompt, text)
+                if (
+                    estimated_chars > self.CLI_API_FALLBACK_CHAR_THRESHOLD
+                    and self._ensure_api_client()
+                ):
+                    logger.info(
+                        "Prompt estimate for paper %s exceeds Claude CLI threshold "
+                        "(%d chars); using Anthropic API fallback",
+                        paper_id,
+                        estimated_chars,
+                    )
+                    api_prompt = self._build_api_fallback_prompt(prompt, text)
+                    response_text, input_tokens, output_tokens = self._call_api(api_prompt)
+                else:
+                    try:
+                        response_dict = self.cli_executor.extract(prompt, text)
+                    except PromptTooLongError:
+                        if not self._ensure_api_client():
+                            raise
+                        logger.info(
+                            "Claude CLI prompt exceeded context for paper %s; "
+                            "retrying with Anthropic API",
+                            paper_id,
+                        )
+                        api_prompt = self._build_api_fallback_prompt(prompt, text)
+                        response_text, input_tokens, output_tokens = self._call_api(api_prompt)
+                    else:
+                        response_text = json.dumps(response_dict)
+                        input_tokens, output_tokens = 0, 0
 
             # Parse JSON response
             extraction = self._parse_response(response_text)
@@ -293,19 +322,49 @@ class AnthropicLLMClient(BaseLLMClient):
         response_text = self.cli_executor.call_with_prompt(prompt)
         return response_text, 0, 0
 
+    def _ensure_api_client(self) -> bool:
+        """Lazily initialize an Anthropic API client for CLI fallback."""
+
+        if self.client is not None:
+            return True
+
+        api_key = get_anthropic_api_key()
+        if not api_key:
+            return False
+
+        self.client = Anthropic(api_key=api_key)
+        return True
+
+    def _build_api_fallback_prompt(self, prompt: str, text: str) -> str:
+        """Build an API-safe prompt from a CLI prompt plus paper text."""
+
+        cli_prefixed_prompt = f"{EXTRACTION_SYSTEM_PROMPT}\n\n---\n\n"
+        if prompt.startswith(cli_prefixed_prompt):
+            prompt = prompt[len(cli_prefixed_prompt) :]
+        if PAPER_TEXT_STDIN_PLACEHOLDER in prompt:
+            return prompt.replace(PAPER_TEXT_STDIN_PLACEHOLDER, text)
+        return prompt
+
+    def _estimate_cli_prompt_chars(self, prompt: str, text: str) -> int:
+        """Estimate the combined prompt size that Claude CLI will receive."""
+
+        if PAPER_TEXT_STDIN_PLACEHOLDER in prompt:
+            return len(prompt) - len(PAPER_TEXT_STDIN_PLACEHOLDER) + len(text)
+        return len(prompt) + len("\n\nPAPER TEXT:\n") + len(text)
+
     def _parse_response(
         self, response_text: str
-    ) -> SemanticAnalysis | PaperExtraction:
-        """Parse JSON response into SemanticAnalysis or PaperExtraction.
+    ) -> SemanticAnalysis:
+        """Parse JSON response into SemanticAnalysis.
 
         Detects q-field keys (from 6-pass pipeline) and returns SemanticAnalysis.
-        Falls back to PaperExtraction for legacy single-pass responses.
+        Legacy single-pass responses are adapted into SemanticAnalysis.
 
         Args:
             response_text: Raw response text.
 
         Returns:
-            Parsed SemanticAnalysis (6-pass) or PaperExtraction (legacy).
+            Parsed SemanticAnalysis.
         """
         # Clean response - remove any markdown formatting
         text = response_text.strip()
@@ -330,18 +389,19 @@ class AnthropicLLMClient(BaseLLMClient):
             # SemanticAnalysis from merged answers; these placeholders are
             # only used by _extract_pass_answers via getattr.
             profile_id = data.get("profile_id") or get_default_dimension_registry().active_profile_id
+            normalized_data = normalize_dimension_input_values(data, profile_id=profile_id)
             return SemanticAnalysis(
-                paper_id=data.get("paper_id", "pending"),
+                paper_id=normalized_data.get("paper_id", "pending"),
                 profile_id=profile_id,
-                profile_version=data.get("profile_version", ""),
-                profile_fingerprint=data.get("profile_fingerprint", ""),
-                prompt_version=data.get("prompt_version", "2.0.0"),
-                extraction_model=data.get("extraction_model", self.model),
-                extracted_at=data.get("extracted_at", ""),
-                dimensions=normalize_dimension_payload(data, profile_id=profile_id),
+                profile_version=normalized_data.get("profile_version", ""),
+                profile_fingerprint=normalized_data.get("profile_fingerprint", ""),
+                prompt_version=normalized_data.get("prompt_version", "2.0.0"),
+                extraction_model=normalized_data.get("extraction_model", self.model),
+                extracted_at=normalized_data.get("extracted_at", ""),
+                dimensions=normalize_dimension_payload(normalized_data, profile_id=profile_id),
                 **{
                     k: v
-                    for k, v in data.items()
+                    for k, v in normalized_data.items()
                     if k not in EXTRACTION_METADATA_KEYS
                 },
             )
@@ -365,7 +425,17 @@ class AnthropicLLMClient(BaseLLMClient):
                 for c in data["key_claims"]
             ]
 
-        return PaperExtraction(**data)
+        profile_id = data.get("profile_id") or get_default_dimension_registry().active_profile_id
+        return SemanticAnalysis.from_legacy_paper_extraction(
+            data,
+            paper_id=data.get("paper_id", "pending"),
+            profile_id=profile_id,
+            profile_version=data.get("profile_version", ""),
+            profile_fingerprint=data.get("profile_fingerprint", ""),
+            prompt_version=data.get("prompt_version", "2.0.0"),
+            extraction_model=data.get("extraction_model", self.model),
+            extracted_at=data.get("extracted_at", ""),
+        )
 
     def estimate_cost(self, text_length: int) -> float:
         """Estimate cost for extraction.

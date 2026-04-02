@@ -7,6 +7,7 @@ import pytest
 
 from src.analysis.prompts import (
     EXTRACTION_SYSTEM_PROMPT,
+    PAPER_TEXT_STDIN_PLACEHOLDER,
     build_extraction_prompt,
     build_validation_prompt,
 )
@@ -14,6 +15,7 @@ from src.analysis.schemas import (
     ExtractionResult,
     SemanticAnalysis,
 )
+from src.analysis.semantic_prompts import build_pass_user_prompt
 
 # --- Helper ---
 
@@ -240,8 +242,8 @@ class TestSectionExtractorConfig:
         assert captured["enable_ocr"] is True
         assert captured["ocr_config"] == {"lang": "deu", "dpi": 400}
 
-    def test_section_extractor_uses_smaller_cli_cap_for_anthropic(self, tmp_path, monkeypatch):
-        """Anthropic CLI should use a smaller prompt cap than API-mode providers."""
+    def test_section_extractor_preserves_full_text_for_anthropic_cli(self, tmp_path, monkeypatch):
+        """Anthropic CLI should preserve full text and rely on targeted API fallback."""
         from src.analysis import section_extractor as se_module
 
         class DummyPDFExtractor:
@@ -274,8 +276,7 @@ class TestSectionExtractorConfig:
         cli_text = cli_extractor._truncate_text_for_provider(long_text)
         api_text = api_extractor._truncate_text_for_provider(long_text)
 
-        assert len(cli_text) < len(api_text)
-        assert len(cli_text) <= 500100
+        assert cli_text == long_text
         assert api_text == long_text
 
 
@@ -284,11 +285,7 @@ class TestLLMClientMocked:
 
     @pytest.fixture
     def mock_response_json(self):
-        """Sample valid JSON response for PaperExtraction (legacy format).
-
-        Note: AnthropicLLMClient._parse_response still returns PaperExtraction.
-        This fixture provides the old-format JSON it expects.
-        """
+        """Sample valid JSON response for legacy PaperExtraction fields."""
         return json.dumps({
             "thesis_statement": "Test thesis",
             "research_questions": ["RQ1"],
@@ -317,21 +314,26 @@ class TestLLMClientMocked:
         })
 
     def test_parse_response(self, mock_response_json):
-        """Test JSON response parsing returns PaperExtraction."""
+        """Legacy payloads should be adapted into SemanticAnalysis."""
         from src.analysis.llm_client import LLMClient
 
         with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
             client = LLMClient(mode="api")
             extraction = client._parse_response(mock_response_json)
 
-        assert extraction.thesis_statement == "Test thesis"
-        assert len(extraction.research_questions) == 1
-        assert extraction.methodology.approach == "quantitative"
-        assert len(extraction.key_findings) == 1
-        assert extraction.extraction_confidence == 0.85
+        assert isinstance(extraction, SemanticAnalysis)
+        assert extraction.q02_thesis == "Test thesis"
+        assert extraction.q01_research_question == "RQ1"
+        assert extraction.q10_framework == "Test framework"
+        assert extraction.q07_methods is not None
+        assert "survey" in extraction.q07_methods.lower()
+        assert extraction.q04_evidence is not None
+        assert "Finding 1" in extraction.q04_evidence
+        assert extraction.q20_future_work == "Future 1"
+        assert extraction.q22_contribution == "Test contribution"
 
     def test_parse_response_with_markdown(self, mock_response_json):
-        """Test parsing response with markdown code block."""
+        """Markdown-wrapped legacy payloads should still adapt cleanly."""
         from src.analysis.llm_client import LLMClient
 
         wrapped = f"```json\n{mock_response_json}\n```"
@@ -340,7 +342,48 @@ class TestLLMClientMocked:
             client = LLMClient(mode="api")
             extraction = client._parse_response(wrapped)
 
-        assert extraction.thesis_statement == "Test thesis"
+        assert extraction.q02_thesis == "Test thesis"
+
+    def test_parse_response_normalizes_structured_dimension_values(self):
+        """Structured q-field dicts should be flattened into strings."""
+        from src.analysis.llm_client import LLMClient
+
+        payload = json.dumps({
+            "q32_deployment_gap": {
+                "exists": True,
+                "description": "Formal plans miss local practice.",
+            },
+            "q33_infrastructure_contribution": {
+                "type": "conceptual_framework",
+                "description": "Provides a lens for legibility.",
+            },
+        })
+
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+            client = LLMClient(mode="api")
+            extraction = client._parse_response(payload)
+
+        assert extraction.q32_deployment_gap is not None
+        assert "Formal plans miss local practice." in extraction.q32_deployment_gap
+        assert "exists: true" in extraction.q32_deployment_gap
+        assert extraction.q33_infrastructure_contribution is not None
+        assert "Provides a lens for legibility." in extraction.q33_infrastructure_contribution
+        assert "type: conceptual_framework" in extraction.q33_infrastructure_contribution
+
+    def test_build_pass_user_prompt_uses_stdin_placeholder_when_requested(self):
+        """Anthropic CLI pass prompts should not inline paper text twice."""
+        prompt = build_pass_user_prompt(
+            pass_number=6,
+            title="Prompt test",
+            authors="A. Researcher",
+            year=2026,
+            document_type="research_paper",
+            text="INLINE TEXT SHOULD NOT APPEAR",
+            embed_text=False,
+        )
+
+        assert PAPER_TEXT_STDIN_PLACEHOLDER in prompt
+        assert "INLINE TEXT SHOULD NOT APPEAR" not in prompt
 
     def test_estimate_cost(self):
         """Test cost estimation."""

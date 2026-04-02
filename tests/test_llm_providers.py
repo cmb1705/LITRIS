@@ -1,5 +1,6 @@
 """Tests for multi-provider LLM support."""
 
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -155,6 +156,72 @@ class TestAnthropicClient:
 
         for model in AnthropicLLMClient.MODELS.keys():
             assert model in AnthropicLLMClient.MODEL_PRICING
+
+    def test_cli_oversize_routes_to_api_fallback(self):
+        """Anthropic CLI should use API fallback for oversized prompts."""
+        from src.analysis.anthropic_client import AnthropicLLMClient
+        from src.analysis.prompts import PAPER_TEXT_STDIN_PLACEHOLDER
+
+        client = AnthropicLLMClient.__new__(AnthropicLLMClient)
+        client.mode = "cli"
+        client.model = "claude-opus-4-5-20251101"
+        client.max_tokens = 4096
+        client.timeout = 120
+        client.client = object()
+        client.cli_executor = MagicMock()
+        client.CLI_API_FALLBACK_CHAR_THRESHOLD = 10
+        client._call_api = MagicMock(return_value=('{"q02_thesis":"Recovered"}', 12, 4))
+
+        result = client.extract(
+            paper_id="paper-1",
+            title="Oversized prompt",
+            authors="A. Author",
+            year=2026,
+            item_type="journalArticle",
+            text="full paper text",
+            prompt_override=PAPER_TEXT_STDIN_PLACEHOLDER,
+        )
+
+        client.cli_executor.extract.assert_not_called()
+        client._call_api.assert_called_once_with("full paper text")
+        assert result.success is True
+        assert result.extraction.q02_thesis == "Recovered"
+        assert result.input_tokens == 12
+        assert result.output_tokens == 4
+
+    def test_cli_prompt_too_long_retries_with_api(self):
+        """Prompt-too-long CLI failures should retry via API when available."""
+        from src.analysis.anthropic_client import AnthropicLLMClient
+        from src.analysis.cli_executor import PromptTooLongError
+        from src.analysis.prompts import PAPER_TEXT_STDIN_PLACEHOLDER
+
+        client = AnthropicLLMClient.__new__(AnthropicLLMClient)
+        client.mode = "cli"
+        client.model = "claude-opus-4-5-20251101"
+        client.max_tokens = 4096
+        client.timeout = 120
+        client.client = object()
+        client.cli_executor = MagicMock()
+        client.cli_executor.extract.side_effect = PromptTooLongError("prompt is too long")
+        client._call_api = MagicMock(return_value=('{"q02_thesis":"Recovered"}', 9, 3))
+
+        result = client.extract(
+            paper_id="paper-2",
+            title="Prompt too long",
+            authors="A. Author",
+            year=2026,
+            item_type="journalArticle",
+            text="short text",
+            prompt_override=PAPER_TEXT_STDIN_PLACEHOLDER,
+        )
+
+        client.cli_executor.extract.assert_called_once_with(
+            PAPER_TEXT_STDIN_PLACEHOLDER,
+            "short text",
+        )
+        client._call_api.assert_called_once_with("short text")
+        assert result.success is True
+        assert result.extraction.q02_thesis == "Recovered"
 
 
 class TestAnthropicClientEstimateCost:
