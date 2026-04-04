@@ -461,9 +461,21 @@ def test_plan_sync_pending_extraction_work_prevents_noop(tmp_path):
     assert plan.resolved_mode == "update"
     assert plan.noop is False
     assert plan.pending_work["extraction"].paper_ids == ["P2"]
+    assert orchestrator._scoped_current_ids(
+        args=args,
+        plan=plan,
+        desired_index_ids={"P1", "P2"},
+    ) == {"P2"}
     assert orchestrator._extraction_required_ids(
         args=args,
         plan=plan,
         desired_index_ids={"P1", "P2"},
         existing_extractions={"P1": {"paper_id": "P1", "extraction": {}}},
+    ) == {"P2"}
+    assert orchestrator._embedding_scope_ids(
+        args=args,
+        plan=plan,
+        final_papers={"P1": {"paper_id": "P1"}, "P2": {"paper_id": "P2"}},
+        final_extractions={"P1": {"paper_id": "P1"}, "P2": {"paper_id": "P2"}},
+        failed_extraction_ids=set(),
     ) == {"P2"}

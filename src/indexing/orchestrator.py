@@ -1644,6 +1644,10 @@ class IndexOrchestrator:
             return set(desired_index_ids)
         scoped_ids = set(plan.change_set.new_items + plan.change_set.modified_items)
         scoped_ids.update(plan.forced_paper_ids)
+        pending_ids = set(plan.pending_work["extraction"].paper_ids)
+        if plan.pending_work["extraction"].all:
+            pending_ids = set(desired_index_ids)
+        scoped_ids.update(pending_ids)
         return scoped_ids & set(desired_index_ids)
 
     def _extraction_required_ids(
@@ -1774,7 +1778,11 @@ class IndexOrchestrator:
         if plan.clear_vector_store:
             return desired_ids
         changed_ids = set(plan.change_set.new_items + plan.change_set.modified_items)
+        extraction_pending_ids = set(plan.pending_work["extraction"].paper_ids)
+        if plan.pending_work["extraction"].all:
+            extraction_pending_ids = set(desired_ids)
         changed_ids.update(plan.forced_paper_ids)
+        changed_ids.update(extraction_pending_ids)
         changed_ids &= desired_ids
         changed_ids -= failed_extraction_ids
         return changed_ids | pending_ids
