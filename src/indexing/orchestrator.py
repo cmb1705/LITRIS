@@ -953,6 +953,8 @@ class IndexOrchestrator:
                     len(extraction_pending_ids),
                 )
                 return 1
+            if extraction_candidate_papers:
+                manifest.pending_work["extraction"].clear()
 
             if getattr(args, "skip_embeddings", False):
                 with self._time_stage("embeddings", stage_times):
