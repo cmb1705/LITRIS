@@ -147,6 +147,42 @@ class ClaudeCliAuthenticator:
             return alt
         return primary  # Default to primary even if doesn't exist
 
+    def _load_oauth_credentials(self) -> dict | None:
+        """Load the stored Claude OAuth record when present and parseable."""
+        if not self.creds_path.exists():
+            return None
+        try:
+            with open(self.creds_path, encoding="utf-8") as f:
+                creds = json.load(f)
+        except Exception:
+            return None
+        oauth = creds.get("claudeAiOauth")
+        return oauth if isinstance(oauth, dict) else None
+
+    @staticmethod
+    def _coerce_expiry_ms(value: object) -> int:
+        """Normalize credential expiry values to milliseconds since epoch."""
+        if isinstance(value, bool):
+            return 0
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(value)
+            except ValueError:
+                return 0
+        return 0
+
+    def _has_refreshable_oauth(self) -> bool:
+        """Return whether stored Claude credentials can be refreshed headlessly."""
+        oauth = self._load_oauth_credentials()
+        if not oauth:
+            return False
+        if oauth.get("refreshToken"):
+            return True
+        expires_at = self._coerce_expiry_ms(oauth.get("expiresAt"))
+        return expires_at >= int(time.time() * 1000)
+
     def get_auth_method(self) -> str:
         """Return which authentication method the CLI will use.
 
@@ -163,17 +199,8 @@ class ClaudeCliAuthenticator:
             return "oauth_token"
 
         # Credentials file with valid OAuth is next (CLI prefers this over API key)
-        if self.creds_path.exists():
-            try:
-                with open(self.creds_path, encoding="utf-8") as f:
-                    creds = json.load(f)
-                if "claudeAiOauth" in creds:
-                    oauth = creds["claudeAiOauth"]
-                    expires_at = oauth.get("expiresAt", 0)
-                    if expires_at >= int(time.time() * 1000):
-                        return "credentials_file"
-            except Exception:
-                pass
+        if self._has_refreshable_oauth():
+            return "credentials_file"
 
         # API key is fallback (only used if no OAuth available)
         if os.environ.get("ANTHROPIC_API_KEY"):
@@ -192,24 +219,13 @@ class ClaudeCliAuthenticator:
             return True, "Using CLAUDE_CODE_OAUTH_TOKEN (subscription)"
 
         # Check for credentials file - CLI prefers this over API key
-        if self.creds_path.exists():
-            try:
-                with open(self.creds_path, encoding="utf-8") as f:
-                    creds = json.load(f)
-
-                if "claudeAiOauth" in creds:
-                    oauth = creds["claudeAiOauth"]
-                    expires_at = oauth.get("expiresAt", 0)
-                    # Check if token is expired (expires_at is in milliseconds)
-                    if expires_at < int(time.time() * 1000):
-                        # Token expired - fall through to check API key
-                        pass
-                    else:
-                        return True, "Using credentials file OAuth (subscription)"
-            except json.JSONDecodeError:
-                pass
-            except Exception:
-                pass
+        oauth = self._load_oauth_credentials()
+        if oauth:
+            if oauth.get("refreshToken"):
+                return True, "Using refreshable credentials file OAuth (subscription)"
+            expires_at = self._coerce_expiry_ms(oauth.get("expiresAt"))
+            if expires_at >= int(time.time() * 1000):
+                return True, "Using credentials file OAuth (subscription)"
 
         # Check for API key - only used as fallback if no valid OAuth
         if os.environ.get("ANTHROPIC_API_KEY"):

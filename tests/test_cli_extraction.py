@@ -92,6 +92,70 @@ class TestClaudeCliExecutor:
 
             assert "not found" in str(exc_info.value)
 
+    def test_authenticator_accepts_refreshable_credentials_file(self, monkeypatch, tmp_path):
+        """Expired access tokens should still pass preflight when a refresh token exists."""
+        from src.analysis.cli_executor import ClaudeCliAuthenticator
+
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+
+        creds_path = tmp_path / ".credentials.json"
+        creds_path.write_text(
+            """
+            {
+              "claudeAiOauth": {
+                "accessToken": "expired-token",
+                "refreshToken": "refresh-token",
+                "expiresAt": 1
+              }
+            }
+            """.strip(),
+            encoding="utf-8",
+        )
+
+        with patch.object(
+            ClaudeCliAuthenticator, "_get_credentials_path", return_value=creds_path
+        ):
+            authenticator = ClaudeCliAuthenticator()
+
+        assert authenticator.get_auth_method() == "credentials_file"
+        assert authenticator.is_authenticated() == (
+            True,
+            "Using refreshable credentials file OAuth (subscription)",
+        )
+
+    def test_authenticator_rejects_expired_credentials_without_refresh_token(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        """Expired access tokens without refresh support should fail auth preflight."""
+        from src.analysis.cli_executor import ClaudeCliAuthenticator
+
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+
+        creds_path = tmp_path / ".credentials.json"
+        creds_path.write_text(
+            """
+            {
+              "claudeAiOauth": {
+                "accessToken": "expired-token",
+                "expiresAt": 1
+              }
+            }
+            """.strip(),
+            encoding="utf-8",
+        )
+
+        with patch.object(
+            ClaudeCliAuthenticator, "_get_credentials_path", return_value=creds_path
+        ):
+            authenticator = ClaudeCliAuthenticator()
+
+        assert authenticator.get_auth_method() == "none"
+        assert authenticator.is_authenticated() == (False, "No credentials found")
+
     def test_rate_limit_detection(self):
         """Test rate limit detection in responses."""
         executor = ClaudeCliExecutor()
