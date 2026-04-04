@@ -2042,14 +2042,26 @@ class IndexOrchestrator:
         chroma_dir = self.index_dir / "chroma"
         try:
             with VectorStore(chroma_dir) as vector_store:
-                results = vector_store.collection.get(include=["metadatas"])
+                observed: set[str] = set()
+                offset = 0
+                page_size = 500
+                while True:
+                    results = vector_store.collection.get(
+                        include=["metadatas"],
+                        limit=page_size,
+                        offset=offset,
+                    )
+                    metadatas = results.get("metadatas") or []
+                    if not metadatas:
+                        break
+                    observed.update(
+                        meta.get("chunk_type")
+                        for meta in metadatas
+                        if meta and meta.get("chunk_type")
+                    )
+                    offset += len(metadatas)
         except Exception as exc:
             return f"Could not inspect chunk types: {exc}"
-        observed = {
-            meta.get("chunk_type")
-            for meta in (results.get("metadatas") or [])
-            if meta and meta.get("chunk_type")
-        }
         invalid = sorted(
             chunk_type
             for chunk_type in observed

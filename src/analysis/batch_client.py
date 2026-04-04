@@ -25,11 +25,13 @@ from src.zotero.models import PaperMetadata
 
 logger = get_logger(__name__)
 
+CUSTOM_ID_PASS_SEPARATOR = "__pass"
+
 @dataclass
 class BatchRequest:
     """A single request in a batch."""
 
-    custom_id: str  # {paper_id}:pass{N}
+    custom_id: str  # {paper_id}__pass{N}
     paper: PaperMetadata
     prompt: str
     pass_number: int = 1
@@ -142,7 +144,7 @@ class BatchExtractionClient:
                         document_type=paper.item_type,
                         text=text,
                     )
-                    custom_id = f"{paper.paper_id}:pass{pass_num}"
+                    custom_id = self._build_custom_id(paper.paper_id, pass_num)
                     requests.append(
                         BatchRequest(
                             custom_id=custom_id,
@@ -285,14 +287,8 @@ class BatchExtractionClient:
             custom_id = result.custom_id
 
             # Parse paper_id and pass number from custom_id
-            if ":pass" in custom_id:
-                paper_id, pass_suffix = custom_id.rsplit(":pass", 1)
-                try:
-                    pass_num = int(pass_suffix)
-                except ValueError:
-                    logger.warning(f"Invalid pass number in custom_id: {custom_id}")
-                    continue
-            else:
+            parsed_id = self._parse_custom_id(custom_id)
+            if parsed_id is None:
                 # Legacy single-pass format (no :pass suffix)
                 paper_id = custom_id
                 pass_num = 0
@@ -301,6 +297,7 @@ class BatchExtractionClient:
                     "Cannot reassemble into SemanticAnalysis."
                 )
                 continue
+            paper_id, pass_num = parsed_id
 
             acc = paper_results[paper_id]
 
@@ -426,10 +423,9 @@ class BatchExtractionClient:
         """Save batch state to disk for recovery."""
         # Deduplicate paper_ids (each paper has 6 requests)
         paper_ids = sorted({
-            r.custom_id.rsplit(":pass", 1)[0]
-            if ":pass" in r.custom_id
-            else r.custom_id
+            parsed[0] if parsed else r.custom_id
             for r in requests
+            for parsed in [self._parse_custom_id(r.custom_id)]
         })
 
         state = {
@@ -507,3 +503,22 @@ class BatchExtractionClient:
             "model": self.model,
             "pricing": f"${input_cost_per_million}/MTok in, ${output_cost_per_million}/MTok out",
         }
+
+    @staticmethod
+    def _build_custom_id(paper_id: str, pass_num: int) -> str:
+        """Build an Anthropic-safe custom ID for a paper pass."""
+        return f"{paper_id}{CUSTOM_ID_PASS_SEPARATOR}{pass_num}"
+
+    @staticmethod
+    def _parse_custom_id(custom_id: str) -> tuple[str, int] | None:
+        """Parse a batch custom ID, accepting current and legacy separators."""
+        for separator in (CUSTOM_ID_PASS_SEPARATOR, ":pass"):
+            if separator not in custom_id:
+                continue
+            paper_id, pass_suffix = custom_id.rsplit(separator, 1)
+            try:
+                return paper_id, int(pass_suffix)
+            except ValueError:
+                logger.warning(f"Invalid pass number in custom_id: {custom_id}")
+                return None
+        return None

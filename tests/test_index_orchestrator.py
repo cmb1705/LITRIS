@@ -217,6 +217,37 @@ def test_plan_sync_embedding_fingerprint_change_forces_full(tmp_path):
     assert any("embedding configuration changed" in reason.lower() for reason in plan.reasons)
 
 
+def test_validate_chunk_types_pages_chroma_metadata(monkeypatch, tmp_path):
+    orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))
+    calls: list[tuple[int | None, int | None]] = []
+
+    class FakeCollection:
+        def get(self, include, limit=None, offset=None):
+            del include
+            calls.append((limit, offset))
+            pages = {
+                0: [{"chunk_type": "abstract"}, {"chunk_type": "dim_q01"}],
+                2: [{"chunk_type": "raptor_overview"}],
+                3: [],
+            }
+            return {"metadatas": pages.get(offset, [])}
+
+    class FakeVectorStore:
+        def __init__(self, _path):
+            self.collection = FakeCollection()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr("src.indexing.orchestrator.VectorStore", FakeVectorStore)
+
+    assert orchestrator._validate_chunk_types() is None
+    assert calls == [(500, 0), (500, 2), (500, 3)]
+
+
 def test_plan_sync_extraction_drift_stays_incremental_in_auto_mode(tmp_path):
     config = _make_config(tmp_path)
     orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))

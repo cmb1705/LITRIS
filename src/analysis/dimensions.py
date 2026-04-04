@@ -568,7 +568,9 @@ class DimensionRegistry:
             self.register_profile(profile)
 
     def get_profile(self, profile_id: str | None = None) -> DimensionProfile:
-        return self._profiles[profile_id or self._active_profile_id]
+        if profile_id is None:
+            return self._profiles[self._active_profile_id]
+        return self._profiles.get(profile_id, self._profiles[self._active_profile_id])
 
     def load_profile_paths(self, paths: Iterable[Path | str]) -> None:
         for path in paths:
