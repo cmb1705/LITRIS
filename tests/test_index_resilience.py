@@ -19,6 +19,7 @@ from src.indexing.pipeline import (
 )
 from src.indexing.vector_store import VectorStore
 from src.utils.checkpoint import CheckpointManager
+from src.utils.run_control import PauseRequested, RunControlPoller, write_pause_request
 from src.zotero.models import PaperMetadata
 
 
@@ -198,3 +199,61 @@ def test_run_extraction_reports_pending_ids_after_interrupt(tmp_path: Path) -> N
     assert result.interrupted is True
     assert [entry.paper_id for entry in result.results] == ["Z1"]
     assert result.pending_ids == ["Z2"]
+
+
+def test_run_extraction_reports_pause_request_and_pending_ids(tmp_path: Path) -> None:
+    class PauseExtractor:
+        def extract_batch(self, papers, text_snapshots=None):
+            del text_snapshots
+            yield ExtractionResult(
+                paper_id=papers[0].paper_id,
+                success=True,
+                extraction=None,
+            )
+            raise PauseRequested("pause requested in test")
+
+    papers = [
+        PaperMetadata(
+            zotero_key="Z1",
+            zotero_item_id=1,
+            item_type="journalArticle",
+            title="Paper 1",
+            date_added=datetime(2026, 4, 3, 17, 6, 0),
+            date_modified=datetime(2026, 4, 3, 17, 6, 0),
+        ),
+        PaperMetadata(
+            zotero_key="Z2",
+            zotero_item_id=2,
+            item_type="journalArticle",
+            title="Paper 2",
+            date_added=datetime(2026, 4, 3, 17, 6, 0),
+            date_modified=datetime(2026, 4, 3, 17, 6, 0),
+        ),
+    ]
+
+    result = run_extraction(
+        papers=papers,
+        extractor=PauseExtractor(),
+        index_dir=tmp_path,
+        existing_papers={},
+        existing_extractions={},
+        checkpoint_mgr=CheckpointManager(tmp_path, checkpoint_id="test"),
+        logger=logging.getLogger("test"),
+    )
+
+    assert result.interrupted is True
+    assert result.pause_requested is True
+    assert [entry.paper_id for entry in result.results] == ["Z1"]
+    assert result.pending_ids == ["Z2"]
+
+
+def test_run_control_poller_detects_and_clears_pause_request(tmp_path: Path) -> None:
+    control_path = tmp_path / "run_control.json"
+    write_pause_request(control_path, reason="switch provider")
+    poller = RunControlPoller(control_path)
+
+    assert poller.check_pause_requested() is True
+    with pytest.raises(PauseRequested, match="switch provider"):
+        poller.raise_if_pause_requested("test")
+    assert poller.clear() is True
+    assert not control_path.exists()

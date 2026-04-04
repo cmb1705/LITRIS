@@ -34,6 +34,7 @@ from src.analysis.prompts import (
 from src.analysis.retry import with_retry
 from src.analysis.schemas import ExtractionResult, SemanticAnalysis
 from src.utils.logging_config import get_logger
+from src.utils.run_control import RunControlPoller
 from src.utils.secrets import get_anthropic_api_key
 
 logger = get_logger(__name__)
@@ -55,6 +56,7 @@ class AnthropicLLMClient(BaseLLMClient):
         max_tokens: int = 8192,
         timeout: int = 120,
         effort: str | None = None,
+        run_control: RunControlPoller | None = None,
     ):
         """Initialize Anthropic LLM client.
 
@@ -64,6 +66,7 @@ class AnthropicLLMClient(BaseLLMClient):
             max_tokens: Maximum tokens for response.
             timeout: Request timeout in seconds.
             effort: Claude CLI effort level for extended thinking (low/medium/high).
+            run_control: Optional cooperative pause poller shared with the parent run.
         """
         super().__init__(mode=mode, model=model, max_tokens=max_tokens, timeout=timeout)
         self.cli_executor = None
@@ -91,6 +94,7 @@ class AnthropicLLMClient(BaseLLMClient):
                 timeout=timeout,
                 model=self.model,
                 effort=effort,
+                run_control=run_control,
             )
 
     @property

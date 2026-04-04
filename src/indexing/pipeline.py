@@ -25,6 +25,7 @@ from src.indexing.structured_store import StructuredStore
 from src.indexing.vector_store import VectorStore
 from src.utils.checkpoint import CheckpointManager
 from src.utils.file_utils import safe_write_json
+from src.utils.run_control import PauseRequested
 from src.zotero.models import PaperMetadata
 
 CHECKPOINT_PAPERS_FILENAME = "papers.checkpoint.json"
@@ -40,6 +41,7 @@ class ExtractionRunResult:
     extractions: dict[str, dict]
     results: list
     interrupted: bool = False
+    pause_requested: bool = False
     pending_ids: list[str] = field(default_factory=list)
 
 
@@ -163,6 +165,7 @@ def run_extraction(
     results = []
     processed_ids: list[str] = []
     interrupted = False
+    pause_requested = False
     try:
         extract_batch_kwargs = {}
         signature = inspect.signature(extractor.extract_batch)
@@ -226,6 +229,11 @@ def run_extraction(
         logger.warning("Interrupted by user, saving checkpoint...")
         interrupted = True
         checkpoint_mgr.save()
+    except PauseRequested as exc:
+        logger.warning("Pause requested, saving checkpoint... (%s)", exc)
+        interrupted = True
+        pause_requested = True
+        checkpoint_mgr.save()
     finally:
         pbar.close()
         checkpoint_mgr.save()
@@ -240,6 +248,7 @@ def run_extraction(
         extractions=existing_extractions,
         results=results,
         interrupted=interrupted,
+        pause_requested=pause_requested,
         pending_ids=pending_ids,
     )
 
@@ -856,6 +865,7 @@ def build_section_extractor(
     mode: str,
     parallel_workers: int,
     use_cache: bool,
+    run_control_path: Path | None = None,
 ) -> SectionExtractor:
     """Build the configured section extractor for a run."""
     return SectionExtractor(
@@ -877,6 +887,7 @@ def build_section_extractor(
         parallel_workers=parallel_workers,
         reasoning_effort=config.extraction.reasoning_effort,
         effort=config.extraction.effort,
+        run_control_path=run_control_path,
     )
 
 

@@ -737,7 +737,9 @@ class IndexOrchestrator:
         extraction_results: list = []
         updated_extractions = dict(existing_extractions)
         extraction_interrupted = False
+        pause_requested = False
         extraction_pending_ids: list[str] = []
+        extractor = None
 
         extraction_candidate_ids = sorted(extraction_required_ids)
         extraction_candidate_papers = [
@@ -759,6 +761,7 @@ class IndexOrchestrator:
                 mode=mode,
                 parallel_workers=parallel_workers,
                 use_cache=use_cache,
+                run_control_path=self.index_dir / "run_control.json",
             )
             estimate = extractor.estimate_batch_cost(extraction_candidate_papers)
             self._print_cost_estimate(estimate)
@@ -774,6 +777,7 @@ class IndexOrchestrator:
                     mode=mode,
                     parallel_workers=parallel_workers,
                     use_cache=use_cache,
+                    run_control_path=self.index_dir / "run_control.json",
                 )
                 if getattr(args, "clear_cache", False):
                     cleared = extractor.clear_cache()
@@ -797,6 +801,7 @@ class IndexOrchestrator:
                 updated_extractions = extraction_run.extractions
                 extraction_results = extraction_run.results
                 extraction_interrupted = extraction_run.interrupted
+                pause_requested = extraction_run.pause_requested
                 extraction_pending_ids = extraction_run.pending_ids
                 checkpoint_mgr.save()
                 update_classification_extraction_methods(class_index, extraction_results)
@@ -932,6 +937,7 @@ class IndexOrchestrator:
                 manifest.last_run = {
                     **manifest.last_run,
                     "interrupted": True,
+                    "pause_requested": pause_requested,
                     "completed_at": completed_at.isoformat(),
                     "duration_seconds": round(perf_counter() - start_perf, 3),
                     "stage_durations": stage_times,
@@ -948,8 +954,11 @@ class IndexOrchestrator:
                 }
                 manifest.save(self.manifest_path)
                 class_store.save(class_index)
+                if pause_requested and extractor is not None:
+                    extractor.clear_pause_request()
                 self.logger.warning(
-                    "Extraction interrupted; saved partial index state and %d pending paper(s) for resume",
+                    "Extraction %s; saved partial index state and %d pending paper(s) for resume",
+                    "paused" if pause_requested else "interrupted",
                     len(extraction_pending_ids),
                 )
                 return 1

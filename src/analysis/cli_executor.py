@@ -10,6 +10,7 @@ from pathlib import Path
 
 from src.analysis.prompts import PAPER_TEXT_STDIN_PLACEHOLDER
 from src.utils.logging_config import get_logger
+from src.utils.run_control import PauseRequested, RunControlPoller
 
 logger = get_logger(__name__)
 
@@ -321,6 +322,7 @@ class ClaudeCliExecutor:
         output_format: str = "json",
         model: str | None = None,
         effort: str | None = None,
+        run_control: RunControlPoller | None = None,
     ):
         """Initialize CLI executor.
 
@@ -329,6 +331,7 @@ class ClaudeCliExecutor:
             output_format: CLI output format (json recommended).
             model: Model to pass via --model flag (e.g. 'claude-opus-4-6').
             effort: Effort level for extended thinking (low/medium/high).
+            run_control: Optional cooperative pause poller shared with the parent run.
         """
         self.timeout = timeout
         self.output_format = output_format
@@ -336,6 +339,12 @@ class ClaudeCliExecutor:
         self.effort = effort
         self._cli_path: str | None = None
         self.authenticator = ClaudeCliAuthenticator()
+        self.run_control = run_control
+
+    def _raise_if_pause_requested(self, context: str) -> None:
+        """Raise PauseRequested when the active run has been asked to pause."""
+        if self.run_control is not None:
+            self.run_control.raise_if_pause_requested(context)
 
     def verify_authentication(self) -> bool:
         """Verify CLI is authenticated and ready for extraction.
@@ -433,11 +442,13 @@ class ClaudeCliExecutor:
 
         last_error = None
         for attempt in range(max_retries + 1):
+            self._raise_if_pause_requested("before CLI prompt attempt")
             try:
                 return self._execute_prompt(prompt)
             except (EmptyResponseError, TransientError) as e:
                 last_error = e
                 if attempt < max_retries:
+                    self._raise_if_pause_requested("before CLI prompt retry backoff")
                     delay = retry_delay * (2 ** attempt)
                     logger.warning(
                         f"Transient error (attempt {attempt + 1}/{max_retries + 1}): {e}. "
@@ -645,11 +656,13 @@ class ClaudeCliExecutor:
 
         last_error = None
         for attempt in range(max_retries + 1):
+            self._raise_if_pause_requested("before CLI extraction attempt")
             try:
                 return self._execute_single_extraction(prompt, input_text)
             except (EmptyResponseError, TransientError) as e:
                 last_error = e
                 if attempt < max_retries:
+                    self._raise_if_pause_requested("before CLI extraction retry backoff")
                     delay = retry_delay * (2 ** attempt)  # Exponential backoff
                     logger.warning(
                         f"Transient error (attempt {attempt + 1}/{max_retries + 1}): {e}. "

@@ -24,6 +24,7 @@ from src.extraction.cascade import ExtractionCascade
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
 from src.utils.logging_config import LogContext, get_logger
+from src.utils.run_control import PauseRequested, RunControlPoller
 from src.zotero.models import PaperMetadata
 
 logger = get_logger(__name__)
@@ -247,6 +248,7 @@ class SectionExtractor:
         parallel_workers: int = 1,
         reasoning_effort: str | None = None,
         effort: str | None = None,
+        run_control_path: Path | None = None,
         cascade_enabled: bool = True,
         companion_dir: Path | None = None,
         arxiv_enabled: bool = True,
@@ -275,6 +277,7 @@ class SectionExtractor:
             parallel_workers: Number of parallel workers for CLI mode (1 = sequential).
             reasoning_effort: For OpenAI GPT-5.2: none/low/medium/high/xhigh.
             effort: Claude CLI effort level for extended thinking (low/medium/high).
+            run_control_path: Optional cooperative pause-control file path.
         """
         self.pdf_extractor = PDFExtractor(
             cache_dir=cache_dir,
@@ -296,6 +299,8 @@ class SectionExtractor:
                 opendataloader_mode=opendataloader_mode,
             )
 
+        self.run_control = RunControlPoller(run_control_path) if run_control_path else None
+
         # Create LLM client using factory
         self.llm_client: BaseLLMClient = create_llm_client(
             provider=provider,
@@ -305,6 +310,7 @@ class SectionExtractor:
             timeout=timeout if timeout is not None else 120,
             reasoning_effort=reasoning_effort,
             effort=effort,
+            run_control=self.run_control,
         )
         self.max_tokens = max_tokens
         self.timeout = getattr(self.llm_client, "timeout", 120)
@@ -330,6 +336,17 @@ class SectionExtractor:
             self.extraction_cache = ExtractionCache(cache_dir)
         else:
             self.extraction_cache = None
+
+    def _raise_if_pause_requested(self, context: str) -> None:
+        """Raise PauseRequested when the active run has been asked to pause."""
+        if self.run_control is not None:
+            self.run_control.raise_if_pause_requested(context)
+
+    def clear_pause_request(self) -> bool:
+        """Clear the cooperative pause request after a graceful stop."""
+        if self.run_control is None:
+            return False
+        return self.run_control.clear()
 
     def _resolve_pass_plan(
         self,
@@ -741,6 +758,7 @@ class SectionExtractor:
             )
 
         for pass_num, pass_label, pass_questions in pass_plan:
+            self._raise_if_pause_requested(f"before pass {pass_num}")
             pass_fields = [q[0] for q in pass_questions]
 
             # Check per-pass cache
@@ -1011,6 +1029,7 @@ class SectionExtractor:
         i = 0
         while i < len(papers):
             paper = papers[i]
+            self._raise_if_pause_requested("before next sequential paper")
 
             if progress_callback:
                 progress_callback(i + 1, len(papers), paper.title)
@@ -1128,9 +1147,12 @@ class SectionExtractor:
         remaining = list(papers)
 
         while remaining:
+            self._raise_if_pause_requested("before scheduling next parallel chunk")
             chunk_size = min(current_workers * 3, len(remaining))
             chunk = remaining[:chunk_size]
             remaining = remaining[chunk_size:]
+            pause_requested = False
+            pause_error: PauseRequested | None = None
 
             with ThreadPoolExecutor(max_workers=current_workers) as executor:
                 future_to_paper = {
@@ -1153,6 +1175,10 @@ class SectionExtractor:
 
                     try:
                         result, from_cache = future.result()
+                    except PauseRequested as exc:
+                        pause_requested = True
+                        pause_error = exc
+                        continue
                     except Exception as exc:
                         error_str = str(exc)
                         result = ExtractionResult(
@@ -1238,6 +1264,9 @@ class SectionExtractor:
                         stats.total_duration += result.duration_seconds
 
                     yield result
+
+                if pause_requested:
+                    raise pause_error or PauseRequested("Pause requested")
 
                 if abort_remaining:
                     remaining = []
