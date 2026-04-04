@@ -6,6 +6,7 @@ import csv
 import inspect
 import os
 import sys
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +30,17 @@ from src.zotero.models import PaperMetadata
 CHECKPOINT_PAPERS_FILENAME = "papers.checkpoint.json"
 CHECKPOINT_EXTRACTIONS_FILENAME = "semantic_analyses.checkpoint.json"
 CHECKPOINT_METADATA_FILENAME = "metadata.checkpoint.json"
+
+
+@dataclass
+class ExtractionRunResult:
+    """Structured result for an extraction stage run."""
+
+    paper_dicts: dict[str, dict]
+    extractions: dict[str, dict]
+    results: list
+    interrupted: bool = False
+    pending_ids: list[str] = field(default_factory=list)
 
 
 def save_checkpoint(
@@ -133,7 +145,7 @@ def run_extraction(
     checkpoint_mgr: CheckpointManager,
     logger,
     text_snapshots: dict[str, dict[str, object]] | None = None,
-) -> tuple[dict[str, dict], dict[str, dict], list]:
+) -> ExtractionRunResult:
     """Run extraction and checkpoint progress for the provided paper scope."""
     paper_dicts = dict(existing_papers)
     for paper in papers:
@@ -149,6 +161,8 @@ def run_extraction(
 
     pbar = tqdm(total=len(papers), desc="Extracting", unit="paper")
     results = []
+    processed_ids: list[str] = []
+    interrupted = False
     try:
         extract_batch_kwargs = {}
         signature = inspect.signature(extractor.extract_batch)
@@ -207,15 +221,27 @@ def run_extraction(
                     },
                 )
             pbar.update(1)
+            processed_ids.append(result.paper_id)
     except KeyboardInterrupt:
         logger.warning("Interrupted by user, saving checkpoint...")
+        interrupted = True
         checkpoint_mgr.save()
     finally:
         pbar.close()
         checkpoint_mgr.save()
         store.flush_fulltext_manifest()
 
-    return paper_dicts, existing_extractions, results
+    processed_id_set = set(processed_ids)
+    pending_ids = [
+        paper.paper_id for paper in papers if paper.paper_id not in processed_id_set
+    ]
+    return ExtractionRunResult(
+        paper_dicts=paper_dicts,
+        extractions=existing_extractions,
+        results=results,
+        interrupted=interrupted,
+        pending_ids=pending_ids,
+    )
 
 
 def run_gap_fill(

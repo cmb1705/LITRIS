@@ -736,6 +736,8 @@ class IndexOrchestrator:
 
         extraction_results: list = []
         updated_extractions = dict(existing_extractions)
+        extraction_interrupted = False
+        extraction_pending_ids: list[str] = []
 
         extraction_candidate_ids = sorted(extraction_required_ids)
         extraction_candidate_papers = [
@@ -781,7 +783,7 @@ class IndexOrchestrator:
                     extraction_candidate_papers,
                     refresh_text=getattr(args, "refresh_text", False),
                 )
-                paper_dicts, updated_extractions, extraction_results = run_extraction(
+                extraction_run = run_extraction(
                     extraction_candidate_papers,
                     extractor,
                     self.index_dir,
@@ -791,10 +793,15 @@ class IndexOrchestrator:
                     self.logger,
                     text_snapshots=reusable_text_snapshots,
                 )
+                paper_dicts = extraction_run.paper_dicts
+                updated_extractions = extraction_run.extractions
+                extraction_results = extraction_run.results
+                extraction_interrupted = extraction_run.interrupted
+                extraction_pending_ids = extraction_run.pending_ids
                 checkpoint_mgr.save()
                 update_classification_extraction_methods(class_index, extraction_results)
                 class_store.save(class_index)
-                if getattr(args, "gap_fill", False):
+                if getattr(args, "gap_fill", False) and not extraction_interrupted:
                     run_gap_fill(
                         results=extraction_results,
                         existing_extractions=updated_extractions,
@@ -815,7 +822,9 @@ class IndexOrchestrator:
                     self.project_root / "data" / "out" / "experiments" / "skipped_items",
                     self.logger,
                 )
-                manifest.stage_health["extraction"] = "ok"
+                manifest.stage_health["extraction"] = (
+                    "pending" if extraction_interrupted else "ok"
+                )
 
         failed_extraction_ids = {
             result.paper_id for result in extraction_results if not result.success
@@ -860,6 +869,17 @@ class IndexOrchestrator:
                 if paper_id in updated_extractions:
                     final_extractions[paper_id] = updated_extractions[paper_id]
 
+        embedding_scope_ids = self._embedding_scope_ids(
+            args=args,
+            plan=plan,
+            final_papers=final_papers,
+            final_extractions=final_extractions,
+            failed_extraction_ids=failed_extraction_ids,
+        )
+        delete_embedding_ids = sorted(
+            set(plan.change_set.deleted_items) | removed_from_index_ids
+        )
+
         artifact_snapshot = IndexArtifactSnapshot.capture(
             self.index_dir,
             LIVE_INDEX_ARTIFACTS,
@@ -877,16 +897,62 @@ class IndexOrchestrator:
             valid_index_ids = set(final_papers)
             prune_raptor_cache(self.index_dir, valid_index_ids)
 
-            embedding_scope_ids = self._embedding_scope_ids(
-                args=args,
-                plan=plan,
-                final_papers=final_papers,
-                final_extractions=final_extractions,
-                failed_extraction_ids=failed_extraction_ids,
-            )
-            delete_embedding_ids = sorted(
-                set(plan.change_set.deleted_items) | removed_from_index_ids
-            )
+            if extraction_interrupted:
+                pending_embeddings = PendingStageWork()
+                if plan.clear_vector_store:
+                    pending_embeddings.all = True
+                else:
+                    pending_embeddings.extend(sorted(embedding_scope_ids))
+
+                manifest.pending_work["extraction"].clear()
+                manifest.pending_work["extraction"].extend(extraction_pending_ids)
+                manifest.pending_work["embeddings"] = pending_embeddings
+                manifest.pending_work["raptor"] = PendingStageWork.from_dict(
+                    pending_embeddings.to_dict()
+                )
+                if (
+                    pending_embeddings.has_work()
+                    or bool(delete_embedding_ids)
+                    or manifest.pending_work["similarity"].has_work()
+                    or plan.clear_vector_store
+                ):
+                    manifest.pending_work["similarity"].all = True
+                    manifest.stage_health["similarity"] = "pending"
+                manifest.stage_health["embeddings"] = "pending"
+                manifest.stage_health["raptor"] = "pending"
+                manifest.paper_snapshots = self._resolved_manifest_snapshots(
+                    previous_snapshots=manifest.paper_snapshots,
+                    current_snapshots=current_snapshots,
+                    class_index=class_index,
+                    indexed_ids=set(final_papers),
+                    preserved_current_ids=set(extraction_pending_ids),
+                    preserved_deleted_ids=set(delete_embedding_ids),
+                )
+                completed_at = datetime.now()
+                manifest.last_run = {
+                    **manifest.last_run,
+                    "interrupted": True,
+                    "completed_at": completed_at.isoformat(),
+                    "duration_seconds": round(perf_counter() - start_perf, 3),
+                    "stage_durations": stage_times,
+                    "counts": {
+                        "source_papers": len(current_papers),
+                        "indexed_papers": len(final_papers),
+                        "extractions": len(final_extractions),
+                        "changes_new": len(plan.change_set.new_items),
+                        "changes_modified": len(plan.change_set.modified_items),
+                        "changes_deleted": len(plan.change_set.deleted_items),
+                        "failed_extractions": len(run_failed_ids),
+                        "pending_extractions": len(extraction_pending_ids),
+                    },
+                }
+                manifest.save(self.manifest_path)
+                class_store.save(class_index)
+                self.logger.warning(
+                    "Extraction interrupted; saved partial index state and %d pending paper(s) for resume",
+                    len(extraction_pending_ids),
+                )
+                return 1
 
             if getattr(args, "skip_embeddings", False):
                 with self._time_stage("embeddings", stage_times):
@@ -1040,11 +1106,12 @@ class IndexOrchestrator:
         finally:
             artifact_snapshot.cleanup()
 
-        for paper_id, snapshot in current_snapshots.items():
-            if paper_id in class_index.papers:
-                snapshot.extractable = class_index.papers[paper_id].extractable
-            snapshot.indexed = paper_id in desired_index_ids
-        manifest.paper_snapshots = current_snapshots
+        manifest.paper_snapshots = self._resolved_manifest_snapshots(
+            previous_snapshots=manifest.paper_snapshots,
+            current_snapshots=current_snapshots,
+            class_index=class_index,
+            indexed_ids=set(final_papers),
+        )
 
         completed_at = datetime.now()
         manifest.last_successful_sync = completed_at.isoformat()
@@ -1073,6 +1140,55 @@ class IndexOrchestrator:
         if run_failed_ids:
             return 1
         return 0
+
+    def _snapshot_with_status(
+        self,
+        snapshot: PaperSnapshot,
+        class_index: ClassificationIndex,
+        indexed_ids: set[str],
+    ) -> PaperSnapshot:
+        """Return a snapshot copy annotated with extractable/indexed status."""
+
+        resolved = PaperSnapshot.from_dict(snapshot.to_dict())
+        record = class_index.papers.get(snapshot.paper_id)
+        if record is not None:
+            resolved.extractable = record.extractable
+        resolved.indexed = snapshot.paper_id in indexed_ids
+        return resolved
+
+    def _resolved_manifest_snapshots(
+        self,
+        previous_snapshots: dict[str, PaperSnapshot],
+        current_snapshots: dict[str, PaperSnapshot],
+        class_index: ClassificationIndex,
+        indexed_ids: set[str],
+        preserved_current_ids: set[str] | None = None,
+        preserved_deleted_ids: set[str] | None = None,
+    ) -> dict[str, PaperSnapshot]:
+        """Resolve the manifest snapshot view for the current run outcome."""
+
+        preserved_current_ids = preserved_current_ids or set()
+        preserved_deleted_ids = preserved_deleted_ids or set()
+        resolved: dict[str, PaperSnapshot] = {}
+
+        for paper_id in sorted(preserved_deleted_ids):
+            previous = previous_snapshots.get(paper_id)
+            if previous is not None:
+                resolved[paper_id] = PaperSnapshot.from_dict(previous.to_dict())
+
+        for paper_id in sorted(current_snapshots):
+            if paper_id in preserved_current_ids:
+                previous = previous_snapshots.get(paper_id)
+                if previous is not None:
+                    resolved[paper_id] = PaperSnapshot.from_dict(previous.to_dict())
+                continue
+            resolved[paper_id] = self._snapshot_with_status(
+                current_snapshots[paper_id],
+                class_index=class_index,
+                indexed_ids=indexed_ids,
+            )
+
+        return resolved
 
     def refresh_derived_artifacts(
         self,

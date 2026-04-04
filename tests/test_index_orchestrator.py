@@ -372,16 +372,98 @@ def test_targeted_full_refresh_scopes_only_forced_paper_when_manifest_missing(tm
         plan=plan,
         desired_index_ids=desired_index_ids,
     ) == {"P1"}
+
+
+def test_resolved_manifest_snapshots_omits_unprocessed_new_papers(tmp_path):
+    _make_config(tmp_path)
+    orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))
+    previous = {"P1": _make_snapshot("P1", "Z1", "fp-1")}
+    current = {
+        "P1": _make_snapshot("P1", "Z1", "fp-1"),
+        "P2": _make_snapshot("P2", "Z2", "fp-2"),
+    }
+    class_index = SimpleNamespace(
+        papers={
+            "P1": SimpleNamespace(extractable=True),
+            "P2": SimpleNamespace(extractable=True),
+        }
+    )
+
+    resolved = orchestrator._resolved_manifest_snapshots(
+        previous_snapshots=previous,
+        current_snapshots=current,
+        class_index=class_index,
+        indexed_ids={"P1"},
+        preserved_current_ids={"P2"},
+    )
+
+    assert sorted(resolved) == ["P1"]
+    assert resolved["P1"].indexed is True
+
+
+def test_resolved_manifest_snapshots_preserves_previous_pending_snapshot(tmp_path):
+    _make_config(tmp_path)
+    orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))
+    previous = {"P1": _make_snapshot("P1", "Z1", "old-fp")}
+    current = {"P1": _make_snapshot("P1", "Z1", "new-fp")}
+    class_index = SimpleNamespace(papers={"P1": SimpleNamespace(extractable=True)})
+
+    resolved = orchestrator._resolved_manifest_snapshots(
+        previous_snapshots=previous,
+        current_snapshots=current,
+        class_index=class_index,
+        indexed_ids=set(),
+        preserved_current_ids={"P1"},
+    )
+
+    assert resolved["P1"].source_fingerprint == "old-fp"
+    assert resolved["P1"].indexed is True
+
+
+def test_plan_sync_pending_extraction_work_prevents_noop(tmp_path):
+    config = _make_config(tmp_path)
+    orchestrator = IndexOrchestrator(project_root=tmp_path, logger=logging.getLogger("test"))
+    args = _make_args(sync_mode="auto")
+    ref_db = _make_ref_db("zotero", config.get_zotero_db_path())
+    current = {
+        "P1": _make_snapshot("P1", "Z1", "fp-1"),
+        "P2": _make_snapshot("P2", "Z2", "fp-2"),
+    }
+
+    manifest = IndexManifest(
+        source_scope=orchestrator._source_scope_info(ref_db, args),
+        classification_policy=orchestrator._classification_policy_info(args, config),
+        extraction=orchestrator._extraction_info(args, config),
+        embedding=orchestrator._embedding_info(config),
+        chunk_schema_version=CHUNK_SCHEMA_VERSION,
+        raptor_schema_version=RAPTOR_SCHEMA_VERSION,
+        similarity_schema_version=SIMILARITY_SCHEMA_VERSION,
+        pending_work={
+            "extraction": PendingStageWork(paper_ids=["P2"]),
+            "embeddings": PendingStageWork(),
+            "raptor": PendingStageWork(),
+            "similarity": PendingStageWork(),
+        },
+        paper_snapshots={"P1": current["P1"]},
+    )
+    manifest.save(orchestrator.manifest_path)
+
+    plan = orchestrator.plan_sync(
+        args=args,
+        config=config,
+        ref_db=ref_db,
+        current_snapshots=current,
+        existing_papers={"P1": {"paper_id": "P1"}},
+        existing_extractions={"P1": {"paper_id": "P1", "extraction": {}}},
+        class_index=SimpleNamespace(papers={}),
+    )
+
+    assert plan.resolved_mode == "update"
+    assert plan.noop is False
+    assert plan.pending_work["extraction"].paper_ids == ["P2"]
     assert orchestrator._extraction_required_ids(
         args=args,
         plan=plan,
-        desired_index_ids=desired_index_ids,
-        existing_extractions={},
-    ) == {"P1"}
-    assert orchestrator._embedding_scope_ids(
-        args=args,
-        plan=plan,
-        final_papers={"P1": {"paper_id": "P1"}, "P2": {"paper_id": "P2"}},
-        final_extractions={"P1": {"paper_id": "P1"}, "P2": {"paper_id": "P2"}},
-        failed_extraction_ids=set(),
-    ) == {"P1"}
+        desired_index_ids={"P1", "P2"},
+        existing_extractions={"P1": {"paper_id": "P1", "extraction": {}}},
+    ) == {"P2"}

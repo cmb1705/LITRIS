@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import logging
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
+from src.analysis.schemas import ExtractionResult
 from src.indexing.embeddings import EmbeddingChunk, EmbeddingGenerator
 from src.indexing.pipeline import (
     CHECKPOINT_EXTRACTIONS_FILENAME,
     CHECKPOINT_METADATA_FILENAME,
     CHECKPOINT_PAPERS_FILENAME,
+    run_extraction,
     save_checkpoint,
 )
 from src.indexing.vector_store import VectorStore
+from src.utils.checkpoint import CheckpointManager
+from src.zotero.models import PaperMetadata
 
 
 def test_save_checkpoint_uses_checkpoint_artifacts(tmp_path: Path) -> None:
@@ -147,3 +153,48 @@ def test_replace_papers_continues_when_backup_export_is_unavailable(
     current = store.collection.get(where={"paper_id": "P1"}, include=["documents"])
     assert current["ids"] == ["P1_new"]
     assert current["documents"] == ["new text"]
+
+
+def test_run_extraction_reports_pending_ids_after_interrupt(tmp_path: Path) -> None:
+    class InterruptingExtractor:
+        def extract_batch(self, papers, text_snapshots=None):
+            del text_snapshots
+            yield ExtractionResult(
+                paper_id=papers[0].paper_id,
+                success=False,
+                error="synthetic failure",
+            )
+            raise KeyboardInterrupt()
+
+    papers = [
+        PaperMetadata(
+            zotero_key="Z1",
+            zotero_item_id=1,
+            item_type="journalArticle",
+            title="Paper 1",
+            date_added=datetime(2026, 4, 3, 17, 6, 0),
+            date_modified=datetime(2026, 4, 3, 17, 6, 0),
+        ),
+        PaperMetadata(
+            zotero_key="Z2",
+            zotero_item_id=2,
+            item_type="journalArticle",
+            title="Paper 2",
+            date_added=datetime(2026, 4, 3, 17, 6, 0),
+            date_modified=datetime(2026, 4, 3, 17, 6, 0),
+        ),
+    ]
+
+    result = run_extraction(
+        papers=papers,
+        extractor=InterruptingExtractor(),
+        index_dir=tmp_path,
+        existing_papers={},
+        existing_extractions={},
+        checkpoint_mgr=CheckpointManager(tmp_path, checkpoint_id="test"),
+        logger=logging.getLogger("test"),
+    )
+
+    assert result.interrupted is True
+    assert [entry.paper_id for entry in result.results] == ["Z1"]
+    assert result.pending_ids == ["Z2"]
