@@ -204,10 +204,36 @@ class TestClassifyMetadata:
     def test_all_mapped_types_resolve(self):
         """Every type in ZOTERO_TYPE_MAP should produce a valid classification."""
         for zotero_type, expected_doc_type in ZOTERO_TYPE_MAP.items():
+            if zotero_type == "webpage":
+                # Webpages are deliberately routed through bespoke heuristics
+                # instead of the raw static mapping.
+                continue
             paper = _make_paper(item_type=zotero_type)
             doc_type, confidence = classify_metadata(paper)
             assert doc_type == expected_doc_type, f"Failed for {zotero_type}"
             assert confidence > 0
+
+    def test_webpage_with_doi_uses_low_confidence_research_paper(self):
+        """DOI-bearing webpages should remain extractable for Tier 2 review."""
+        paper = _make_paper(
+            item_type="webpage",
+            doi="10.1177/01492063211055982",
+            title="Knowledge recombination in innovation: A review",
+        )
+        doc_type, confidence = classify_metadata(paper)
+        assert doc_type == DocumentType.RESEARCH_PAPER
+        assert confidence < 0.8
+
+    def test_webpage_with_policy_title_is_report(self):
+        """Policy/guidance webpages should classify as reports, not noise."""
+        paper = _make_paper(
+            item_type="webpage",
+            title="Messenger RNA (mRNA) technology position statement",
+            url="https://www.tga.gov.au/news/regulatory-decision-notices/messenger-rna-mrna-technology-position-statement",
+        )
+        doc_type, confidence = classify_metadata(paper)
+        assert doc_type == DocumentType.REPORT
+        assert confidence < 0.8
 
 
 class TestClassifyText:

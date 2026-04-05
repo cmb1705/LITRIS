@@ -67,6 +67,19 @@ class BaseReferenceDB(ABC):
         """
         ...
 
+    def load_source_text_snapshots(
+        self,
+        papers: list[PaperMetadata],
+    ) -> dict[str, dict[str, object]]:
+        """Return source-backed text snapshots for papers when available.
+
+        Reference managers that can provide canonical text directly from the
+        source should override this. The default implementation returns no
+        snapshots, which preserves the PDF-only behavior for other adapters.
+        """
+        del papers
+        return {}
+
     def iterate_papers(
         self,
         limit: int | None = None,

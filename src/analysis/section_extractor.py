@@ -437,11 +437,11 @@ class SectionExtractor:
 
             # Check for source text
             if snapshot_text is None and (not paper.pdf_path or not paper.pdf_path.exists()):
-                logger.warning(f"No PDF available for paper {paper.paper_id}")
+                logger.warning(f"No local extractable source available for paper {paper.paper_id}")
                 return ExtractionResult(
                     paper_id=paper.paper_id,
                     success=False,
-                    error="No PDF available",
+                    error="No local extractable source available",
                 ), False
 
             # Check full-result cache
@@ -1034,8 +1034,8 @@ class SectionExtractor:
             if progress_callback:
                 progress_callback(i + 1, len(papers), paper.title)
 
-            # Skip papers without PDFs
-            if not paper.pdf_path:
+            # Skip papers without a local file source or supplied snapshot
+            if not paper.pdf_path and (text_snapshots or {}).get(paper.paper_id) is None:
                 stats.skipped += 1
                 i += 1
                 continue
@@ -1300,7 +1300,7 @@ class SectionExtractor:
             return ExtractionResult(
                 paper_id=paper.paper_id,
                 success=False,
-                error="No PDF path",
+                error="No local source path",
             ), False
         return self.extract_paper(
             paper,

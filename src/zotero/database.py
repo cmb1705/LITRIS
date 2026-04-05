@@ -1,5 +1,6 @@
 """Zotero SQLite database interface."""
 
+import hashlib
 import sqlite3
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
@@ -9,6 +10,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from src.extraction.web_extractor import extract_html_attachment
 from src.utils.logging_config import get_logger
 from src.zotero.models import Author, Collection, PaperMetadata
 
@@ -36,15 +38,23 @@ FIELD_MAPPING = {
 class ZoteroDatabase:
     """Read-only interface to Zotero SQLite database."""
 
-    def __init__(self, db_path: Path, storage_path: Path):
+    def __init__(
+        self,
+        db_path: Path,
+        storage_path: Path,
+        include_webpage_snapshots: bool = True,
+    ):
         """Initialize database connection.
 
         Args:
             db_path: Path to zotero.sqlite file.
             storage_path: Path to Zotero storage directory.
+            include_webpage_snapshots: Include local HTML attachment-backed
+                webpage items as extractable sources.
         """
         self.db_path = db_path
         self.storage_path = storage_path
+        self.include_webpage_snapshots = include_webpage_snapshots
         self._collection_cache: dict[int, Collection] | None = None
 
     @contextmanager
@@ -112,13 +122,22 @@ class ZoteroDatabase:
 
         return collections
 
-    def get_all_items_with_pdfs(self) -> list[dict[str, Any]]:
-        """Get all library items that have PDF attachments.
+    def _get_items_with_attachments(
+        self,
+        content_types: tuple[str, ...],
+        item_types: tuple[str, ...] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return parent items with selected attachment content types."""
+        content_placeholders = ", ".join("?" for _ in content_types)
+        params: list[Any] = [*content_types, *SKIP_ITEM_TYPES]
+        item_type_clause = ""
+        if item_types:
+            item_type_clause = (
+                f" AND it.typeName IN ({', '.join('?' for _ in item_types)})"
+            )
+            params.extend(item_types)
 
-        Returns:
-            List of dicts with item info and attachment details.
-        """
-        query = """
+        query = f"""
         SELECT
             parent.itemID,
             parent.key,
@@ -127,19 +146,21 @@ class ZoteroDatabase:
             it.typeName,
             att.itemID as attachmentID,
             ia.key as attachmentKey,
-            att.path as attachmentPath
+            att.path as attachmentPath,
+            att.contentType as attachmentContentType
         FROM items parent
         JOIN itemTypes it ON parent.itemTypeID = it.itemTypeID
         JOIN itemAttachments att ON parent.itemID = att.parentItemID
         JOIN items ia ON att.itemID = ia.itemID
-        WHERE att.contentType = 'application/pdf'
+        WHERE att.contentType IN ({content_placeholders})
           AND it.typeName NOT IN (?, ?, ?)
           AND parent.itemID NOT IN (SELECT itemID FROM deletedItems)
+          {item_type_clause}
         ORDER BY parent.itemID
         """
 
         with self._get_connection() as conn:
-            cursor = conn.execute(query, tuple(SKIP_ITEM_TYPES))
+            cursor = conn.execute(query, tuple(params))
             results = []
             for row in cursor:
                 results.append({
@@ -151,8 +172,71 @@ class ZoteroDatabase:
                     "attachment_id": row["attachmentID"],
                     "attachment_key": row["attachmentKey"],
                     "attachment_path": row["attachmentPath"],
+                    "attachment_content_type": row["attachmentContentType"],
                 })
-            return results
+            deduped, skipped = self._dedupe_duplicate_pdf_rows(results)
+            if skipped:
+                logger.info(
+                    "Skipped %d duplicate attachment rows with identical parent/path pairs",
+                    skipped,
+                )
+            return deduped
+
+    def get_all_items_with_pdfs(self) -> list[dict[str, Any]]:
+        """Get all library items that have PDF attachments.
+
+        Returns:
+            List of dicts with item info and attachment details.
+        """
+        return self._get_items_with_attachments(("application/pdf",))
+
+    def get_all_items_with_webpage_snapshots(self) -> list[dict[str, Any]]:
+        """Get webpage items backed by local HTML attachments."""
+        if not self.include_webpage_snapshots:
+            return []
+        return self._get_items_with_attachments(("text/html",), item_types=("webpage",))
+
+    def get_all_source_items(self) -> list[dict[str, Any]]:
+        """Return the combined set of extractable Zotero source items."""
+        pdf_items = self.get_all_items_with_pdfs()
+        pdf_item_ids = {int(item["item_id"]) for item in pdf_items}
+        source_items = list(pdf_items)
+        for item in self.get_all_items_with_webpage_snapshots():
+            if int(item["item_id"]) in pdf_item_ids:
+                continue
+            source_items.append(item)
+        return source_items
+
+    @staticmethod
+    def _dedupe_duplicate_pdf_rows(
+        rows: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Deduplicate exact duplicate PDF rows from Zotero attachment joins.
+
+        Zotero can accumulate multiple attachment records that point to the same
+        stored PDF under a single parent item. LITRIS treats each attachment as a
+        separate paper when the parent/path pair is unique, but repeated rows for
+        the exact same parent PDF should collapse to one source record.
+
+        Args:
+            rows: Attachment-backed parent rows from ``get_all_items_with_pdfs``.
+
+        Returns:
+            Tuple of ``(deduped_rows, skipped_count)``.
+        """
+        deduped: list[dict[str, Any]] = []
+        seen: set[tuple[int, str | None]] = set()
+        skipped = 0
+
+        for row in rows:
+            identity = (int(row["item_id"]), row.get("attachment_path"))
+            if identity in seen:
+                skipped += 1
+                continue
+            seen.add(identity)
+            deduped.append(row)
+
+        return deduped, skipped
 
     def get_item_metadata(self, conn: sqlite3.Connection, item_id: int) -> dict[str, str]:
         """Get metadata fields for an item.
@@ -269,17 +353,17 @@ class ZoteroDatabase:
         cursor = conn.execute(query, (item_id,))
         return [row["name"] for row in cursor]
 
-    def resolve_pdf_path(
+    def resolve_attachment_path(
         self, attachment_key: str, attachment_path: str | None
     ) -> Path | None:
-        """Resolve the full path to a PDF file.
+        """Resolve the full path to a stored attachment file.
 
         Args:
             attachment_key: Zotero key for the attachment.
             attachment_path: Path string from database.
 
         Returns:
-            Full Path to PDF or None if not found.
+            Full Path to a local attachment or None if not found.
 
         Note:
             Includes path traversal protection to prevent accessing files
@@ -311,24 +395,24 @@ class ZoteroDatabase:
                 )
                 return None
 
-            pdf_path = self.storage_path / attachment_key / filename
+            file_path = self.storage_path / attachment_key / filename
 
             # Security: Verify resolved path is within storage directory
             try:
-                resolved_path = pdf_path.resolve()
+                resolved_path = file_path.resolve()
                 storage_resolved = self.storage_path.resolve()
                 if not str(resolved_path).startswith(str(storage_resolved)):
                     logger.warning(
-                        f"Path traversal attempt blocked: {pdf_path} resolves outside storage"
+                        f"Path traversal attempt blocked: {file_path} resolves outside storage"
                     )
                     return None
             except (OSError, ValueError) as e:
-                logger.warning(f"Failed to resolve path {pdf_path}: {e}")
+                logger.warning(f"Failed to resolve path {file_path}: {e}")
                 return None
 
-            if pdf_path.exists():
-                return pdf_path
-            logger.debug(f"PDF not found at expected path: {pdf_path}")
+            if file_path.exists():
+                return file_path
+            logger.debug(f"Attachment not found at expected path: {file_path}")
             return None
 
         # Handle linked files (full path)
@@ -338,8 +422,14 @@ class ZoteroDatabase:
         if linked_path.exists():
             return linked_path
 
-        logger.debug(f"Linked PDF not found: {attachment_path}")
+        logger.debug(f"Linked attachment not found: {attachment_path}")
         return None
+
+    def resolve_pdf_path(
+        self, attachment_key: str, attachment_path: str | None
+    ) -> Path | None:
+        """Resolve the full path to a PDF file."""
+        return self.resolve_attachment_path(attachment_key, attachment_path)
 
     def get_paper(
         self, conn: sqlite3.Connection, item_info: dict[str, Any]
@@ -361,9 +451,18 @@ class ZoteroDatabase:
         collections = self.get_item_collections(conn, item_id)
         tags = self.get_item_tags(conn, item_id)
 
-        # Resolve PDF path
-        pdf_path = self.resolve_pdf_path(
+        # Resolve local source path
+        source_path = self.resolve_attachment_path(
             item_info["attachment_key"], item_info["attachment_path"]
+        )
+        attachment_content_type = item_info.get("attachment_content_type")
+        pdf_path = (
+            source_path if attachment_content_type == "application/pdf" else None
+        )
+        pdf_attachment_key = (
+            item_info["attachment_key"]
+            if attachment_content_type == "application/pdf"
+            else None
         )
 
         # Map Zotero fields to model fields
@@ -375,7 +474,10 @@ class ZoteroDatabase:
             "collections": collections,
             "tags": tags,
             "pdf_path": pdf_path,
-            "pdf_attachment_key": item_info["attachment_key"],
+            "pdf_attachment_key": pdf_attachment_key,
+            "source_path": source_path,
+            "source_attachment_key": item_info["attachment_key"],
+            "source_media_type": attachment_content_type,
             "date_added": datetime.fromisoformat(
                 item_info["date_added"].replace(" ", "T")
             ),
@@ -394,7 +496,7 @@ class ZoteroDatabase:
     def get_all_papers(
         self, progress_callback: Callable | None = None
     ) -> Generator[PaperMetadata, None, None]:
-        """Get all papers with PDF attachments.
+        """Get all locally extractable papers.
 
         Args:
             progress_callback: Optional callback(current, total) for progress.
@@ -402,9 +504,9 @@ class ZoteroDatabase:
         Yields:
             PaperMetadata objects for each paper.
         """
-        items = self.get_all_items_with_pdfs()
+        items = self.get_all_source_items()
         total = len(items)
-        logger.info(f"Found {total} items with PDF attachments")
+        logger.info(f"Found {total} items with local extractable sources")
 
         with self._get_connection() as conn:
             # Pre-build collection cache
@@ -431,12 +533,12 @@ class ZoteroDatabase:
                     continue
 
     def get_paper_count(self) -> int:
-        """Get total count of papers with PDFs.
+        """Get total count of papers with local extractable sources.
 
         Returns:
-            Number of papers with PDF attachments.
+            Number of papers with local source attachments.
         """
-        return len(self.get_all_items_with_pdfs())
+        return len(self.get_all_source_items())
 
     def get_paper_by_key(self, zotero_key: str) -> PaperMetadata | None:
         """Get a specific paper by Zotero key.
@@ -447,7 +549,7 @@ class ZoteroDatabase:
         Returns:
             PaperMetadata or None if not found.
         """
-        items = self.get_all_items_with_pdfs()
+        items = self.get_all_source_items()
         matching = [i for i in items if i["key"] == zotero_key]
 
         if not matching:
@@ -456,3 +558,52 @@ class ZoteroDatabase:
         with self._get_connection() as conn:
             self._collection_cache = self._build_collection_cache(conn)
             return self.get_paper(conn, matching[0])
+
+    def load_source_text_snapshots(
+        self,
+        papers: list[PaperMetadata],
+    ) -> dict[str, dict[str, object]]:
+        """Build canonical text snapshots for HTML attachment-backed papers."""
+        snapshots: dict[str, dict[str, object]] = {}
+        for paper in papers:
+            if paper.source_media_type != "text/html" or paper.source_path is None:
+                continue
+            source_path = Path(paper.source_path)
+            if not source_path.exists():
+                continue
+            try:
+                result = extract_html_attachment(source_path, url=paper.url)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to extract HTML attachment for %s (%s): %s",
+                    paper.paper_id,
+                    source_path,
+                    exc,
+                )
+                continue
+
+            stat = source_path.stat()
+            snapshots[paper.paper_id] = {
+                "paper_id": paper.paper_id,
+                "text": result.text,
+                "sha256": hashlib.sha256(result.text.encode("utf-8")).hexdigest(),
+                "char_count": len(result.text),
+                "word_count": result.word_count,
+                "captured_at": datetime.now().isoformat(),
+                "source": "html_attachment",
+                "extraction_method": result.method,
+                "tiers_attempted": [result.method],
+                "is_markdown": False,
+                "is_cleaned": True,
+                "is_truncated_for_llm": False,
+                "source_path": str(source_path),
+                "source_size": int(stat.st_size),
+                "source_mtime_ns": int(stat.st_mtime_ns),
+                "source_media_type": paper.source_media_type,
+                "source_attachment_key": paper.source_attachment_key,
+                "pdf_path": None,
+                "pdf_size": None,
+                "pdf_mtime_ns": None,
+                "should_persist": True,
+            }
+        return snapshots

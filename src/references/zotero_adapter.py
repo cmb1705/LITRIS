@@ -54,10 +54,10 @@ class ZoteroReferenceDB(BaseReferenceDB):
         yield from self._db.get_all_papers(progress_callback)
 
     def get_paper_count(self) -> int:
-        """Get total count of papers with PDFs.
+        """Get total count of locally extractable papers.
 
         Returns:
-            Number of papers with PDF attachments.
+            Number of papers with local source attachments.
         """
         return self._db.get_paper_count()
 
@@ -82,3 +82,10 @@ class ZoteroReferenceDB(BaseReferenceDB):
         for paper in self.get_all_papers():
             collections.update(paper.collections)
         return sorted(collections)
+
+    def load_source_text_snapshots(
+        self,
+        papers: list[PaperMetadata],
+    ) -> dict[str, dict[str, object]]:
+        """Return canonical text snapshots for source-backed webpage items."""
+        return self._db.load_source_text_snapshots(papers)

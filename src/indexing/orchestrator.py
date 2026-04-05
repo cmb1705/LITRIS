@@ -112,6 +112,10 @@ class PaperSnapshot:
     pdf_path: str | None
     pdf_size: int | None
     pdf_mtime_ns: int | None
+    source_path: str | None
+    source_size: int | None
+    source_mtime_ns: int | None
+    source_media_type: str | None
     source_fingerprint: str
     extractable: bool | None = None
     indexed: bool | None = None
@@ -120,6 +124,8 @@ class PaperSnapshot:
     def from_paper(cls, paper: PaperMetadata) -> PaperSnapshot:
         pdf_size = None
         pdf_mtime_ns = None
+        source_size = None
+        source_mtime_ns = None
         if paper.pdf_path and Path(paper.pdf_path).exists():
             try:
                 stat = Path(paper.pdf_path).stat()
@@ -128,6 +134,14 @@ class PaperSnapshot:
             except OSError:
                 pdf_size = None
                 pdf_mtime_ns = None
+        if paper.source_path and Path(paper.source_path).exists():
+            try:
+                source_stat = Path(paper.source_path).stat()
+                source_size = int(source_stat.st_size)
+                source_mtime_ns = int(source_stat.st_mtime_ns)
+            except OSError:
+                source_size = None
+                source_mtime_ns = None
 
         payload = {
             "paper_id": paper.paper_id,
@@ -152,6 +166,10 @@ class PaperSnapshot:
             "pdf_path": str(paper.pdf_path) if paper.pdf_path else None,
             "pdf_size": pdf_size,
             "pdf_mtime_ns": pdf_mtime_ns,
+            "source_path": str(paper.source_path) if paper.source_path else None,
+            "source_size": source_size,
+            "source_mtime_ns": source_mtime_ns,
+            "source_media_type": paper.source_media_type,
             "date_added": paper.date_added.isoformat() if paper.date_added else None,
             "date_modified": paper.date_modified.isoformat() if paper.date_modified else None,
         }
@@ -163,6 +181,10 @@ class PaperSnapshot:
             pdf_path=str(paper.pdf_path) if paper.pdf_path else None,
             pdf_size=pdf_size,
             pdf_mtime_ns=pdf_mtime_ns,
+            source_path=str(paper.source_path) if paper.source_path else None,
+            source_size=source_size,
+            source_mtime_ns=source_mtime_ns,
+            source_media_type=paper.source_media_type,
             source_fingerprint=fingerprint_payload(payload),
         )
 
@@ -176,6 +198,10 @@ class PaperSnapshot:
             pdf_path=data.get("pdf_path"),
             pdf_size=data.get("pdf_size"),
             pdf_mtime_ns=data.get("pdf_mtime_ns"),
+            source_path=data.get("source_path"),
+            source_size=data.get("source_size"),
+            source_mtime_ns=data.get("source_mtime_ns"),
+            source_media_type=data.get("source_media_type"),
             source_fingerprint=data.get("source_fingerprint", ""),
             extractable=data.get("extractable"),
             indexed=data.get("indexed"),
@@ -782,11 +808,16 @@ class IndexOrchestrator:
                 if getattr(args, "clear_cache", False):
                     cleared = extractor.clear_cache()
                     self.logger.info("Cleared %d cached extractions", cleared)
+                source_text_snapshots = ref_db.load_source_text_snapshots(
+                    extraction_candidate_papers
+                )
                 reusable_text_snapshots = load_reusable_text_snapshots(
                     self.store,
                     extraction_candidate_papers,
                     refresh_text=getattr(args, "refresh_text", False),
                 )
+                merged_text_snapshots = dict(source_text_snapshots)
+                merged_text_snapshots.update(reusable_text_snapshots)
                 extraction_run = run_extraction(
                     extraction_candidate_papers,
                     extractor,
@@ -795,7 +826,7 @@ class IndexOrchestrator:
                     updated_extractions,
                     checkpoint_mgr,
                     self.logger,
-                    text_snapshots=reusable_text_snapshots,
+                    text_snapshots=merged_text_snapshots,
                 )
                 paper_dicts = extraction_run.paper_dicts
                 updated_extractions = extraction_run.extractions
@@ -1523,15 +1554,17 @@ class IndexOrchestrator:
                         args.collection,
                         len(all_papers),
                     )
-            papers = [paper for paper in all_papers if paper.pdf_path]
-            papers_without_pdf = [paper for paper in all_papers if not paper.pdf_path]
+            papers = [paper for paper in all_papers if paper.has_extractable_source]
+            papers_without_pdf = [
+                paper for paper in all_papers if not paper.has_extractable_source
+            ]
             if papers_without_pdf:
                 self.logger.info(
-                    "Found %d papers, %d without PDFs (skipped)",
+                    "Found %d papers, %d without local extractable sources (skipped)",
                     len(all_papers),
                     len(papers_without_pdf),
                 )
-            self.logger.info("Found %d papers with PDFs", len(papers))
+            self.logger.info("Found %d papers with local extractable sources", len(papers))
         return papers, papers_without_pdf
 
     def _run_classify_only(
@@ -1838,16 +1871,22 @@ class IndexOrchestrator:
 
     def _show_skipped(self, papers_without_pdf: list[PaperMetadata]) -> None:
         if papers_without_pdf:
-            print(f"\nPapers without PDFs ({len(papers_without_pdf)}):")
+            print(
+                f"\nPapers without local extractable sources "
+                f"({len(papers_without_pdf)}):"
+            )
             print("-" * 70)
             for paper in papers_without_pdf:
                 print(f"  {paper.paper_id}: {paper.title[:60]}...")
                 if paper.authors:
                     print(f"           {paper.author_string}")
             print("-" * 70)
-            print(f"Total: {len(papers_without_pdf)} papers cannot be extracted (no PDF)")
+            print(
+                f"Total: {len(papers_without_pdf)} papers cannot be extracted "
+                "(no local source attachment)"
+            )
         else:
-            print("\nAll papers have PDFs available.")
+            print("\nAll papers have local extractable sources available.")
 
     def _show_failed(self, checkpoint_mgr: CheckpointManager) -> None:
         state = checkpoint_mgr.load()
@@ -2184,6 +2223,9 @@ class IndexOrchestrator:
             tags=paper_data.get("tags", []),
             pdf_path=paper_data.get("pdf_path"),
             pdf_attachment_key=paper_data.get("pdf_attachment_key"),
+            source_path=paper_data.get("source_path"),
+            source_attachment_key=paper_data.get("source_attachment_key"),
+            source_media_type=paper_data.get("source_media_type"),
             date_added=paper_data.get("date_added") or "2020-01-01T00:00:00",
             date_modified=paper_data.get("date_modified") or "2020-01-01T00:00:00",
         )

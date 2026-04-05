@@ -834,6 +834,27 @@ def _snapshot_matches_paper(
 ) -> bool:
     """Return whether a stored text snapshot still matches the current paper source."""
 
+    if paper.source_path and Path(paper.source_path).exists():
+        stored_source_path = snapshot.get("source_path")
+        current_source_path = str(paper.source_path)
+        if stored_source_path and stored_source_path != current_source_path:
+            return False
+
+        try:
+            source_stat = paper.source_path.stat()
+        except OSError:
+            return False
+
+        stored_source_size = snapshot.get("source_size")
+        stored_source_mtime_ns = snapshot.get("source_mtime_ns")
+        if stored_source_size is None or stored_source_mtime_ns is None:
+            return True
+
+        return (
+            int(stored_source_size) == int(source_stat.st_size)
+            and int(stored_source_mtime_ns) == int(source_stat.st_mtime_ns)
+        )
+
     if not paper.pdf_path or not paper.pdf_path.exists():
         return True
 

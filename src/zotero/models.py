@@ -65,6 +65,9 @@ class PaperMetadata(BaseModel):
     tags: list[str] = Field(default_factory=list)
     pdf_path: Path | None = None
     pdf_attachment_key: str | None = None
+    source_path: Path | None = None
+    source_attachment_key: str | None = None
+    source_media_type: str | None = None
     date_added: datetime
     date_modified: datetime
     indexed_at: datetime | None = None
@@ -87,6 +90,16 @@ class PaperMetadata(BaseModel):
             return Path(v)
         return v
 
+    @field_validator("source_path", mode="before")
+    @classmethod
+    def validate_source_path(cls, v):
+        """Convert generic source paths to ``Path`` if needed."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return Path(v)
+        return v
+
     @field_validator("title", mode="before")
     @classmethod
     def clean_title(cls, v):
@@ -100,10 +113,17 @@ class PaperMetadata(BaseModel):
         # Generate stable paper_id from zotero_key + attachment_key
         # This ensures each PDF attachment gets a unique ID
         if not self.paper_id:
-            if self.pdf_attachment_key:
-                self.paper_id = f"{self.zotero_key}_{self.pdf_attachment_key}"
+            attachment_key = self.source_attachment_key or self.pdf_attachment_key
+            if attachment_key:
+                self.paper_id = f"{self.zotero_key}_{attachment_key}"
             else:
                 self.paper_id = self.zotero_key
+        if self.source_path is None and self.pdf_path is not None:
+            self.source_path = self.pdf_path
+        if self.source_attachment_key is None and self.pdf_attachment_key is not None:
+            self.source_attachment_key = self.pdf_attachment_key
+        if self.source_media_type is None and self.pdf_path is not None:
+            self.source_media_type = "application/pdf"
         # Extract publication year from date if not set
         if self.publication_year is None and self.publication_date:
             self.publication_year = self._extract_year(self.publication_date)
@@ -147,6 +167,11 @@ class PaperMetadata(BaseModel):
         author_part = re.sub(r"[^a-zA-Z]", "", author_part)
         return f"{author_part}{year_part}"
 
+    @property
+    def has_extractable_source(self) -> bool:
+        """Return whether the paper has a local file-backed source."""
+        return self.source_path is not None and Path(self.source_path).exists()
+
     def to_index_dict(self) -> dict:
         """Convert to dictionary suitable for indexing."""
         return {
@@ -166,6 +191,9 @@ class PaperMetadata(BaseModel):
             "item_type": self.item_type,
             "pdf_path": str(self.pdf_path) if self.pdf_path else None,
             "pdf_attachment_key": self.pdf_attachment_key,
+            "source_path": str(self.source_path) if self.source_path else None,
+            "source_attachment_key": self.source_attachment_key,
+            "source_media_type": self.source_media_type,
             "date_added": self.date_added.isoformat() if self.date_added else None,
             "date_modified": (
                 self.date_modified.isoformat() if self.date_modified else None

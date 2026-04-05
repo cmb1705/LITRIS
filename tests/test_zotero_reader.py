@@ -231,6 +231,20 @@ class TestZoteroDatabase:
 
         assert result == linked_pdf
 
+    def test_resolve_attachment_path_html_storage_format(self, mock_db_path, mock_storage_path):
+        """HTML attachments should resolve through the generic attachment helper."""
+        att_key = "HTML1234"
+        html_dir = mock_storage_path / att_key
+        html_dir.mkdir()
+        html_file = html_dir / "article.html"
+        html_file.write_text("<html><body><main>Article text</main></body></html>", encoding="utf-8")
+
+        db = ZoteroDatabase(mock_db_path, mock_storage_path)
+        result = db.resolve_attachment_path(att_key, "storage:article.html")
+
+        assert result == html_file
+        assert result.exists()
+
     def test_resolve_pdf_path_blocks_path_traversal_dots(self, tmp_path):
         """Test that path traversal with .. is blocked."""
         mock_db_path = tmp_path / "zotero.sqlite"
@@ -290,6 +304,92 @@ class TestZoteroDatabase:
             "url",
         }
         assert set(FIELD_MAPPING.keys()) == expected_fields
+
+    def test_dedupe_duplicate_pdf_rows(self):
+        """Test duplicate parent/path PDF rows collapse to a single source row."""
+        rows = [
+            {
+                "item_id": 100,
+                "key": "AAA11111",
+                "attachment_key": "PDF1",
+                "attachment_path": "storage:paper.pdf",
+            },
+            {
+                "item_id": 100,
+                "key": "AAA11111",
+                "attachment_key": "PDF2",
+                "attachment_path": "storage:paper.pdf",
+            },
+            {
+                "item_id": 100,
+                "key": "AAA11111",
+                "attachment_key": "PDF3",
+                "attachment_path": "storage:supplement.pdf",
+            },
+            {
+                "item_id": 101,
+                "key": "BBB22222",
+                "attachment_key": "PDF4",
+                "attachment_path": "storage:paper.pdf",
+            },
+        ]
+
+        deduped, skipped = ZoteroDatabase._dedupe_duplicate_pdf_rows(rows)
+
+        assert skipped == 1
+        assert len(deduped) == 3
+        assert [row["attachment_key"] for row in deduped] == ["PDF1", "PDF3", "PDF4"]
+
+    def test_load_source_text_snapshots_for_html_paper(
+        self, mock_db_path, mock_storage_path, tmp_path
+    ):
+        """HTML-backed webpage papers should yield canonical source snapshots."""
+        html_file = tmp_path / "adaptive-cycle.html"
+        html_file.write_text(
+            """
+            <html>
+              <body>
+                <header>Site header</header>
+                <main>
+                  <p>The adaptive cycle describes change in complex systems and
+                  emphasizes the recurring relationship between growth,
+                  conservation, release, and reorganization.</p>
+                  <p>Reorganization and release are essential phases, and the
+                  model is widely used as a reference concept in resilience
+                  thinking, ecological systems analysis, and social-ecological
+                  systems research.</p>
+                  <p>This saved HTML page should yield enough article text to
+                  verify that local webpage attachments can become canonical
+                  text snapshots without depending on a PDF attachment.</p>
+                </main>
+                <footer>Footer noise</footer>
+              </body>
+            </html>
+            """,
+            encoding="utf-8",
+        )
+
+        paper = PaperMetadata(
+            zotero_key="HTML0001",
+            zotero_item_id=200,
+            item_type="webpage",
+            title="Adaptive Cycle",
+            url="https://www.resalliance.org/adaptive-cycle",
+            source_path=html_file,
+            source_attachment_key="ATTHTML1",
+            source_media_type="text/html",
+            date_added=datetime(2024, 1, 1),
+            date_modified=datetime(2024, 1, 2),
+        )
+
+        db = ZoteroDatabase(mock_db_path, mock_storage_path)
+        snapshots = db.load_source_text_snapshots([paper])
+
+        assert paper.paper_id in snapshots
+        snapshot = snapshots[paper.paper_id]
+        assert "adaptive cycle" in snapshot["text"].lower()
+        assert "site header" not in snapshot["text"].lower()
+        assert snapshot["source_media_type"] == "text/html"
 
 
 class TestZoteroDatabaseIntegration:

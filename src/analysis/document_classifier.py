@@ -25,6 +25,15 @@ _ACADEMIC_PHRASES = re.compile(
 
 _CITATION_BRACKET = re.compile(r"\[\d+\]")
 _CITATION_AUTHOR_YEAR = re.compile(r"\([A-Z][a-z]+(?:\s+(?:et\s+al\.?|&\s+[A-Z]))?,?\s*\d{4}\)")
+_WEB_REPORT_TITLE_PATTERNS = re.compile(
+    r"\b(guideline|guidance|position statement|framework|report|white paper|policy|"
+    r"technology transfer|regulatory science|standard|reference|adaptive cycle)\b",
+    re.IGNORECASE,
+)
+_WEB_REPORT_DOMAIN_PATTERNS = re.compile(
+    r"(?:who\.int|ema\.europa\.eu|fda\.gov|tga\.gov\.au|resalliance\.org)",
+    re.IGNORECASE,
+)
 
 
 def classify_metadata(paper: PaperMetadata) -> tuple[DocumentType | None, float]:
@@ -39,6 +48,17 @@ def classify_metadata(paper: PaperMetadata) -> tuple[DocumentType | None, float]
     Returns:
         Tuple of (DocumentType or None, confidence 0.0-1.0).
     """
+    if paper.item_type == "webpage":
+        title_lower = paper.title.lower() if paper.title else ""
+        url_lower = paper.url.lower() if paper.url else ""
+        if paper.doi:
+            return DocumentType.RESEARCH_PAPER, 0.7
+        if _WEB_REPORT_DOMAIN_PATTERNS.search(url_lower) or _WEB_REPORT_TITLE_PATTERNS.search(
+            title_lower
+        ):
+            return DocumentType.REPORT, 0.65
+        return DocumentType.REFERENCE_MATERIAL, 0.55
+
     # Direct mapping from Zotero item_type
     if paper.item_type in ZOTERO_TYPE_MAP:
         doc_type = ZOTERO_TYPE_MAP[paper.item_type]
