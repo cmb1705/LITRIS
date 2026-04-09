@@ -10,20 +10,20 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.analysis.raptor import RaptorSummaries
 
-try:
-    from sentence_transformers import SentenceTransformer as _SentenceTransformer
-except Exception:  # noqa: BLE001 - handle missing or broken optional dependency
-    _SentenceTransformer = None
-
-try:
-    from ollama import Client as _OllamaClient
-except Exception:  # noqa: BLE001 - handle missing or broken optional dependency
-    _OllamaClient = None
-
 from src.analysis.dimensions import get_default_dimension_registry
 from src.analysis.schemas import DimensionedExtraction, SemanticAnalysis
 from src.utils.logging_config import get_logger
 from src.zotero.models import PaperMetadata
+
+# Lazy: avoid eager imports of heavy optional dependencies at module-load
+# time. Importing sentence_transformers transitively loads torch +
+# transformers (~14s on first call), which previously forced every MCP
+# server startup to wait for libraries it may never use when the ollama
+# backend is selected. These attributes start as ``None`` and are populated
+# on first use by ``_init_sentence_transformers``/``_init_ollama``. Tests
+# patch these attributes directly to inject mocks.
+_SentenceTransformer = None
+_OllamaClient = None
 
 logger = get_logger(__name__)
 
