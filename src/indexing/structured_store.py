@@ -255,10 +255,44 @@ class StructuredStore:
         )
 
     def flush_fulltext_manifest(self) -> None:
-        """Flush in-memory full-text manifest changes to disk."""
+        """Flush in-memory full-text manifest changes to disk.
 
-        if self._fulltext_manifest_cache is not None:
-            self.save_fulltext_manifest(self._fulltext_manifest_cache)
+        If the on-disk manifest has been modified since this store last
+        loaded it (for example by another ``StructuredStore`` instance
+        such as the extraction pipeline subroutine writing fresh text
+        snapshots), the disk state is reloaded and merged with the local
+        cache before saving. The cache wins on key collisions, so any
+        local additions or rewrites are preserved while entries that
+        only exist on disk are not clobbered.
+        """
+
+        if self._fulltext_manifest_cache is None:
+            return
+
+        if self._cache_stale(
+            self.fulltext_manifest_file,
+            self._fulltext_manifest_mtime,
+        ):
+            data = safe_read_json(self.fulltext_manifest_file, default={})
+            if isinstance(data, dict) and "snapshots" in data:
+                disk_snapshots = data["snapshots"]
+            elif isinstance(data, dict):
+                disk_snapshots = data
+            else:
+                disk_snapshots = {}
+
+            merged: dict[str, dict] = dict(disk_snapshots)
+            merged.update(self._fulltext_manifest_cache)
+            added_from_disk = set(disk_snapshots) - set(self._fulltext_manifest_cache)
+            if added_from_disk:
+                logger.info(
+                    "Merging %d full-text manifest entries from disk during "
+                    "flush (cache was stale)",
+                    len(added_from_disk),
+                )
+            self._fulltext_manifest_cache = merged
+
+        self.save_fulltext_manifest(self._fulltext_manifest_cache)
 
     def rebuild_fulltext_manifest(self) -> dict[str, dict]:
         """Rebuild the full-text manifest from snapshot files on disk.
