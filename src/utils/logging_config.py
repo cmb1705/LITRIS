@@ -100,19 +100,21 @@ def _find_project_root() -> Path:
         3. Inferred repository root from this module path.
 
     Returns:
-        Path to project root (directory containing config.yaml).
+        Path to project root (directory containing recognized project markers).
     """
+    markers = ("config.yaml", "pyproject.toml", ".git")
+
     for start_path in (Path.cwd(), Path(__file__).resolve().parent):
         current = start_path
         while True:
-            if (current / "config.yaml").exists():
+            if any((current / marker).exists() for marker in markers):
                 return current
             if current.parent == current:
                 break
             current = current.parent
 
     module_root = Path(__file__).resolve().parents[2]
-    if (module_root / "config.yaml").exists():
+    if any((module_root / marker).exists() for marker in markers):
         return module_root
 
     return Path.cwd()
