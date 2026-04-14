@@ -94,20 +94,27 @@ def get_logger(name: str) -> logging.Logger:
 def _find_project_root() -> Path:
     """Find the project root directory.
 
+    Search order:
+        1. Current working directory and its parents.
+        2. This module's directory and its parents.
+        3. Inferred repository root from this module path.
+
     Returns:
         Path to project root (directory containing config.yaml).
     """
-    current = Path.cwd()
+    for start_path in (Path.cwd(), Path(__file__).resolve().parent):
+        current = start_path
+        while True:
+            if (current / "config.yaml").exists():
+                return current
+            if current.parent == current:
+                break
+            current = current.parent
 
-    # Check current directory and up to 3 parent levels
-    for _ in range(4):
-        if (current / "config.yaml").exists():
-            return current
-        if current.parent == current:
-            break
-        current = current.parent
+    module_root = Path(__file__).resolve().parents[2]
+    if (module_root / "config.yaml").exists():
+        return module_root
 
-    # Default to current directory
     return Path.cwd()
 
 
