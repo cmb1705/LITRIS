@@ -10,7 +10,7 @@ from pathlib import Path
 
 from src.analysis.prompts import PAPER_TEXT_STDIN_PLACEHOLDER
 from src.utils.logging_config import get_logger
-from src.utils.run_control import PauseRequested, RunControlPoller
+from src.utils.run_control import RunControlPoller
 
 logger = get_logger(__name__)
 

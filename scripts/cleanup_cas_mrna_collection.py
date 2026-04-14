@@ -19,11 +19,10 @@ import json
 import random
 import re
 import sqlite3
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
-
 
 KEY_CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 KEY_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ"
