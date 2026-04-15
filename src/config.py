@@ -522,10 +522,27 @@ class Config(BaseModel):
 
     @classmethod
     def _find_config_file(cls) -> Path:
-        """Find config.yaml in current or parent directories."""
-        current = Path.cwd()
+        """Find config.yaml.
 
-        # Check current directory and up to 3 parent levels
+        Search order:
+        1. LITRIS_CONFIG_PATH environment variable (explicit override, useful
+           when LITRIS is spawned as an MCP server from another project's cwd).
+        2. Current directory and up to 3 parent levels (legacy behavior for
+           running tools from inside the LITRIS repo).
+        3. The LITRIS install root (the directory two levels up from this
+           file). This makes the MCP server self-locating when spawned with
+           an arbitrary cwd that the caller cannot control (e.g. Claude Code
+           on Windows, which does not reliably honor the .mcp.json cwd field).
+        4. Cwd as the last-resort path so the raised FileNotFoundError still
+           points somewhere meaningful.
+        """
+        # 1. Explicit override via env var
+        env_path = os.getenv("LITRIS_CONFIG_PATH")
+        if env_path:
+            return Path(env_path)
+
+        # 2. Current directory and up to 3 parent levels
+        current = Path.cwd()
         for _ in range(4):
             config_path = current / "config.yaml"
             if config_path.exists():
@@ -534,7 +551,13 @@ class Config(BaseModel):
                 break
             current = current.parent
 
-        # Default to current directory
+        # 3. LITRIS install root (self-healing fallback)
+        install_root = Path(__file__).resolve().parent.parent
+        install_config = install_root / "config.yaml"
+        if install_config.exists():
+            return install_config
+
+        # 4. Error path pointing back at cwd
         return Path.cwd() / "config.yaml"
 
     @classmethod
