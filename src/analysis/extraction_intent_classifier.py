@@ -163,6 +163,7 @@ def classify_extraction_intent(
     section_markers: int | None = None,
     source_tier: IntentSourceTier = "metadata_only",
     classified_at: str = "",
+    allow_picture_enrichment: bool = False,
 ) -> ExtractionIntentRecord:
     """Classify extraction intent using cheap heuristics.
 
@@ -206,7 +207,10 @@ def classify_extraction_intent(
         likely_scanned = True
 
     needs_formula = formula_hits >= 2 or _looks_math_heavy(normalized_title_bits)
-    needs_picture = picture_hits >= 2 or _looks_figure_heavy(normalized_title_bits)
+    picture_signals_detected = picture_hits >= 2 or _looks_figure_heavy(
+        normalized_title_bits
+    )
+    needs_picture = picture_signals_detected and allow_picture_enrichment
     needs_ocr = likely_scanned
 
     confidence = 0.35
@@ -224,6 +228,11 @@ def classify_extraction_intent(
         reasons.append("formula/theorem density suggests math enrichment")
     if needs_picture:
         reasons.append("figure/chart density suggests picture descriptions")
+    elif picture_signals_detected:
+        reasons.append(
+            "figure/chart signals detected but automatic picture-description "
+            "hybrid is disabled"
+        )
     if not reasons:
         reasons.append("no strong OCR, formula, or picture signals; defaulting to fast mode")
 
@@ -241,6 +250,8 @@ def classify_extraction_intent(
         "needs_ocr": needs_ocr,
         "needs_formula": needs_formula,
         "needs_picture": needs_picture,
+        "picture_signals_detected": picture_signals_detected,
+        "picture_intent_enabled": allow_picture_enrichment,
         "word_count": word_count or 0,
         "page_count": page_count or 0,
         "words_per_page": round(words_per_page, 2),
@@ -266,6 +277,11 @@ def resolve_hybrid_profile(
     base_client_mode = processing.opendataloader_hybrid_client_mode
     fallback_to_fast = processing.opendataloader_hybrid_fallback
 
+    allow_picture_enrichment = (
+        processing.opendataloader_hybrid_auto_picture_intents
+        or processing.opendataloader_hybrid_enrich_picture_description
+    )
+
     if resolved_intent == ExtractionIntent.FAST:
         return HybridProfileSpec(
             intent=resolved_intent,
@@ -282,6 +298,25 @@ def resolve_hybrid_profile(
     force_ocr = "ocr" in resolved_intent.value
     enrich_formula = "formula" in resolved_intent.value
     enrich_picture = "picture" in resolved_intent.value
+    if enrich_picture and not allow_picture_enrichment:
+        enrich_picture = False
+    effective_intent = _intent_from_flags(
+        needs_ocr=force_ocr,
+        needs_formula=enrich_formula,
+        needs_picture=enrich_picture,
+    )
+    if effective_intent == ExtractionIntent.FAST:
+        return HybridProfileSpec(
+            intent=effective_intent,
+            profile_key="fast",
+            mode="fast",
+            backend=None,
+            client_mode=None,
+            force_ocr=False,
+            enrich_formula=False,
+            enrich_picture_description=False,
+            fallback_to_fast=fallback_to_fast,
+        )
     client_mode = "full" if (enrich_formula or enrich_picture) else base_client_mode
     profile_key = (
         f"hybrid:"
@@ -292,7 +327,7 @@ def resolve_hybrid_profile(
         f"picture={int(enrich_picture)}"
     )
     return HybridProfileSpec(
-        intent=resolved_intent,
+        intent=effective_intent,
         profile_key=profile_key,
         mode="hybrid",
         backend=base_backend,

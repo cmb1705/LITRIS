@@ -400,6 +400,7 @@ class ProcessingConfig(BaseModel):
     opendataloader_hybrid_force_ocr: bool = False
     opendataloader_hybrid_ocr_lang: str | None = None
     opendataloader_hybrid_enrich_formula: bool = False
+    opendataloader_hybrid_auto_picture_intents: bool = False
     opendataloader_hybrid_enrich_picture_description: bool = False
     opendataloader_hybrid_picture_description_prompt: str | None = None
     opendataloader_hybrid_device: str = "auto"

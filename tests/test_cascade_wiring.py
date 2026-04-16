@@ -17,6 +17,7 @@ class TestCascadeResultDataclass:
             tiers_attempted=["pymupdf"],
         )
         assert result.is_markdown is False
+        assert result.tier_errors == {}
 
     def test_cascade_result_is_markdown_true(self):
         """CascadeResult can set is_markdown=True."""
@@ -29,6 +30,7 @@ class TestCascadeResultDataclass:
         )
         assert result.is_markdown is True
         assert result.method == "companion"
+        assert result.tier_errors == {}
 
     def test_companion_is_valid_cascade_method(self):
         """'companion' is a valid CascadeMethod literal value."""

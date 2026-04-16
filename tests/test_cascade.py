@@ -268,14 +268,16 @@ class TestExtractionCascade:
         assert "marker" in result.tiers_attempted
         assert "pymupdf" in result.tiers_attempted
 
+    @patch("src.extraction.cascade.opendataloader_extractor.get_last_attempt_result")
     @patch("src.extraction.cascade.opendataloader_extractor.is_available")
     @patch("src.extraction.cascade.opendataloader_extractor.extract_with_opendataloader")
     def test_cascade_uses_opendataloader_as_primary(
-        self, mock_extract, mock_available, mock_pdf_extractor,
+        self, mock_extract, mock_available, mock_last_attempt, mock_pdf_extractor,
     ):
         """OpenDataLoader is the primary PDF tier (before PyMuPDF)."""
         mock_available.return_value = True
         mock_extract.return_value = self._LONG_TEXT
+        mock_last_attempt.return_value = None
 
         cascade = ExtractionCascade(
             pdf_extractor=mock_pdf_extractor,
@@ -293,16 +295,19 @@ class TestExtractionCascade:
         # PyMuPDF should NOT have been called (ODL succeeded first)
         mock_pdf_extractor.extract_text_with_method.assert_not_called()
 
+    @patch("src.extraction.cascade.opendataloader_extractor.get_last_attempt_result")
     @patch("src.extraction.cascade.opendataloader_extractor.ensure_hybrid_server")
     @patch("src.extraction.cascade.opendataloader_extractor.is_available")
     @patch("src.extraction.cascade.opendataloader_extractor.extract_with_opendataloader")
     def test_cascade_uses_hybrid_fallback_after_fast_failure(
-        self, mock_extract, mock_available, mock_ensure_hybrid, mock_pdf_extractor,
+        self, mock_extract, mock_available, mock_ensure_hybrid, mock_last_attempt,
+        mock_pdf_extractor,
     ):
         """Hybrid fallback runs after fast ODL when a backend is reachable."""
         mock_available.return_value = True
         mock_ensure_hybrid.return_value = OpenDataLoaderHybridConfig(enabled=True)
         mock_extract.side_effect = [None, self._LONG_TEXT]
+        mock_last_attempt.side_effect = [None, None]
 
         cascade = ExtractionCascade(
             pdf_extractor=mock_pdf_extractor,
@@ -319,16 +324,19 @@ class TestExtractionCascade:
         assert "opendataloader_hybrid" in result.tiers_attempted
         mock_pdf_extractor.extract_text_with_method.assert_not_called()
 
+    @patch("src.extraction.cascade.opendataloader_extractor.get_last_attempt_result")
     @patch("src.extraction.cascade.opendataloader_extractor.ensure_hybrid_server")
     @patch("src.extraction.cascade.opendataloader_extractor.is_available")
     @patch("src.extraction.cascade.opendataloader_extractor.extract_with_opendataloader")
     def test_cascade_downgrades_primary_hybrid_to_fast_when_backend_unavailable(
-        self, mock_extract, mock_available, mock_ensure_hybrid, mock_pdf_extractor,
+        self, mock_extract, mock_available, mock_ensure_hybrid, mock_last_attempt,
+        mock_pdf_extractor,
     ):
         """Primary ODL hybrid mode downgrades to fast mode if backend is absent."""
         mock_available.return_value = True
         mock_ensure_hybrid.return_value = None
         mock_extract.return_value = self._LONG_TEXT
+        mock_last_attempt.return_value = None
 
         cascade = ExtractionCascade(
             pdf_extractor=mock_pdf_extractor,
@@ -344,11 +352,13 @@ class TestExtractionCascade:
         assert cascade.opendataloader_mode == "fast"
         mock_pdf_extractor.extract_text_with_method.assert_not_called()
 
+    @patch("src.extraction.cascade.opendataloader_extractor.get_last_attempt_result")
     @patch("src.extraction.cascade.opendataloader_extractor.ensure_hybrid_server")
     @patch("src.extraction.cascade.opendataloader_extractor.is_available")
     @patch("src.extraction.cascade.opendataloader_extractor.extract_with_opendataloader")
     def test_cascade_upgrades_fast_odl_to_hybrid_for_formula_docs(
-        self, mock_extract, mock_available, mock_ensure_hybrid, mock_pdf_extractor,
+        self, mock_extract, mock_available, mock_ensure_hybrid, mock_last_attempt,
+        mock_pdf_extractor,
     ):
         """Fast ODL can be upgraded to hybrid when enrichment heuristics fire."""
         mock_available.return_value = True
@@ -360,6 +370,7 @@ class TestExtractionCascade:
             "This paper presents Equation 1 and a proof with theorem details. " * 20,
             self._LONG_TEXT,
         ]
+        mock_last_attempt.side_effect = [None, None]
 
         cascade = ExtractionCascade(
             pdf_extractor=mock_pdf_extractor,
@@ -376,14 +387,16 @@ class TestExtractionCascade:
         assert result.method == "opendataloader_hybrid"
         assert "opendataloader_hybrid" in result.tiers_attempted
 
+    @patch("src.extraction.cascade.opendataloader_extractor.get_last_attempt_result")
     @patch("src.extraction.cascade.opendataloader_extractor.is_available")
     @patch("src.extraction.cascade.opendataloader_extractor.extract_with_opendataloader")
     def test_cascade_falls_through_opendataloader_to_pymupdf(
-        self, mock_extract, mock_available, mock_pdf_extractor,
+        self, mock_extract, mock_available, mock_last_attempt, mock_pdf_extractor,
     ):
         """When OpenDataLoader fails, cascade falls through to PyMuPDF."""
         mock_available.return_value = True
         mock_extract.return_value = None  # ODL fails
+        mock_last_attempt.return_value = None
 
         cascade = ExtractionCascade(
             pdf_extractor=mock_pdf_extractor,
@@ -399,17 +412,19 @@ class TestExtractionCascade:
         assert "opendataloader" in result.tiers_attempted
         assert "pymupdf" in result.tiers_attempted
 
+    @patch("src.extraction.cascade.opendataloader_extractor.get_last_attempt_result")
     @patch("src.extraction.cascade.opendataloader_extractor.is_available")
     @patch("src.extraction.cascade.opendataloader_extractor.extract_with_opendataloader")
     @patch("src.extraction.cascade.marker_extractor.is_available")
     @patch("src.extraction.cascade.marker_extractor.extract_with_marker")
     def test_cascade_falls_through_all_to_marker(
         self, mock_marker_extract, mock_marker_avail,
-        mock_odl_extract, mock_odl_avail, mock_pdf_extractor,
+        mock_odl_extract, mock_odl_avail, mock_last_attempt, mock_pdf_extractor,
     ):
         """When ODL and PyMuPDF both fail, cascade falls through to Marker."""
         mock_odl_avail.return_value = True
         mock_odl_extract.return_value = None  # ODL fails
+        mock_last_attempt.return_value = None
         mock_marker_avail.return_value = True
         mock_marker_extract.return_value = self._LONG_TEXT
         mock_pdf_extractor.extract_text_with_method.return_value = ("Short.", "pymupdf")
@@ -429,6 +444,38 @@ class TestExtractionCascade:
         assert "opendataloader" in result.tiers_attempted
         assert "pymupdf" in result.tiers_attempted
         assert "marker" in result.tiers_attempted
+
+    @patch("src.extraction.cascade.opendataloader_extractor.get_last_attempt_result")
+    @patch("src.extraction.cascade.opendataloader_extractor.is_available")
+    @patch("src.extraction.cascade.opendataloader_extractor.extract_with_opendataloader")
+    def test_cascade_records_hybrid_failure_diagnostics(
+        self, mock_extract, mock_available, mock_last_attempt, mock_pdf_extractor,
+    ):
+        """Hybrid failures are preserved on the cascade result when fallback wins."""
+        from src.extraction.opendataloader_extractor import OpenDataLoaderAttemptResult
+
+        mock_available.return_value = True
+        mock_extract.return_value = None
+        mock_last_attempt.return_value = OpenDataLoaderAttemptResult(
+            mode="hybrid",
+            text=None,
+            error="cli exit code 1",
+        )
+
+        cascade = ExtractionCascade(
+            pdf_extractor=mock_pdf_extractor,
+            enable_arxiv=False,
+            enable_opendataloader=True,
+            enable_marker=False,
+            opendataloader_mode="hybrid",
+            opendataloader_hybrid=OpenDataLoaderHybridConfig(enabled=True),
+        )
+        cascade.enable_opendataloader = True
+        cascade.opendataloader_hybrid = OpenDataLoaderHybridConfig(enabled=True)
+        result = cascade.extract_text(Path("paper.pdf"))
+
+        assert result.method == "pymupdf"
+        assert result.tier_errors["opendataloader_hybrid"] == "cli exit code 1"
 
     @patch("src.extraction.cascade.opendataloader_extractor.is_available")
     def test_cascade_skips_opendataloader_when_unavailable(

@@ -28,7 +28,7 @@ fallback for environments without Java 11+.
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -72,6 +72,7 @@ class CascadeResult:
     word_count: int
     tiers_attempted: list[str]
     is_markdown: bool = False
+    tier_errors: dict[str, str] = field(default_factory=dict)
 
 
 class ExtractionCascade:
@@ -180,6 +181,7 @@ class ExtractionCascade:
             PDFExtractionError: If all tiers fail.
         """
         tiers_attempted: list[str] = []
+        tier_errors: dict[str, str] = {}
 
         # Tier 0 (Priority 1): Companion .md file
         companion_path = self._find_companion(pdf_path)
@@ -195,6 +197,7 @@ class ExtractionCascade:
                         word_count=len(text.split()),
                         tiers_attempted=tiers_attempted,
                         is_markdown=True,
+                        tier_errors=tier_errors,
                     )
                 else:
                     logger.debug(
@@ -222,6 +225,7 @@ class ExtractionCascade:
                     method="arxiv_html",
                     word_count=len(text.split()),
                     tiers_attempted=tiers_attempted,
+                    tier_errors=tier_errors,
                 )
 
         # Tier 2: ar5iv
@@ -234,6 +238,7 @@ class ExtractionCascade:
                     method="ar5iv",
                     word_count=len(text.split()),
                     tiers_attempted=tiers_attempted,
+                    tier_errors=tier_errors,
                 )
 
         # Tier 3: OpenDataLoader PDF (primary PDF tier -- better reading order)
@@ -249,6 +254,9 @@ class ExtractionCascade:
                 mode=self.opendataloader_mode,
                 hybrid_config=self.opendataloader_hybrid,
             )
+            attempt = opendataloader_extractor.get_last_attempt_result()
+            if attempt and attempt.error:
+                tier_errors[odl_tier] = attempt.error
             if text and self._is_sufficient(text):
                 if (
                     odl_tier == "opendataloader"
@@ -261,6 +269,9 @@ class ExtractionCascade:
                         mode="hybrid",
                         hybrid_config=self.opendataloader_hybrid,
                     )
+                    hybrid_attempt = opendataloader_extractor.get_last_attempt_result()
+                    if hybrid_attempt and hybrid_attempt.error:
+                        tier_errors["opendataloader_hybrid"] = hybrid_attempt.error
                     if hybrid_text and self._is_sufficient(hybrid_text):
                         return CascadeResult(
                             text=hybrid_text,
@@ -268,6 +279,7 @@ class ExtractionCascade:
                             word_count=len(hybrid_text.split()),
                             tiers_attempted=tiers_attempted,
                             is_markdown=True,
+                            tier_errors=tier_errors,
                         )
                 return CascadeResult(
                     text=text,
@@ -275,6 +287,7 @@ class ExtractionCascade:
                     word_count=len(text.split()),
                     tiers_attempted=tiers_attempted,
                     is_markdown=True,
+                    tier_errors=tier_errors,
                 )
 
         # Tier 4: OpenDataLoader hybrid fallback for complex/scanned PDFs.
@@ -285,6 +298,9 @@ class ExtractionCascade:
                 mode="hybrid",
                 hybrid_config=self.opendataloader_hybrid,
             )
+            attempt = opendataloader_extractor.get_last_attempt_result()
+            if attempt and attempt.error:
+                tier_errors["opendataloader_hybrid"] = attempt.error
             if text and self._is_sufficient(text):
                 return CascadeResult(
                     text=text,
@@ -292,6 +308,7 @@ class ExtractionCascade:
                     word_count=len(text.split()),
                     tiers_attempted=tiers_attempted,
                     is_markdown=True,
+                    tier_errors=tier_errors,
                 )
 
         # Tier 5: PyMuPDF (fallback for when ODL/Java unavailable)
@@ -309,6 +326,7 @@ class ExtractionCascade:
                     method=cascade_method,
                     word_count=len(text.split()),
                     tiers_attempted=tiers_attempted,
+                    tier_errors=tier_errors,
                 )
         except PDFExtractionError:
             pass
@@ -324,11 +342,20 @@ class ExtractionCascade:
                     word_count=len(text.split()),
                     tiers_attempted=tiers_attempted,
                     is_markdown=True,
+                    tier_errors=tier_errors,
                 )
 
+        diagnostics = ""
+        if tier_errors:
+            diagnostics = (
+                " Diagnostics: "
+                + "; ".join(
+                    f"{tier}={error}" for tier, error in sorted(tier_errors.items())
+                )
+            )
         raise PDFExtractionError(
             f"All extraction tiers failed for {pdf_path.name}. "
-            f"Tiers attempted: {', '.join(tiers_attempted)}"
+            f"Tiers attempted: {', '.join(tiers_attempted)}.{diagnostics}"
         )
 
     def _should_upgrade_fast_odl_to_hybrid(self, text: str) -> bool:

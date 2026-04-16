@@ -1788,6 +1788,10 @@ class IndexOrchestrator:
                 section_markers=section_markers,
                 source_tier=source_tier,
                 classified_at=record.classified_at,
+                allow_picture_enrichment=(
+                    config.processing.opendataloader_hybrid_auto_picture_intents
+                    or config.processing.opendataloader_hybrid_enrich_picture_description
+                ),
             )
             profile = resolve_hybrid_profile(intent_record.intent, config.processing)
             record.extraction_intent = intent_record.intent.value

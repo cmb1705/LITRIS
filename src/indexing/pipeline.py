@@ -217,10 +217,31 @@ def run_extraction(
                         result.extraction_routing_overridden
                     ),
                     "extraction_override_reason": result.extraction_override_reason,
+                    "extraction_diagnostics": dict(result.extraction_diagnostics),
                 }
             else:
                 error = Exception(result.error) if result.error else None
                 checkpoint_mgr.complete_item(result.paper_id, success=False, error=error)
+
+            if result.extraction_routing_overridden and result.extraction_override_reason:
+                logger.warning(
+                    "Extraction routing override for %s: planned=%s actual=%s reason=%s",
+                    result.paper_id,
+                    result.planned_profile_key,
+                    result.actual_profile_key,
+                    result.extraction_override_reason,
+                )
+            if result.extraction_diagnostics:
+                logger.warning(
+                    "Extraction diagnostics for %s: %s",
+                    result.paper_id,
+                    "; ".join(
+                        f"{tier}={message}"
+                        for tier, message in sorted(
+                            result.extraction_diagnostics.items()
+                        )
+                    ),
+                )
 
             if len(results) % 10 == 0:
                 store.flush_fulltext_manifest()

@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass
 from importlib.util import find_spec
 from pathlib import Path
+from threading import local
 from urllib.error import URLError
 from urllib.parse import urlparse
 from urllib.request import urlopen
@@ -38,6 +39,7 @@ DEFAULT_HYBRID_DEVICE = "auto"
 
 _HYBRID_SERVER_PROCESS: subprocess.Popen[str] | None = None
 _HYBRID_SERVER_COMMAND: tuple[str, ...] | None = None
+_ATTEMPT_STATE = local()
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,16 @@ class OpenDataLoaderHybridConfig:
         if self.enrich_formula or self.enrich_picture_description:
             return "full"
         return self.client_mode
+
+
+@dataclass(frozen=True)
+class OpenDataLoaderAttemptResult:
+    """Structured result for the last OpenDataLoader extraction attempt."""
+
+    mode: str
+    text: str | None
+    error: str | None = None
+    word_count: int = 0
 
 
 def build_hybrid_config(
@@ -174,6 +186,16 @@ def _hybrid_server_executable() -> str | None:
 def hybrid_extra_installed() -> bool:
     """Return True when optional local hybrid backend dependencies exist."""
     return all(find_spec(name) is not None for name in ("docling", "fastapi", "uvicorn"))
+
+
+def _set_last_attempt_result(result: OpenDataLoaderAttemptResult) -> None:
+    """Store the most recent OpenDataLoader attempt result for this thread."""
+    _ATTEMPT_STATE.last_result = result
+
+
+def get_last_attempt_result() -> OpenDataLoaderAttemptResult | None:
+    """Return the most recent OpenDataLoader attempt result for this thread."""
+    return getattr(_ATTEMPT_STATE, "last_result", None)
 
 
 def _find_java() -> str | None:
@@ -371,17 +393,26 @@ def extract_with_opendataloader(
     hybrid_config: OpenDataLoaderHybridConfig | None = None,
 ) -> str | None:
     """Extract text from PDF using OpenDataLoader."""
+    def _fail(reason: str) -> None:
+        _set_last_attempt_result(
+            OpenDataLoaderAttemptResult(mode=mode, text=None, error=reason, word_count=0)
+        )
+
     if not OPENDATALOADER_AVAILABLE:
         logger.debug("opendataloader-pdf not installed, skipping")
+        _fail("opendataloader-pdf not installed")
         return None
     if _JAVA_PATH is None:
         logger.debug("Java 11+ not found, skipping OpenDataLoader")
+        _fail("java 11+ not found")
         return None
     if not pdf_path.exists():
         logger.warning("PDF not found: %s", pdf_path)
+        _fail("pdf not found")
         return None
     if mode == "hybrid" and hybrid_config is None:
         logger.debug("Hybrid mode requested without a hybrid backend config")
+        _fail("hybrid requested without backend config")
         return None
 
     logger.info("OpenDataLoader extraction (%s): %s", mode, pdf_path.name)
@@ -420,28 +451,40 @@ def extract_with_opendataloader(
                 logger.debug(
                     "OpenDataLoader produced no markdown for %s", pdf_path.name
                 )
+                _fail("no markdown output produced")
                 return None
 
             text = md_files[0].read_text(encoding="utf-8")
             if text and len(text.split()) > 100:
+                word_count = len(text.split())
+                _set_last_attempt_result(
+                    OpenDataLoaderAttemptResult(
+                        mode=mode,
+                        text=text,
+                        word_count=word_count,
+                    )
+                )
                 logger.info(
                     "OpenDataLoader (%s): extracted %s words from %s",
                     mode,
-                    len(text.split()),
+                    word_count,
                     pdf_path.name,
                 )
                 return text
 
             logger.debug("OpenDataLoader: insufficient text from %s", pdf_path.name)
+            _fail(f"insufficient text ({len(text.split()) if text else 0} words)")
             return None
 
     except FileNotFoundError as exc:
         if "java" in str(exc).lower():
             logger.warning("Java not found during OpenDataLoader extraction: %s", exc)
+            _fail(f"java not found during extraction: {exc}")
         else:
             logger.warning(
                 "OpenDataLoader extraction failed for %s: %s", pdf_path.name, exc
             )
+            _fail(f"file error: {exc}")
         return None
     except subprocess.CalledProcessError as exc:
         logger.warning(
@@ -449,9 +492,11 @@ def extract_with_opendataloader(
             pdf_path.name,
             exc.returncode,
         )
+        _fail(f"cli exit code {exc.returncode}")
         return None
     except Exception as exc:
         logger.warning(
             "OpenDataLoader extraction failed for %s: %s", pdf_path.name, exc
         )
+        _fail(str(exc))
         return None

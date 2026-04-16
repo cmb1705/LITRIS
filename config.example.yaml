@@ -177,6 +177,10 @@ processing:
   opendataloader_hybrid_force_ocr: false
   opendataloader_hybrid_ocr_lang: null
   opendataloader_hybrid_enrich_formula: false
+  # Keep automatic picture-description hybrid routing disabled until the
+  # backend is reliable enough to justify it. Manual hybrid runs can still opt
+  # in via the explicit enrich flag below.
+  opendataloader_hybrid_auto_picture_intents: false
   opendataloader_hybrid_enrich_picture_description: false
   opendataloader_hybrid_picture_description_prompt: null
   opendataloader_hybrid_device: "auto"

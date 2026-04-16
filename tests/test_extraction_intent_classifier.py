@@ -12,6 +12,7 @@ from src.analysis.extraction_intent_classifier import (
     build_extraction_plan,
     classify_extraction_intent,
     group_extraction_plan_by_profile,
+    resolve_hybrid_profile,
 )
 from src.analysis.section_extractor import SectionExtractor
 from src.config import Config
@@ -68,11 +69,29 @@ def test_cheap_text_pass_detects_formula_and_picture_needs():
         page_count=5,
         section_markers=4,
         source_tier="cheap_text_pass",
+        allow_picture_enrichment=True,
     )
 
     assert record.intent == ExtractionIntent.HYBRID_FORMULA_PICTURE
     assert record.signals["needs_formula"] is True
     assert record.signals["needs_picture"] is True
+
+
+def test_picture_signals_default_to_fast_when_auto_picture_disabled():
+    paper = _make_paper("Visualization-heavy analysis")
+    text = "Figure 1 shows the chart. Figure 2 shows the plot and diagram."
+    record = classify_extraction_intent(
+        paper,
+        text=text,
+        word_count=900,
+        page_count=5,
+        section_markers=4,
+        source_tier="cheap_text_pass",
+    )
+
+    assert record.intent == ExtractionIntent.FAST
+    assert record.signals["picture_signals_detected"] is True
+    assert record.signals["needs_picture"] is False
 
 
 def test_cheap_text_pass_detects_scanned_pdf_needs_ocr():
@@ -93,6 +112,7 @@ def test_cheap_text_pass_detects_scanned_pdf_needs_ocr():
 def test_build_extraction_plan_groups_by_exact_profile():
     config = _make_config()
     config.processing.opendataloader_hybrid_backend = "docling-fast"
+    config.processing.opendataloader_hybrid_auto_picture_intents = True
 
     records = {
         "p1": type(
@@ -135,6 +155,18 @@ def test_build_extraction_plan_groups_by_exact_profile():
     assert grouped["fast"][0].intent == ExtractionIntent.FAST
 
 
+def test_resolve_hybrid_profile_strips_picture_when_disabled():
+    config = _make_config()
+
+    profile = resolve_hybrid_profile(
+        ExtractionIntent.HYBRID_FORMULA_PICTURE,
+        config.processing,
+    )
+
+    assert profile.intent == ExtractionIntent.HYBRID_FORMULA
+    assert profile.profile_key.endswith("formula=1:picture=0")
+
+
 def test_runtime_override_is_recorded_for_fast_to_hybrid():
     actual_profile, reason = SectionExtractor._resolve_actual_profile(
         planned_profile_key="fast",
@@ -145,8 +177,20 @@ def test_runtime_override_is_recorded_for_fast_to_hybrid():
     assert reason == "runtime escalated from fast to hybrid"
 
 
+def test_runtime_override_reports_hybrid_failure_reason():
+    actual_profile, reason = SectionExtractor._resolve_actual_profile(
+        planned_profile_key="hybrid:backend=docling-fast:client=full:ocr=0:formula=1:picture=0",
+        extraction_method="pymupdf",
+        extraction_diagnostics={"opendataloader_hybrid": "cli exit code 1"},
+    )
+
+    assert actual_profile == "pymupdf"
+    assert reason == "planned hybrid failed (cli exit code 1); runtime used pymupdf"
+
+
 def test_orchestrator_reuses_stored_snapshot_for_intent_classification(tmp_path):
     config = _make_config()
+    config.processing.opendataloader_hybrid_auto_picture_intents = True
     index_dir = tmp_path / "index"
     orchestrator = IndexOrchestrator(
         project_root=tmp_path,

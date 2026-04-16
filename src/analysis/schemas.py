@@ -1010,3 +1010,7 @@ class ExtractionResult(BaseModel):
         default=None,
         description="Reason runtime extraction deviated from the planned route.",
     )
+    extraction_diagnostics: dict[str, str] = Field(
+        default_factory=dict,
+        description="Tier-level extraction diagnostics captured during runtime fallback.",
+    )

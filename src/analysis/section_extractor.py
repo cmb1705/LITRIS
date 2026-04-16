@@ -590,6 +590,20 @@ class SectionExtractor:
                 snapshot_payload["planned_extraction_intent"] = planned_intent
             if planned_profile_key:
                 snapshot_payload["planned_profile_key"] = planned_profile_key
+            if cascade_result and cascade_result.tier_errors:
+                snapshot_payload["extraction_diagnostics"] = dict(
+                    cascade_result.tier_errors
+                )
+
+            extraction_diagnostics: dict[str, str] = {}
+            if snapshot_payload is not None:
+                raw_diagnostics = snapshot_payload.get("extraction_diagnostics")
+                if isinstance(raw_diagnostics, dict):
+                    extraction_diagnostics = {
+                        str(key): str(value)
+                        for key, value in raw_diagnostics.items()
+                        if value is not None
+                    }
 
             # OCR fallback for low-quality text
             if (
@@ -639,6 +653,7 @@ class SectionExtractor:
                     success=False,
                     error="Insufficient text content",
                     text_snapshot=snapshot_payload,
+                    extraction_diagnostics=extraction_diagnostics,
                 ), False
 
             if non_pub_reasons:
@@ -651,6 +666,7 @@ class SectionExtractor:
                     success=False,
                     error=f"Likely non-publication: {reason_text}",
                     text_snapshot=snapshot_payload,
+                    extraction_diagnostics=extraction_diagnostics,
                 ), False
 
             # Classify document type
@@ -681,6 +697,7 @@ class SectionExtractor:
                     document_type=doc_type.value,
                     type_confidence=type_confidence,
                     text_snapshot=snapshot_payload,
+                    extraction_diagnostics=extraction_diagnostics,
                 ), False
 
             if skip_llm:
@@ -689,6 +706,7 @@ class SectionExtractor:
                     extraction_method=(
                         cascade_result.method if cascade_result else method
                     ),
+                    extraction_diagnostics=extraction_diagnostics,
                 )
                 return ExtractionResult(
                     paper_id=paper.paper_id,
@@ -706,6 +724,7 @@ class SectionExtractor:
                     actual_profile_key=actual_profile_key,
                     extraction_routing_overridden=override_reason is not None,
                     extraction_override_reason=override_reason,
+                    extraction_diagnostics=extraction_diagnostics,
                 ), False
 
             full_text = text
@@ -732,12 +751,14 @@ class SectionExtractor:
             actual_profile_key, override_reason = self._resolve_actual_profile(
                 planned_profile_key=planned_profile_key,
                 extraction_method=result.extraction_method,
+                extraction_diagnostics=extraction_diagnostics,
             )
             result.planned_extraction_intent = planned_intent
             result.planned_profile_key = planned_profile_key
             result.actual_profile_key = actual_profile_key
             result.extraction_routing_overridden = override_reason is not None
             result.extraction_override_reason = override_reason
+            result.extraction_diagnostics = extraction_diagnostics
             result.text_snapshot = snapshot_payload
             if snapshot_payload is not None:
                 snapshot_payload["actual_profile_key"] = actual_profile_key
@@ -760,6 +781,7 @@ class SectionExtractor:
     def _resolve_actual_profile(
         planned_profile_key: str | None,
         extraction_method: str | None,
+        extraction_diagnostics: dict[str, str] | None = None,
     ) -> tuple[str | None, str | None]:
         """Infer the actual runtime profile and whether it overrode the plan."""
         if extraction_method == "opendataloader_hybrid":
@@ -777,6 +799,13 @@ class SectionExtractor:
             and actual_profile_key
             and actual_profile_key != planned_profile_key
         ):
+            hybrid_error = (extraction_diagnostics or {}).get("opendataloader_hybrid")
+            if planned_profile_key.startswith("hybrid:") and hybrid_error:
+                return (
+                    actual_profile_key,
+                    f"planned hybrid failed ({hybrid_error}); runtime used "
+                    f"{actual_profile_key}",
+                )
             if extraction_method == "opendataloader_hybrid" and planned_profile_key == "fast":
                 return actual_profile_key, "runtime escalated from fast to hybrid"
             return actual_profile_key, f"runtime used {actual_profile_key} instead of {planned_profile_key}"
