@@ -392,7 +392,7 @@ class ProcessingConfig(BaseModel):
     opendataloader_hybrid_backend: str = "docling-fast"
     opendataloader_hybrid_client_mode: str = "auto"
     opendataloader_hybrid_url: str | None = None
-    opendataloader_hybrid_timeout_ms: int = 0
+    opendataloader_hybrid_timeout_ms: int = 60000
     opendataloader_hybrid_autostart: bool = False
     opendataloader_hybrid_host: str = "127.0.0.1"
     opendataloader_hybrid_port: int = 5002

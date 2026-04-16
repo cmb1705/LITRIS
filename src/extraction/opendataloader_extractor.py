@@ -5,6 +5,7 @@ from __future__ import annotations
 import atexit
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -137,8 +138,37 @@ def _healthcheck_url(server_url: str) -> str:
 
 
 def _hybrid_server_executable() -> str | None:
-    """Return the local hybrid server executable path, if installed."""
-    return shutil.which("opendataloader-pdf-hybrid")
+    """Return the preferred hybrid server executable path, if installed.
+
+    Prefer the launcher that lives alongside the current interpreter so
+    autostart and preflight stay pinned to the active virtual environment
+    instead of a different global Python installation that happens to be on
+    ``PATH``.
+    """
+    script_dirs = [
+        Path(sys.executable).resolve().parent,
+        Path(sys.prefix).resolve() / "Scripts",
+        Path(sys.prefix).resolve() / "bin",
+    ]
+    executable_names = (
+        "opendataloader-pdf-hybrid.exe",
+        "opendataloader-pdf-hybrid",
+    )
+    seen: set[Path] = set()
+
+    for script_dir in script_dirs:
+        resolved_dir = script_dir.resolve()
+        if resolved_dir in seen:
+            continue
+        seen.add(resolved_dir)
+        for executable_name in executable_names:
+            candidate = resolved_dir / executable_name
+            if candidate.is_file():
+                return str(candidate)
+
+    return shutil.which("opendataloader-pdf-hybrid") or shutil.which(
+        "opendataloader-pdf-hybrid.exe"
+    )
 
 
 def hybrid_extra_installed() -> bool:

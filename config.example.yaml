@@ -166,7 +166,8 @@ processing:
   opendataloader_hybrid_backend: "docling-fast"
   opendataloader_hybrid_client_mode: "auto"  # "auto" or "full"
   opendataloader_hybrid_url: null
-  opendataloader_hybrid_timeout_ms: 0
+  # Bound hybrid requests so heavy picture/OCR enrichments cannot stall a run indefinitely.
+  opendataloader_hybrid_timeout_ms: 60000
   # Autostart a local `opendataloader-pdf-hybrid` backend when needed.
   opendataloader_hybrid_autostart: false
   opendataloader_hybrid_host: "127.0.0.1"
