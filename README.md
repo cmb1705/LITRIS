@@ -161,12 +161,18 @@ Useful build flags:
 - `--sync-mode auto`: default safe mode
 - `--sync-mode full`: full vector-store rebuild
 - `--sync-mode update`: fail if an incremental update is not safe
+- `--classify-only`: refresh document classification plus extraction-intent routing
 - `--paper`: target one or more specific papers
 - `--refresh-text`: re-run source text extraction instead of reusing stored
   canonical fulltext
 - `--skip-extraction`: reuse existing semantic records
 - `--skip-embeddings`: avoid rebuilding the vector store
 - `--estimate-cost`: estimate extraction cost instead of running
+
+`--explain-plan --dry-run` now prints both the sync plan and the resolved
+extraction routing groups, so you can see which papers will stay on fast
+OpenDataLoader and which ones will be routed to hybrid OCR, formula, or
+picture-enrichment profiles before any extraction work starts.
 
 ## Reference Sources
 

@@ -927,6 +927,18 @@ python scripts/build_index.py --classify-only --collection "ML Papers"
 ```
 
 Classification results are saved to `data/index/classification_index.json`.
+Each record now includes both document type and extraction-intent routing
+metadata:
+
+- `extraction_intent`: `fast`, `hybrid_ocr`, `hybrid_formula`,
+  `hybrid_picture`, or a combined hybrid profile
+- `intent_confidence`: confidence score for the routing choice
+- `hybrid_profile_key`: resolved backend profile used for grouped execution
+
+`--classify-only` prints a summary by document type, extraction intent,
+resolved profile, and confidence bucket. It reuses stored canonical full-text
+snapshots when possible, so repeated planning runs are usually much cheaper
+than re-extracting PDFs from scratch.
 
 ### Academic-Only Gating
 
@@ -944,6 +956,31 @@ python scripts/build_index.py --limit 10 --index-all
 If no classification index exists, papers are classified inline during the
 build. Running `--classify-only` first is recommended for large libraries.
 
+### Extraction Routing Plan
+
+Normal `build_index.py` runs now build an explicit extraction plan before the
+LLM stage. Papers are grouped by resolved extraction profile so the same
+OpenDataLoader hybrid backend can be reused efficiently across similar papers.
+
+Use `--explain-plan --dry-run` to inspect both the sync decision and the
+routing plan:
+
+```bash
+python scripts/build_index.py --explain-plan --dry-run
+```
+
+The routing output shows which papers are planned for:
+
+- fast OpenDataLoader
+- hybrid OCR
+- hybrid formula enrichment
+- hybrid picture-description enrichment
+- combined hybrid profiles when multiple signals are present
+
+If runtime extraction contradicts the plan, the extraction record stores both
+the planned route and the actual method used so overrides are visible after the
+run.
+
 ### Extraction Cascade
 
 Text extraction uses a multi-tier cascade, trying higher-signal sources first:
@@ -951,12 +988,18 @@ Text extraction uses a multi-tier cascade, trying higher-signal sources first:
 1. **Companion** `.md` sidecar if present
 2. **arXiv HTML** for arXiv papers
 3. **ar5iv** fallback for arXiv papers
-4. **OpenDataLoader** as the primary fast PDF extractor
-5. **PyMuPDF** direct PDF text extraction
-6. **Marker** ML-based PDF-to-markdown fallback
+4. **OpenDataLoader fast** as the default PDF extractor
+5. **OpenDataLoader hybrid** when the planned extraction intent calls for OCR,
+   formula enrichment, picture descriptions, or a combined hybrid profile
+6. **PyMuPDF** direct PDF text extraction
+7. **Marker** ML-based PDF-to-markdown fallback
 
 OCR is not a separate top-level tier. It can be triggered inside the PyMuPDF
 path and as a quality fallback when extracted text is still unusable.
+
+Marker remains an absolute last resort. The planner never selects Marker as the
+preferred route for a batch; it is only reached when the planned fast or hybrid
+paths and their fallbacks do not produce usable text.
 
 Cascade behavior is configured in `config.yaml` under `processing:`:
 
@@ -965,6 +1008,10 @@ processing:
   cascade_enabled: true
   companion_dir: null      # Optional directory for companion .md files
   arxiv_enabled: true
+  opendataloader_enabled: true
+  opendataloader_mode: "fast"
+  opendataloader_hybrid_enabled: false
+  opendataloader_hybrid_fallback: false
   marker_enabled: true
 ```
 
