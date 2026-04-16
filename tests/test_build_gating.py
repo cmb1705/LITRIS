@@ -34,6 +34,13 @@ def _make_record(doc_type="research_paper", extractable=True, word_count=5000):
         page_count=10,
         section_markers=5,
         classified_at=datetime.now().isoformat(),
+        extraction_intent="fast",
+        intent_confidence=0.4,
+        intent_reasons=["defaulted to fast"],
+        intent_signals={"word_count": word_count},
+        intent_classified_at=datetime.now().isoformat(),
+        intent_source_tier="metadata_only",
+        hybrid_profile_key="fast",
     )
 
 
@@ -116,3 +123,14 @@ class TestInlineClassification:
         store = ClassificationStore(index_dir=index_dir)
         index = store.load()
         assert index.papers == {}
+
+    def test_intent_fields_round_trip(self, store):
+        index = ClassificationIndex()
+        index.papers["p1"] = _make_record()
+        store.save(index)
+
+        loaded = store.load()
+        record = loaded.papers["p1"]
+        assert record.extraction_intent == "fast"
+        assert record.hybrid_profile_key == "fast"
+        assert record.intent_source_tier == "metadata_only"

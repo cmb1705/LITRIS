@@ -990,3 +990,23 @@ class ExtractionResult(BaseModel):
         default=None,
         description="Canonical cleaned full-text snapshot and metadata captured during extraction.",
     )
+    planned_extraction_intent: str | None = Field(
+        default=None,
+        description="Persisted extraction intent used to plan the extraction route.",
+    )
+    planned_profile_key: str | None = Field(
+        default=None,
+        description="Resolved backend profile key selected before runtime extraction.",
+    )
+    actual_profile_key: str | None = Field(
+        default=None,
+        description="Backend profile key that actually produced the extraction.",
+    )
+    extraction_routing_overridden: bool = Field(
+        default=False,
+        description="Whether runtime extraction overrode the planned route.",
+    )
+    extraction_override_reason: str | None = Field(
+        default=None,
+        description="Reason runtime extraction deviated from the planned route.",
+    )

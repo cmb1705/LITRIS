@@ -15,8 +15,22 @@ from typing import Any
 
 from tqdm import tqdm
 
-from src.analysis.classification_store import ClassificationIndex, ClassificationStore
+from src.analysis.classification_store import (
+    ClassificationIndex,
+    ClassificationRecord,
+    ClassificationStore,
+)
 from src.analysis.dimensions import get_default_dimension_registry
+from src.analysis.extraction_intent_classifier import (
+    EXTRACTION_INTENT_SCHEMA_VERSION,
+    ExtractionIntent,
+    ExtractionPlanItem,
+    build_extraction_plan,
+    classify_extraction_intent,
+    group_extraction_plan_by_profile,
+    resolve_hybrid_profile,
+    summarize_intents,
+)
 from src.analysis.schemas import SemanticAnalysis
 from src.analysis.semantic_prompts import SEMANTIC_PROMPT_VERSION
 from src.config import Config
@@ -57,7 +71,7 @@ MANIFEST_SCHEMA_VERSION = "1.0.0"
 CHUNK_SCHEMA_VERSION = "2.0.0"
 SIMILARITY_SCHEMA_VERSION = "1.0.0"
 EXTRACTION_SCHEMA_VERSION = SEMANTIC_PROMPT_VERSION
-CLASSIFICATION_POLICY_VERSION = "1.0.0"
+CLASSIFICATION_POLICY_VERSION = "1.1.0"
 
 STAGE_NAMES = [
     "classification",
@@ -600,7 +614,7 @@ class IndexOrchestrator:
         ):
             self._print_plan(plan, current_snapshots)
 
-        if getattr(args, "dry_run", False) or getattr(args, "detect_only", False):
+        if getattr(args, "detect_only", False):
             return 0 if plan.resolved_mode != "invalid" else 1
 
         if plan.resolved_mode == "invalid":
@@ -610,7 +624,15 @@ class IndexOrchestrator:
 
         self._log_plan_advisories(plan)
 
-        if plan.noop:
+        classification_scope_ids = self._classification_scope_ids(
+            args=args,
+            plan=plan,
+            current_papers_by_id=current_papers_by_id,
+            class_index=class_index,
+            config=config,
+        )
+
+        if plan.noop and not classification_scope_ids and not plan.change_set.deleted_items:
             self.logger.info("No changes detected and no pending work")
             return 0
 
@@ -634,13 +656,6 @@ class IndexOrchestrator:
         stage_times: dict[str, float] = {}
         run_failed_ids: list[str] = []
 
-        classification_scope_ids = self._classification_scope_ids(
-            args=args,
-            plan=plan,
-            current_papers_by_id=current_papers_by_id,
-            class_index=class_index,
-            config=config,
-        )
         if classification_scope_ids or plan.change_set.deleted_items:
             with self._time_stage("classification", stage_times):
                 self._update_classification_index(
@@ -653,6 +668,7 @@ class IndexOrchestrator:
                     deleted_paper_ids=plan.change_set.deleted_items,
                     config=config,
                     force_reclassify=getattr(args, "reclassify", False),
+                    refresh_text=getattr(args, "refresh_text", False),
                 )
                 manifest.stage_health["classification"] = "ok"
 
@@ -678,6 +694,21 @@ class IndexOrchestrator:
             desired_index_ids=desired_index_ids,
             existing_extractions=existing_extractions,
         )
+        extraction_plan_items = self._build_extraction_plan_items(
+            extraction_required_ids=extraction_required_ids,
+            class_index=class_index,
+            config=config,
+        )
+        if getattr(args, "explain_plan", False) or getattr(args, "dry_run", False):
+            grouped_plan = group_extraction_plan_by_profile(extraction_plan_items)
+            print("\nExtraction routing plan:")
+            for line in self._format_extraction_plan_lines(
+                grouped_plan,
+                current_papers_by_id=current_papers_by_id,
+            ):
+                print(f"  {line}" if not line.startswith("  ") else line)
+        if getattr(args, "dry_run", False):
+            return 0 if plan.resolved_mode != "invalid" else 1
         provider, mode, cache_dir, parallel_workers, use_cache = (
             configure_extraction_runtime(args, config, self.logger)
         )
@@ -718,6 +749,7 @@ class IndexOrchestrator:
             desired_index_ids=desired_index_ids,
             removed_from_index_ids=removed_from_index_ids,
             extraction_required_ids=extraction_required_ids,
+            extraction_plan_items=extraction_plan_items,
             provider=provider,
             mode=mode,
             cache_dir=cache_dir,
@@ -746,6 +778,7 @@ class IndexOrchestrator:
         desired_index_ids: set[str],
         removed_from_index_ids: set[str],
         extraction_required_ids: set[str],
+        extraction_plan_items: list[ExtractionPlanItem],
         provider: str,
         mode: str,
         cache_dir: Path,
@@ -780,6 +813,9 @@ class IndexOrchestrator:
         extractor = None
 
         extraction_candidate_ids = sorted(extraction_required_ids)
+        extraction_plan_by_id = {
+            item.paper_id: item for item in extraction_plan_items
+        }
         extraction_candidate_papers = [
             current_papers_by_id[paper_id]
             for paper_id in extraction_candidate_ids
@@ -792,22 +828,16 @@ class IndexOrchestrator:
         )
 
         if getattr(args, "estimate_cost", False):
-            extractor = build_section_extractor(
-                args=args,
-                config=config,
-                cache_dir=cache_dir,
-                mode=mode,
-                parallel_workers=parallel_workers,
-                use_cache=use_cache,
-                run_control_path=self.index_dir / "run_control.json",
-            )
-            estimate = extractor.estimate_batch_cost(extraction_candidate_papers)
-            self._print_cost_estimate(estimate)
-            return 0
-
-        paper_dicts = dict(existing_papers)
-        if extraction_candidate_papers and not getattr(args, "skip_extraction", False):
-            with self._time_stage("extraction", stage_times):
+            grouped_candidate_plan: dict[str, list[PaperMetadata]] = {}
+            for paper in extraction_candidate_papers:
+                plan_item = extraction_plan_by_id.get(paper.paper_id)
+                profile_key = (
+                    plan_item.profile.profile_key if plan_item is not None else "fast"
+                )
+                grouped_candidate_plan.setdefault(profile_key, []).append(paper)
+            estimate = None
+            for profile_key, papers_for_profile in grouped_candidate_plan.items():
+                plan_item = extraction_plan_by_id.get(papers_for_profile[0].paper_id)
                 extractor = build_section_extractor(
                     args=args,
                     config=config,
@@ -816,10 +846,34 @@ class IndexOrchestrator:
                     parallel_workers=parallel_workers,
                     use_cache=use_cache,
                     run_control_path=self.index_dir / "run_control.json",
+                    planned_profile=plan_item.profile if plan_item else None,
                 )
-                if getattr(args, "clear_cache", False):
-                    cleared = extractor.clear_cache()
-                    self.logger.info("Cleared %d cached extractions", cleared)
+                profile_estimate = extractor.estimate_batch_cost(papers_for_profile)
+                if estimate is None:
+                    estimate = profile_estimate
+                else:
+                    estimate["papers_with_pdf"] += profile_estimate.get("papers_with_pdf", 0)
+                    estimate["papers_to_extract"] += profile_estimate.get(
+                        "papers_to_extract", 0
+                    )
+                    estimate["papers_cached"] = estimate.get("papers_cached", 0) + profile_estimate.get(
+                        "papers_cached", 0
+                    )
+                    estimate["estimated_total_cost"] += profile_estimate.get(
+                        "estimated_total_cost", 0.0
+                    )
+            estimate = estimate or {"papers_with_pdf": 0, "papers_to_extract": 0, "estimated_total_cost": 0.0}
+            self._print_cost_estimate(estimate)
+            return 0
+
+        paper_dicts = dict(existing_papers)
+        if extraction_candidate_papers and not getattr(args, "skip_extraction", False):
+            with self._time_stage("extraction", stage_times):
+                if not checkpoint_mgr.load():
+                    checkpoint_mgr.initialize(
+                        total_items=len(extraction_candidate_papers),
+                        metadata={"started_at": datetime.now().isoformat()},
+                    )
                 source_text_snapshots = ref_db.load_source_text_snapshots(
                     extraction_candidate_papers
                 )
@@ -830,25 +884,80 @@ class IndexOrchestrator:
                 )
                 merged_text_snapshots = dict(source_text_snapshots)
                 merged_text_snapshots.update(reusable_text_snapshots)
-                extraction_run = run_extraction(
-                    extraction_candidate_papers,
-                    extractor,
-                    self.index_dir,
-                    paper_dicts,
-                    updated_extractions,
-                    checkpoint_mgr,
-                    self.logger,
-                    text_snapshots=merged_text_snapshots,
+                grouped_plan = group_extraction_plan_by_profile(
+                    [
+                        extraction_plan_by_id[paper.paper_id]
+                        for paper in extraction_candidate_papers
+                        if paper.paper_id in extraction_plan_by_id
+                    ]
                 )
-                paper_dicts = extraction_run.paper_dicts
-                updated_extractions = extraction_run.extractions
-                extraction_results = extraction_run.results
-                extraction_interrupted = extraction_run.interrupted
-                pause_requested = extraction_run.pause_requested
-                extraction_pending_ids = extraction_run.pending_ids
-                checkpoint_mgr.save()
-                update_classification_extraction_methods(class_index, extraction_results)
-                class_store.save(class_index)
+                grouped_plan_items = list(grouped_plan.items())
+                cleared_cache = False
+                for group_index, (profile_key, plan_items) in enumerate(grouped_plan_items):
+                    group_papers = [
+                        current_papers_by_id[item.paper_id]
+                        for item in plan_items
+                        if item.paper_id in current_papers_by_id
+                    ]
+                    extractor = build_section_extractor(
+                        args=args,
+                        config=config,
+                        cache_dir=cache_dir,
+                        mode=mode,
+                        parallel_workers=parallel_workers,
+                        use_cache=use_cache,
+                        run_control_path=self.index_dir / "run_control.json",
+                        planned_profile=plan_items[0].profile,
+                    )
+                    if getattr(args, "clear_cache", False) and not cleared_cache:
+                        cleared = extractor.clear_cache()
+                        self.logger.info(
+                            "Cleared %d cached extractions before profile %s",
+                            cleared,
+                            profile_key,
+                        )
+                        cleared_cache = True
+                    group_snapshots = {
+                        paper.paper_id: merged_text_snapshots[paper.paper_id]
+                        for paper in group_papers
+                        if paper.paper_id in merged_text_snapshots
+                    }
+                    group_plan_map = {
+                        item.paper_id: item for item in plan_items
+                    }
+                    extraction_run = run_extraction(
+                        group_papers,
+                        extractor,
+                        self.index_dir,
+                        paper_dicts,
+                        updated_extractions,
+                        checkpoint_mgr,
+                        self.logger,
+                        text_snapshots=group_snapshots,
+                        extraction_plans=group_plan_map,
+                    )
+                    paper_dicts = extraction_run.paper_dicts
+                    updated_extractions = extraction_run.extractions
+                    extraction_results.extend(extraction_run.results)
+                    extraction_interrupted = extraction_run.interrupted
+                    pause_requested = extraction_run.pause_requested
+                    extraction_pending_ids.extend(extraction_run.pending_ids)
+                    checkpoint_mgr.save()
+                    update_classification_extraction_methods(
+                        class_index,
+                        extraction_run.results,
+                    )
+                    class_store.save(class_index)
+                    if extraction_interrupted:
+                        remaining_plan_items = [
+                            item
+                            for _, items in grouped_plan_items[group_index + 1 :]
+                            for item in items
+                        ]
+                        extraction_pending_ids.extend(
+                            item.paper_id for item in remaining_plan_items
+                        )
+                        break
                 if getattr(args, "gap_fill", False) and not extraction_interrupted:
                     run_gap_fill(
                         results=extraction_results,
@@ -1598,6 +1707,7 @@ class IndexOrchestrator:
             deleted_paper_ids=[],
             config=config,
             force_reclassify=getattr(args, "reclassify", False),
+            refresh_text=getattr(args, "refresh_text", False),
         )
         self._print_classification_report(class_index)
         return 0
@@ -1610,19 +1720,44 @@ class IndexOrchestrator:
         deleted_paper_ids: list[str],
         config: Config,
         force_reclassify: bool = False,
+        refresh_text: bool = False,
     ) -> None:
         pdf_extractor = PDFExtractor(
             enable_ocr=config.processing.ocr_enabled or config.processing.ocr_on_fail,
         )
         text_cleaner = TextCleaner()
+        reusable_snapshots = load_reusable_text_snapshots(
+            self.store,
+            papers,
+            refresh_text=refresh_text,
+        )
         for paper in tqdm(papers, desc="Classifying"):
-            if not force_reclassify and paper.paper_id in class_index.papers:
+            existing_record = class_index.papers.get(paper.paper_id)
+            if (
+                not force_reclassify
+                and existing_record is not None
+                and not self._record_needs_reclassification(existing_record)
+            ):
                 continue
             text = None
             word_count = None
             page_count = None
             section_markers = None
-            if paper.pdf_path and Path(paper.pdf_path).exists():
+            source_tier = "metadata_only"
+            snapshot = reusable_snapshots.get(paper.paper_id)
+            if snapshot is not None:
+                snapshot_text = snapshot.get("text")
+                if isinstance(snapshot_text, str) and snapshot_text.strip():
+                    text = snapshot_text
+                    stats = text_cleaner.get_stats(text)
+                    word_count = stats.word_count
+                    page_count = int(snapshot.get("page_count") or stats.page_count)
+                    section_markers = int(
+                        snapshot.get("section_markers")
+                        or text_cleaner.count_section_markers(text)
+                    )
+                    source_tier = "stored_snapshot"
+            elif paper.pdf_path and Path(paper.pdf_path).exists():
                 pdf_path = Path(paper.pdf_path)
                 try:
                     raw_text, _ = pdf_extractor.extract_text_with_method(pdf_path)
@@ -1631,6 +1766,7 @@ class IndexOrchestrator:
                     word_count = stats.word_count
                     page_count = pdf_extractor.get_page_count(pdf_path)
                     section_markers = text_cleaner.count_section_markers(text)
+                    source_tier = "cheap_text_pass"
                 except Exception as exc:
                     self.logger.warning(
                         "Text extraction failed for %s: %s",
@@ -1644,6 +1780,23 @@ class IndexOrchestrator:
                 page_count=page_count,
                 section_markers=section_markers,
             )
+            intent_record = classify_extraction_intent(
+                paper,
+                text=text,
+                word_count=word_count,
+                page_count=page_count,
+                section_markers=section_markers,
+                source_tier=source_tier,
+                classified_at=record.classified_at,
+            )
+            profile = resolve_hybrid_profile(intent_record.intent, config.processing)
+            record.extraction_intent = intent_record.intent.value
+            record.intent_confidence = intent_record.confidence
+            record.intent_reasons = list(intent_record.reasons)
+            record.intent_signals = dict(intent_record.signals)
+            record.intent_classified_at = intent_record.classified_at
+            record.intent_source_tier = intent_record.source_tier
+            record.hybrid_profile_key = profile.profile_key
             class_index.papers[paper.paper_id] = record
         for paper_id in deleted_paper_ids:
             class_index.papers.pop(paper_id, None)
@@ -1670,9 +1823,17 @@ class IndexOrchestrator:
         scope = set(plan.change_set.new_items + plan.change_set.modified_items)
         scope.update(plan.forced_paper_ids)
         scope.update(
-            paper_id for paper_id in current_papers_by_id if paper_id not in class_index.papers
+            paper_id
+            for paper_id in current_papers_by_id
+            if paper_id not in class_index.papers
+            or self._record_needs_reclassification(class_index.papers[paper_id])
         )
         return sorted(scope)
+
+    @staticmethod
+    def _record_needs_reclassification(record: ClassificationRecord) -> bool:
+        """Return whether a stored classification record lacks extraction intent."""
+        return not bool(record.extraction_intent and record.hybrid_profile_key)
 
     def _eligible_paper_ids(
         self,
@@ -1789,6 +1950,45 @@ class IndexOrchestrator:
                 }
             )
         return described
+
+    def _build_extraction_plan_items(
+        self,
+        *,
+        extraction_required_ids: set[str],
+        class_index: ClassificationIndex,
+        config: Config,
+    ) -> list[ExtractionPlanItem]:
+        """Build resolved extraction plan items for the current extraction scope."""
+        return build_extraction_plan(
+            paper_ids=sorted(extraction_required_ids),
+            classification_records=class_index.papers,
+            processing=config.processing,
+        )
+
+    @staticmethod
+    def _format_extraction_plan_lines(
+        grouped_plan: dict[str, list[ExtractionPlanItem]],
+        current_papers_by_id: dict[str, PaperMetadata],
+        limit_per_group: int = 5,
+    ) -> list[str]:
+        """Format grouped extraction plan details for logs and dry-runs."""
+        lines: list[str] = []
+        for profile_key, items in sorted(
+            grouped_plan.items(),
+            key=lambda item: (-len(item[1]), item[0]),
+        ):
+            lines.append(f"{profile_key}: {len(items)} paper(s)")
+            for item in items[:limit_per_group]:
+                paper = current_papers_by_id.get(item.paper_id)
+                title = paper.title if paper else item.paper_id
+                lines.append(
+                    f"  {item.paper_id}: {title} [{item.intent.value}, "
+                    f"confidence={item.intent_confidence:.2f}]"
+                )
+            remaining = len(items) - limit_per_group
+            if remaining > 0:
+                lines.append(f"  ... and {remaining} more")
+        return lines
 
     @staticmethod
     def _format_extraction_requirement_lines(
@@ -2025,6 +2225,7 @@ class IndexOrchestrator:
     ) -> dict[str, Any]:
         payload = {
             "schema_version": CLASSIFICATION_POLICY_VERSION,
+            "extraction_intent_schema_version": EXTRACTION_INTENT_SCHEMA_VERSION,
             "min_publication_words": config.processing.min_publication_words,
             "min_publication_pages": config.processing.min_publication_pages,
             "index_all": bool(getattr(args, "index_all", False)),
@@ -2049,6 +2250,12 @@ class IndexOrchestrator:
             "profile_id": active_profile.profile_id,
             "profile_version": active_profile.version,
             "profile_fingerprint": active_profile.fingerprint,
+            "opendataloader_mode": config.processing.opendataloader_mode,
+            "opendataloader_hybrid_enabled": config.processing.opendataloader_hybrid_enabled,
+            "opendataloader_hybrid_backend": config.processing.opendataloader_hybrid_backend,
+            "opendataloader_hybrid_fallback": (
+                config.processing.opendataloader_hybrid_fallback
+            ),
         }
         return {**payload, "fingerprint": fingerprint_payload(payload)}
 
@@ -2255,6 +2462,25 @@ class IndexOrchestrator:
         ext = stats.get("extractable_count", 0)
         non_ext = stats.get("non_extractable_count", 0)
         print(f"\nExtractable: {ext}  |  Skippable: {non_ext}")
+        by_intent, by_profile, confidence_buckets = summarize_intents(index.papers)
+        if by_intent:
+            print("\nExtraction intent summary:")
+            for intent, count in sorted(by_intent.items(), key=lambda item: (-item[1], item[0])):
+                pct = count / total * 100
+                print(f"  {intent:<28} {count:>5} ({pct:.0f}%)")
+        if by_profile:
+            print("\nResolved extraction profiles:")
+            for profile_key, count in sorted(
+                by_profile.items(),
+                key=lambda item: (-item[1], item[0]),
+            ):
+                print(f"  {profile_key:<48} {count:>5}")
+        print(
+            "\nIntent confidence:"
+            f" low={confidence_buckets['low']}"
+            f" medium={confidence_buckets['medium']}"
+            f" high={confidence_buckets['high']}"
+        )
 
     def _print_cost_estimate(self, estimate: dict[str, Any]) -> None:
         print("\nEstimating extraction cost...")

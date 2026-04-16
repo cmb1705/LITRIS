@@ -13,6 +13,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 from src.analysis.classification_store import ClassificationIndex
+from src.analysis.extraction_intent_classifier import HybridProfileSpec
 from src.analysis.cli_executor import ClaudeCliAuthenticator
 from src.analysis.raptor import RaptorSummaries
 from src.analysis.schemas import SemanticAnalysis
@@ -148,6 +149,7 @@ def run_extraction(
     checkpoint_mgr: CheckpointManager,
     logger,
     text_snapshots: dict[str, dict[str, object]] | None = None,
+    extraction_plans: dict[str, object] | None = None,
 ) -> ExtractionRunResult:
     """Run extraction and checkpoint progress for the provided paper scope."""
     paper_dicts = dict(existing_papers)
@@ -172,6 +174,8 @@ def run_extraction(
         signature = inspect.signature(extractor.extract_batch)
         if "text_snapshots" in signature.parameters:
             extract_batch_kwargs["text_snapshots"] = text_snapshots
+        if "extraction_plans" in signature.parameters:
+            extract_batch_kwargs["extraction_plans"] = extraction_plans
 
         for result in extractor.extract_batch(papers, **extract_batch_kwargs):
             results.append(result)
@@ -205,6 +209,14 @@ def run_extraction(
                     "duration": result.duration_seconds,
                     "input_tokens": result.input_tokens,
                     "output_tokens": result.output_tokens,
+                    "extraction_method": result.extraction_method,
+                    "planned_extraction_intent": result.planned_extraction_intent,
+                    "planned_profile_key": result.planned_profile_key,
+                    "actual_profile_key": result.actual_profile_key,
+                    "extraction_routing_overridden": (
+                        result.extraction_routing_overridden
+                    ),
+                    "extraction_override_reason": result.extraction_override_reason,
                 }
             else:
                 error = Exception(result.error) if result.error else None
@@ -888,9 +900,10 @@ def build_section_extractor(
     parallel_workers: int,
     use_cache: bool,
     run_control_path: Path | None = None,
+    planned_profile: HybridProfileSpec | None = None,
 ) -> SectionExtractor:
     """Build the configured section extractor for a run."""
-    hybrid_config = build_hybrid_config(
+    base_hybrid_config = build_hybrid_config(
         enabled=config.processing.opendataloader_hybrid_enabled,
         backend=config.processing.opendataloader_hybrid_backend,
         client_mode=config.processing.opendataloader_hybrid_client_mode,
@@ -913,6 +926,14 @@ def build_section_extractor(
         ),
         device=config.processing.opendataloader_hybrid_device,
     )
+    effective_mode = config.processing.opendataloader_mode
+    effective_hybrid_config = base_hybrid_config
+    if planned_profile is not None:
+        effective_mode = planned_profile.mode
+        effective_hybrid_config = planned_profile.build_hybrid_config(
+            base_hybrid_config,
+            config.processing,
+        )
     return SectionExtractor(
         cache_dir=cache_dir,
         provider=config.extraction.provider,
@@ -930,8 +951,8 @@ def build_section_extractor(
         ocr_config=config.processing.ocr_config,
         arxiv_enabled=config.processing.arxiv_enabled,
         opendataloader_enabled=config.processing.opendataloader_enabled,
-        opendataloader_mode=config.processing.opendataloader_mode,
-        opendataloader_hybrid_config=hybrid_config,
+        opendataloader_mode=effective_mode,
+        opendataloader_hybrid_config=effective_hybrid_config,
         opendataloader_hybrid_fallback=(
             config.processing.opendataloader_hybrid_fallback
         ),

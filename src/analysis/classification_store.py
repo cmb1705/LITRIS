@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from src.analysis.document_classifier import classify
+from src.analysis.extraction_intent_classifier import ExtractionIntent
 from src.utils.logging_config import get_logger
 
 if TYPE_CHECKING:
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 INDEX_FILENAME = "classification_index.json"
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 
 
 @dataclass
@@ -42,6 +43,13 @@ class ClassificationRecord:
     classified_at: str
     classification_error: str | None = None
     extraction_method: str | None = None
+    extraction_intent: str | None = None
+    intent_confidence: float = 0.0
+    intent_reasons: list[str] = field(default_factory=list)
+    intent_signals: dict[str, int | float | bool | str] = field(default_factory=dict)
+    intent_classified_at: str | None = None
+    intent_source_tier: str | None = None
+    hybrid_profile_key: str | None = None
 
 
 @dataclass
@@ -80,11 +88,17 @@ def _is_extractable(
 def _compute_stats(papers: dict[str, ClassificationRecord]) -> dict:
     """Recompute summary statistics from paper records."""
     by_type: dict[str, int] = {}
+    by_intent: dict[str, int] = {}
+    by_profile: dict[str, int] = {}
     extractable_count = 0
     non_extractable_count = 0
 
     for record in papers.values():
         by_type[record.document_type] = by_type.get(record.document_type, 0) + 1
+        intent = record.extraction_intent or ExtractionIntent.FAST.value
+        profile_key = record.hybrid_profile_key or "fast"
+        by_intent[intent] = by_intent.get(intent, 0) + 1
+        by_profile[profile_key] = by_profile.get(profile_key, 0) + 1
         if record.extractable:
             extractable_count += 1
         else:
@@ -93,6 +107,8 @@ def _compute_stats(papers: dict[str, ClassificationRecord]) -> dict:
     return {
         "total": len(papers),
         "by_type": by_type,
+        "by_intent": by_intent,
+        "by_profile": by_profile,
         "extractable_count": extractable_count,
         "non_extractable_count": non_extractable_count,
     }
@@ -215,6 +231,8 @@ class ClassificationStore:
             page_count=page_count,
             section_markers=section_markers,
             classified_at=datetime.now().isoformat(),
+            extraction_intent=ExtractionIntent.FAST.value,
+            hybrid_profile_key="fast",
         )
 
     @staticmethod

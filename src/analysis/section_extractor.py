@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from threading import Lock
 
+from src.analysis.extraction_intent_classifier import ExtractionPlanItem
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode
 from src.analysis.coverage import score_coverage
 from src.analysis.dimensions import get_default_dimension_registry, get_dimension_value
@@ -407,6 +408,7 @@ class SectionExtractor:
         check_cache: bool = True,
         section_ids: list[str] | None = None,
         text_snapshot: dict[str, object] | None = None,
+        extraction_plan: ExtractionPlanItem | None = None,
         skip_llm: bool = False,
     ) -> tuple[ExtractionResult, bool]:
         """Extract structured content from a single paper.
@@ -467,6 +469,10 @@ class SectionExtractor:
                     return cached_result, True
 
             snapshot_payload: dict[str, object] | None = None
+            planned_intent = extraction_plan.intent.value if extraction_plan else None
+            planned_profile_key = (
+                extraction_plan.profile.profile_key if extraction_plan else None
+            )
 
             # Extract text from PDF (via cascade or direct) unless a canonical
             # snapshot is already available for this exact source state.
@@ -580,6 +586,10 @@ class SectionExtractor:
                     "pdf_mtime_ns": pdf_mtime_ns,
                     "should_persist": True,
                 }
+            if planned_intent:
+                snapshot_payload["planned_extraction_intent"] = planned_intent
+            if planned_profile_key:
+                snapshot_payload["planned_profile_key"] = planned_profile_key
 
             # OCR fallback for low-quality text
             if (
@@ -674,6 +684,12 @@ class SectionExtractor:
                 ), False
 
             if skip_llm:
+                actual_profile_key, override_reason = self._resolve_actual_profile(
+                    planned_profile_key=planned_profile_key,
+                    extraction_method=(
+                        cascade_result.method if cascade_result else method
+                    ),
+                )
                 return ExtractionResult(
                     paper_id=paper.paper_id,
                     success=True,
@@ -685,6 +701,11 @@ class SectionExtractor:
                         cascade_result.method if cascade_result else method
                     ),
                     text_snapshot=snapshot_payload,
+                    planned_extraction_intent=planned_intent,
+                    planned_profile_key=planned_profile_key,
+                    actual_profile_key=actual_profile_key,
+                    extraction_routing_overridden=override_reason is not None,
+                    extraction_override_reason=override_reason,
                 ), False
 
             full_text = text
@@ -708,7 +729,20 @@ class SectionExtractor:
             result.extraction_method = (
                 cascade_result.method if cascade_result else method
             )
+            actual_profile_key, override_reason = self._resolve_actual_profile(
+                planned_profile_key=planned_profile_key,
+                extraction_method=result.extraction_method,
+            )
+            result.planned_extraction_intent = planned_intent
+            result.planned_profile_key = planned_profile_key
+            result.actual_profile_key = actual_profile_key
+            result.extraction_routing_overridden = override_reason is not None
+            result.extraction_override_reason = override_reason
             result.text_snapshot = snapshot_payload
+            if snapshot_payload is not None:
+                snapshot_payload["actual_profile_key"] = actual_profile_key
+                if override_reason is not None:
+                    snapshot_payload["extraction_override_reason"] = override_reason
 
             # Set indexed timestamp on success
             if result.success:
@@ -721,6 +755,32 @@ class SectionExtractor:
                     )
 
             return result, False
+
+    @staticmethod
+    def _resolve_actual_profile(
+        planned_profile_key: str | None,
+        extraction_method: str | None,
+    ) -> tuple[str | None, str | None]:
+        """Infer the actual runtime profile and whether it overrode the plan."""
+        if extraction_method == "opendataloader_hybrid":
+            if planned_profile_key and planned_profile_key.startswith("hybrid:"):
+                actual_profile_key = planned_profile_key
+            else:
+                actual_profile_key = "runtime:opendataloader_hybrid"
+        elif extraction_method:
+            actual_profile_key = extraction_method
+        else:
+            actual_profile_key = planned_profile_key
+
+        if (
+            planned_profile_key
+            and actual_profile_key
+            and actual_profile_key != planned_profile_key
+        ):
+            if extraction_method == "opendataloader_hybrid" and planned_profile_key == "fast":
+                return actual_profile_key, "runtime escalated from fast to hybrid"
+            return actual_profile_key, f"runtime used {actual_profile_key} instead of {planned_profile_key}"
+        return actual_profile_key, None
 
     def _extract_6_pass(
         self,
@@ -968,6 +1028,7 @@ class SectionExtractor:
         progress_callback: Callable | None = None,
         section_ids: list[str] | None = None,
         text_snapshots: dict[str, dict[str, object]] | None = None,
+        extraction_plans: dict[str, ExtractionPlanItem] | None = None,
         skip_llm: bool = False,
     ) -> Generator[ExtractionResult, None, ExtractionStats]:
         """Extract content from multiple papers.
@@ -994,6 +1055,7 @@ class SectionExtractor:
                 progress_callback,
                 section_ids=section_ids,
                 text_snapshots=text_snapshots,
+                extraction_plans=extraction_plans,
                 skip_llm=skip_llm,
             )
         return self._extract_batch_sequential(
@@ -1001,6 +1063,7 @@ class SectionExtractor:
             progress_callback,
             section_ids=section_ids,
             text_snapshots=text_snapshots,
+            extraction_plans=extraction_plans,
             skip_llm=skip_llm,
         )
 
@@ -1010,6 +1073,7 @@ class SectionExtractor:
         progress_callback: Callable | None = None,
         section_ids: list[str] | None = None,
         text_snapshots: dict[str, dict[str, object]] | None = None,
+        extraction_plans: dict[str, ExtractionPlanItem] | None = None,
         skip_llm: bool = False,
     ) -> Generator[ExtractionResult, None, ExtractionStats]:
         """Sequential batch extraction.
@@ -1049,6 +1113,7 @@ class SectionExtractor:
                 paper,
                 section_ids=section_ids,
                 text_snapshot=(text_snapshots or {}).get(paper.paper_id),
+                extraction_plan=(extraction_plans or {}).get(paper.paper_id),
                 skip_llm=skip_llm,
             )
 
@@ -1118,6 +1183,7 @@ class SectionExtractor:
         progress_callback: Callable | None = None,
         section_ids: list[str] | None = None,
         text_snapshots: dict[str, dict[str, object]] | None = None,
+        extraction_plans: dict[str, ExtractionPlanItem] | None = None,
         skip_llm: bool = False,
     ) -> Generator[ExtractionResult, None, ExtractionStats]:
         """Parallel batch extraction with adaptive rate limit backoff.
@@ -1166,6 +1232,7 @@ class SectionExtractor:
                         paper,
                         section_ids,
                         (text_snapshots or {}).get(paper.paper_id),
+                        (extraction_plans or {}).get(paper.paper_id),
                         skip_llm,
                     ): paper
                     for paper in chunk
@@ -1291,6 +1358,7 @@ class SectionExtractor:
         paper: PaperMetadata,
         section_ids: list[str] | None = None,
         text_snapshot: dict[str, object] | None = None,
+        extraction_plan: ExtractionPlanItem | None = None,
         skip_llm: bool = False,
     ) -> tuple[ExtractionResult, bool]:
         """Extract a single paper (for use in thread pool).
@@ -1311,6 +1379,7 @@ class SectionExtractor:
             paper,
             section_ids=section_ids,
             text_snapshot=text_snapshot,
+            extraction_plan=extraction_plan,
             skip_llm=skip_llm,
         )
 
