@@ -218,6 +218,10 @@ package-lock.json
 # Project data directories
 data/
 
+# Local query/search exports (defense in depth; primary path is under data/)
+query_results/
+search_results/
+
 # Generated PDFs from proposals/docs (source .md is tracked)
 docs/proposals/*.pdf
 

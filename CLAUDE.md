@@ -171,7 +171,7 @@ LITRIS exposes semantic search as MCP tools for Claude Code.
 | litris_similar | Find similar papers |
 | litris_summary | Index statistics |
 | litris_collections | List collections |
-| litris_save_query | Save query results to query_results/ |
+| litris_save_query | Save query results to data/query_results/ |
 
 ### Tool Naming
 

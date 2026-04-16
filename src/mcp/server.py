@@ -48,7 +48,7 @@ mcp = FastMCP(
     "litris_get_fulltext_context for verbatim quote/context retrieval from canonical full-text snapshots, "
     "litris_similar for related papers, litris_summary for index stats, "
     "litris_collections for available collections, litris_save_query to save "
-    "query results to the query_results folder (content must include the "
+    "query results to the data/query_results folder (content must include the "
     "original query verbatim in a blockquote before analysis), "
     "litris_search_dimension to search within a specific SemanticAnalysis "
     "dimension (canonical ids plus legacy qNN aliases, e.g. thesis or q07_methods), and "
@@ -677,7 +677,7 @@ async def litris_save_query(
     title: str | None = None,
     generate_pdf: bool = True,
 ) -> dict[str, Any]:
-    """Save query results to the query_results folder.
+    """Save query results to the data/query_results folder.
 
     IMPORTANT: The content must include the original query/prompt verbatim
     in a "Search Query" section (blockquote format) immediately after the
