@@ -334,11 +334,21 @@ class StorageConfig(BaseModel):
     chroma_path: Path = Path("data/chroma")
     cache_path: Path = Path("data/cache")
     collection_name: str = "literature_review"
+    index_path: Path | None = Field(
+        default=None,
+        description=(
+            "Optional override for the index output directory (semantic_analyses.json, "
+            "dimension_profile.json, similarity pairs, proposals, extraction manifests). "
+            "If unset, falls back to <project_root>/data/index."
+        ),
+    )
 
-    @field_validator("chroma_path", "cache_path", mode="before")
+    @field_validator("chroma_path", "cache_path", "index_path", mode="before")
     @classmethod
-    def convert_to_path(cls, v: Any) -> Path:
+    def convert_to_path(cls, v: Any) -> Path | None:
         """Convert string paths to Path objects."""
+        if v is None:
+            return None
         return Path(v) if isinstance(v, str) else v
 
 
@@ -690,3 +700,22 @@ class Config(BaseModel):
         if not path.is_absolute() and self._project_root:
             path = self._project_root / path
         return path
+
+    def get_index_path(self, project_root: Path) -> Path:
+        """Resolve the index output directory.
+
+        Priority:
+        1. ``storage.index_path`` in config.yaml (relative paths resolve to
+           the config file's directory).
+        2. ``<project_root>/data/index`` as the hardcoded default.
+
+        Args:
+            project_root: LITRIS project root used for the fallback path.
+                Typically ``Path(__file__).parent.parent`` of ``build_index.py``.
+        """
+        if self.storage.index_path is not None:
+            path = self.storage.index_path
+            if not path.is_absolute() and self._project_root:
+                path = self._project_root / path
+            return path
+        return project_root / "data" / "index"

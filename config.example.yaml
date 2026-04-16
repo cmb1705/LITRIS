@@ -134,6 +134,14 @@ storage:
   # Collection name in ChromaDB
   collection_name: "literature_review"
 
+  # Optional. Override the index output directory where LITRIS writes
+  # semantic_analyses.json, dimension_profile.json, similarity pairs,
+  # dimension proposals, extraction manifests, and checkpoints.
+  # If unset, defaults to <project_root>/data/index.
+  # Relative paths resolve to the directory containing this config.yaml.
+  # Use this to keep a project-specific index out of the main LITRIS repo.
+  # index_path: "data/index"
+
 # =============================================================================
 # Processing Configuration
 # =============================================================================

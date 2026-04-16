@@ -484,9 +484,21 @@ def detect_snapshot_changes(
 class IndexOrchestrator:
     """Single control plane for index build, update, and maintenance flows."""
 
-    def __init__(self, project_root: Path, logger):
+    def __init__(
+        self,
+        project_root: Path,
+        logger,
+        *,
+        index_dir: Path | None = None,
+        config: Config | None = None,
+    ):
         self.project_root = Path(project_root)
-        self.index_dir = self.project_root / "data" / "index"
+        if index_dir is not None:
+            self.index_dir = Path(index_dir)
+        elif config is not None:
+            self.index_dir = config.get_index_path(self.project_root)
+        else:
+            self.index_dir = self.project_root / "data" / "index"
         self.index_dir.mkdir(parents=True, exist_ok=True)
         self.logger = logger
         self.store = StructuredStore(self.index_dir)

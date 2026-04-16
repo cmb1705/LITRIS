@@ -50,6 +50,16 @@ def parse_args():
         help="Path to a YAML/JSON dimension profile to activate for this run",
     )
     parser.add_argument(
+        "--index-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Override the index output directory for this run. Takes priority "
+            "over storage.index_path in config.yaml. If neither is set, falls "
+            "back to <project_root>/data/index."
+        ),
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -1059,7 +1069,12 @@ def main():
     if args.embedding_batch_size is not None:
         config.embeddings.batch_size = args.embedding_batch_size
 
-    orchestrator = IndexOrchestrator(project_root=project_root, logger=logger)
+    orchestrator = IndexOrchestrator(
+        project_root=project_root,
+        logger=logger,
+        index_dir=args.index_dir,
+        config=config,
+    )
     try:
         return orchestrator.run(args, config)
     except ValueError as e:
