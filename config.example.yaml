@@ -158,6 +158,27 @@ processing:
   opendataloader_enabled: false
   # OpenDataLoader mode: "fast" (Java-only, ~0.4s/page) or "hybrid" (AI-assisted)
   opendataloader_mode: "fast"
+  # Optional OpenDataLoader hybrid profile.
+  # Keep fast as the default until local benchmarks justify a global switch.
+  opendataloader_hybrid_enabled: false
+  # If true, try hybrid after fast ODL yields insufficient text.
+  opendataloader_hybrid_fallback: false
+  opendataloader_hybrid_backend: "docling-fast"
+  opendataloader_hybrid_client_mode: "auto"  # "auto" or "full"
+  opendataloader_hybrid_url: null
+  opendataloader_hybrid_timeout_ms: 0
+  # Autostart a local `opendataloader-pdf-hybrid` backend when needed.
+  opendataloader_hybrid_autostart: false
+  opendataloader_hybrid_host: "127.0.0.1"
+  opendataloader_hybrid_port: 5002
+  opendataloader_hybrid_startup_timeout_seconds: 30.0
+  # Hybrid backend profile flags from the upstream README.
+  opendataloader_hybrid_force_ocr: false
+  opendataloader_hybrid_ocr_lang: null
+  opendataloader_hybrid_enrich_formula: false
+  opendataloader_hybrid_enrich_picture_description: false
+  opendataloader_hybrid_picture_description_prompt: null
+  opendataloader_hybrid_device: "auto"
 
   # Attempt OCR when initial text checks fail (recommended for scanned books)
   ocr_on_fail: true

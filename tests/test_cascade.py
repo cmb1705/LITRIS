@@ -13,6 +13,7 @@ from src.extraction.cascade import (
     MIN_EXTRACTION_WORDS,
     ExtractionCascade,
 )
+from src.extraction.opendataloader_extractor import OpenDataLoaderHybridConfig
 from src.extraction.pdf_extractor import PDFExtractionError
 
 # --- arXiv ID Detection ---
@@ -291,6 +292,89 @@ class TestExtractionCascade:
         assert "opendataloader" in result.tiers_attempted
         # PyMuPDF should NOT have been called (ODL succeeded first)
         mock_pdf_extractor.extract_text_with_method.assert_not_called()
+
+    @patch("src.extraction.cascade.opendataloader_extractor.ensure_hybrid_server")
+    @patch("src.extraction.cascade.opendataloader_extractor.is_available")
+    @patch("src.extraction.cascade.opendataloader_extractor.extract_with_opendataloader")
+    def test_cascade_uses_hybrid_fallback_after_fast_failure(
+        self, mock_extract, mock_available, mock_ensure_hybrid, mock_pdf_extractor,
+    ):
+        """Hybrid fallback runs after fast ODL when a backend is reachable."""
+        mock_available.return_value = True
+        mock_ensure_hybrid.return_value = OpenDataLoaderHybridConfig(enabled=True)
+        mock_extract.side_effect = [None, self._LONG_TEXT]
+
+        cascade = ExtractionCascade(
+            pdf_extractor=mock_pdf_extractor,
+            enable_arxiv=False,
+            enable_opendataloader=True,
+            enable_marker=False,
+            opendataloader_hybrid=OpenDataLoaderHybridConfig(enabled=True),
+            opendataloader_hybrid_fallback=True,
+        )
+        result = cascade.extract_text(Path("paper.pdf"))
+
+        assert result.method == "opendataloader_hybrid"
+        assert "opendataloader" in result.tiers_attempted
+        assert "opendataloader_hybrid" in result.tiers_attempted
+        mock_pdf_extractor.extract_text_with_method.assert_not_called()
+
+    @patch("src.extraction.cascade.opendataloader_extractor.ensure_hybrid_server")
+    @patch("src.extraction.cascade.opendataloader_extractor.is_available")
+    @patch("src.extraction.cascade.opendataloader_extractor.extract_with_opendataloader")
+    def test_cascade_downgrades_primary_hybrid_to_fast_when_backend_unavailable(
+        self, mock_extract, mock_available, mock_ensure_hybrid, mock_pdf_extractor,
+    ):
+        """Primary ODL hybrid mode downgrades to fast mode if backend is absent."""
+        mock_available.return_value = True
+        mock_ensure_hybrid.return_value = None
+        mock_extract.return_value = self._LONG_TEXT
+
+        cascade = ExtractionCascade(
+            pdf_extractor=mock_pdf_extractor,
+            enable_arxiv=False,
+            enable_opendataloader=True,
+            enable_marker=False,
+            opendataloader_mode="hybrid",
+            opendataloader_hybrid=OpenDataLoaderHybridConfig(enabled=True),
+        )
+        result = cascade.extract_text(Path("paper.pdf"))
+
+        assert result.method == "opendataloader"
+        assert cascade.opendataloader_mode == "fast"
+        mock_pdf_extractor.extract_text_with_method.assert_not_called()
+
+    @patch("src.extraction.cascade.opendataloader_extractor.ensure_hybrid_server")
+    @patch("src.extraction.cascade.opendataloader_extractor.is_available")
+    @patch("src.extraction.cascade.opendataloader_extractor.extract_with_opendataloader")
+    def test_cascade_upgrades_fast_odl_to_hybrid_for_formula_docs(
+        self, mock_extract, mock_available, mock_ensure_hybrid, mock_pdf_extractor,
+    ):
+        """Fast ODL can be upgraded to hybrid when enrichment heuristics fire."""
+        mock_available.return_value = True
+        mock_ensure_hybrid.return_value = OpenDataLoaderHybridConfig(
+            enabled=True,
+            enrich_formula=True,
+        )
+        mock_extract.side_effect = [
+            "This paper presents Equation 1 and a proof with theorem details. " * 20,
+            self._LONG_TEXT,
+        ]
+
+        cascade = ExtractionCascade(
+            pdf_extractor=mock_pdf_extractor,
+            enable_arxiv=False,
+            enable_opendataloader=True,
+            enable_marker=False,
+            opendataloader_hybrid=OpenDataLoaderHybridConfig(
+                enabled=True,
+                enrich_formula=True,
+            ),
+        )
+        result = cascade.extract_text(Path("paper.pdf"))
+
+        assert result.method == "opendataloader_hybrid"
+        assert "opendataloader_hybrid" in result.tiers_attempted
 
     @patch("src.extraction.cascade.opendataloader_extractor.is_available")
     @patch("src.extraction.cascade.opendataloader_extractor.extract_with_opendataloader")

@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+from importlib.util import find_spec
 from pathlib import Path
 
 # Add project root to path
@@ -89,6 +90,41 @@ def check_extraction_pipeline() -> list[tuple[str, str]]:
             issues.append(warn(
                 "Java 11+ not found (required for OpenDataLoader PDF)",
                 "winget install Microsoft.OpenJDK.21",
+            ))
+
+        hybrid_specs = (
+            find_spec("docling"),
+            find_spec("fastapi"),
+            find_spec("uvicorn"),
+        )
+        if all(spec is not None for spec in hybrid_specs):
+            ok("OpenDataLoader hybrid extra installed")
+        else:
+            issues.append(warn(
+                "OpenDataLoader hybrid extra not installed",
+                'pip install "opendataloader-pdf[hybrid]"',
+            ))
+
+        from src.extraction.opendataloader_extractor import (
+            _hybrid_server_executable,
+            is_hybrid_server_reachable,
+        )
+
+        hybrid_exe = _hybrid_server_executable()
+        if hybrid_exe:
+            ok(f"OpenDataLoader hybrid executable: {hybrid_exe}")
+        else:
+            issues.append(warn(
+                "OpenDataLoader hybrid executable not found",
+                'pip install "opendataloader-pdf[hybrid]"',
+            ))
+
+        if is_hybrid_server_reachable():
+            ok("OpenDataLoader hybrid backend responding on http://127.0.0.1:5002")
+        else:
+            issues.append(warn(
+                "OpenDataLoader hybrid backend not running on http://127.0.0.1:5002",
+                "opendataloader-pdf-hybrid --port 5002",
             ))
     except ImportError:
         issues.append(warn(

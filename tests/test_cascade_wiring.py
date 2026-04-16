@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 from src.extraction.cascade import CascadeResult, ExtractionCascade
+from src.extraction.opendataloader_extractor import OpenDataLoaderHybridConfig
 from src.extraction.pdf_extractor import PDFExtractor
 
 
@@ -133,3 +134,16 @@ class TestSectionExtractorCascadeWiring:
         mock_factory.return_value = MagicMock()
         extractor = SectionExtractor(cascade_enabled=False)
         assert extractor.cascade is None
+
+    @patch("src.analysis.section_extractor.create_llm_client")
+    def test_section_extractor_accepts_hybrid_config(self, mock_factory):
+        """SectionExtractor accepts hybrid configuration for cascade wiring."""
+        from src.analysis.section_extractor import SectionExtractor
+
+        mock_factory.return_value = MagicMock()
+        extractor = SectionExtractor(
+            cascade_enabled=True,
+            opendataloader_hybrid_config=OpenDataLoaderHybridConfig(enabled=True),
+            opendataloader_hybrid_fallback=True,
+        )
+        assert extractor.cascade is not None

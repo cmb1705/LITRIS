@@ -18,6 +18,7 @@ from src.analysis.raptor import RaptorSummaries
 from src.analysis.schemas import SemanticAnalysis
 from src.analysis.section_extractor import SectionExtractor
 from src.config import Config
+from src.extraction.opendataloader_extractor import build_hybrid_config
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
 from src.indexing.embeddings import EmbeddingChunk, EmbeddingGenerator
@@ -889,6 +890,29 @@ def build_section_extractor(
     run_control_path: Path | None = None,
 ) -> SectionExtractor:
     """Build the configured section extractor for a run."""
+    hybrid_config = build_hybrid_config(
+        enabled=config.processing.opendataloader_hybrid_enabled,
+        backend=config.processing.opendataloader_hybrid_backend,
+        client_mode=config.processing.opendataloader_hybrid_client_mode,
+        server_url=config.processing.opendataloader_hybrid_url,
+        timeout_ms=config.processing.opendataloader_hybrid_timeout_ms,
+        autostart=config.processing.opendataloader_hybrid_autostart,
+        host=config.processing.opendataloader_hybrid_host,
+        port=config.processing.opendataloader_hybrid_port,
+        startup_timeout_seconds=(
+            config.processing.opendataloader_hybrid_startup_timeout_seconds
+        ),
+        force_ocr=config.processing.opendataloader_hybrid_force_ocr,
+        ocr_lang=config.processing.opendataloader_hybrid_ocr_lang,
+        enrich_formula=config.processing.opendataloader_hybrid_enrich_formula,
+        enrich_picture_description=(
+            config.processing.opendataloader_hybrid_enrich_picture_description
+        ),
+        picture_description_prompt=(
+            config.processing.opendataloader_hybrid_picture_description_prompt
+        ),
+        device=config.processing.opendataloader_hybrid_device,
+    )
     return SectionExtractor(
         cache_dir=cache_dir,
         provider=config.extraction.provider,
@@ -904,6 +928,14 @@ def build_section_extractor(
         min_section_hits=config.processing.min_section_hits,
         ocr_enabled=config.processing.ocr_enabled,
         ocr_config=config.processing.ocr_config,
+        arxiv_enabled=config.processing.arxiv_enabled,
+        opendataloader_enabled=config.processing.opendataloader_enabled,
+        opendataloader_mode=config.processing.opendataloader_mode,
+        opendataloader_hybrid_config=hybrid_config,
+        opendataloader_hybrid_fallback=(
+            config.processing.opendataloader_hybrid_fallback
+        ),
+        marker_enabled=config.processing.marker_enabled,
         use_cache=use_cache,
         parallel_workers=parallel_workers,
         reasoning_effort=config.extraction.reasoning_effort,

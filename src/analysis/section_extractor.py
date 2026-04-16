@@ -21,6 +21,7 @@ from src.analysis.semantic_prompts import (
     get_pass_definitions,
 )
 from src.extraction.cascade import ExtractionCascade
+from src.extraction.opendataloader_extractor import OpenDataLoaderHybridConfig
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
 from src.utils.logging_config import LogContext, get_logger
@@ -254,6 +255,8 @@ class SectionExtractor:
         arxiv_enabled: bool = True,
         opendataloader_enabled: bool = True,
         opendataloader_mode: str = "fast",
+        opendataloader_hybrid_config: OpenDataLoaderHybridConfig | None = None,
+        opendataloader_hybrid_fallback: bool = False,
         marker_enabled: bool = True,
     ):
         """Initialize section extractor.
@@ -297,6 +300,8 @@ class SectionExtractor:
                 min_words=min_text_length,
                 companion_dir=companion_dir,
                 opendataloader_mode=opendataloader_mode,
+                opendataloader_hybrid=opendataloader_hybrid_config,
+                opendataloader_hybrid_fallback=opendataloader_hybrid_fallback,
             )
 
         self.run_control = RunControlPoller(run_control_path) if run_control_path else None

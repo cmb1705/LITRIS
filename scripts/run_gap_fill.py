@@ -36,6 +36,7 @@ from src.analysis.llm_council import (
 from src.analysis.schemas import SemanticAnalysis
 from src.config import Config
 from src.extraction.cascade import ExtractionCascade
+from src.extraction.opendataloader_extractor import build_hybrid_config
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
 from src.utils.logging_config import setup_logging
@@ -219,10 +220,39 @@ def main():
         enable_ocr=config.processing.ocr_enabled or config.processing.ocr_on_fail,
     )
     text_cleaner = TextCleaner()
+    hybrid_config = build_hybrid_config(
+        enabled=config.processing.opendataloader_hybrid_enabled,
+        backend=config.processing.opendataloader_hybrid_backend,
+        client_mode=config.processing.opendataloader_hybrid_client_mode,
+        server_url=config.processing.opendataloader_hybrid_url,
+        timeout_ms=config.processing.opendataloader_hybrid_timeout_ms,
+        autostart=config.processing.opendataloader_hybrid_autostart,
+        host=config.processing.opendataloader_hybrid_host,
+        port=config.processing.opendataloader_hybrid_port,
+        startup_timeout_seconds=(
+            config.processing.opendataloader_hybrid_startup_timeout_seconds
+        ),
+        force_ocr=config.processing.opendataloader_hybrid_force_ocr,
+        ocr_lang=config.processing.opendataloader_hybrid_ocr_lang,
+        enrich_formula=config.processing.opendataloader_hybrid_enrich_formula,
+        enrich_picture_description=(
+            config.processing.opendataloader_hybrid_enrich_picture_description
+        ),
+        picture_description_prompt=(
+            config.processing.opendataloader_hybrid_picture_description_prompt
+        ),
+        device=config.processing.opendataloader_hybrid_device,
+    )
     cascade = ExtractionCascade(
         pdf_extractor=pdf_extractor,
         enable_arxiv=config.processing.arxiv_enabled,
+        enable_opendataloader=config.processing.opendataloader_enabled,
         enable_marker=config.processing.marker_enabled,
+        opendataloader_mode=config.processing.opendataloader_mode,
+        opendataloader_hybrid=hybrid_config,
+        opendataloader_hybrid_fallback=(
+            config.processing.opendataloader_hybrid_fallback
+        ),
     )
 
     filled_total = 0

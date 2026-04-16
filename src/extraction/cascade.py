@@ -5,16 +5,20 @@ Orchestrates extraction across multiple backends in quality-priority order:
 For arXiv papers:
   1. arXiv HTML (highest quality, cleanest text)
   2. ar5iv HTML5 rendering
-  3. OpenDataLoader PDF (primary: better reading order, +4-15% word yield)
-  4. PyMuPDF (fallback: instant, no Java dependency)
-  5. Marker PDF-to-markdown (ML fallback for complex layouts)
-  6. OCR (last resort for scanned PDFs)
+  3. OpenDataLoader PDF fast mode (primary: better reading order, +4-15%
+     word yield)
+  4. OpenDataLoader hybrid (optional fallback for complex/scanned PDFs)
+  5. PyMuPDF (fallback: instant, no Java dependency)
+  6. Marker PDF-to-markdown (ML fallback for complex layouts)
+  7. OCR (last resort for scanned PDFs)
 
 For non-arXiv papers:
-  1. OpenDataLoader PDF (primary: better reading order, +4-15% word yield)
-  2. PyMuPDF (fallback: instant, no Java dependency)
-  3. Marker PDF-to-markdown (ML fallback for complex layouts)
-  4. OCR (last resort for scanned PDFs)
+  1. OpenDataLoader PDF fast mode (primary: better reading order, +4-15%
+     word yield)
+  2. OpenDataLoader hybrid (optional fallback for complex/scanned PDFs)
+  3. PyMuPDF (fallback: instant, no Java dependency)
+  4. Marker PDF-to-markdown (ML fallback for complex layouts)
+  5. OCR (last resort for scanned PDFs)
 
 Each tier is tried in order; the first to produce text with sufficient
 word count wins. OpenDataLoader is the primary PDF tier because it
@@ -23,11 +27,13 @@ papers) at a modest speed cost (~1-3s/paper). PyMuPDF is kept as the
 fallback for environments without Java 11+.
 """
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 from src.extraction import arxiv_extractor, marker_extractor, opendataloader_extractor
+from src.extraction.opendataloader_extractor import OpenDataLoaderHybridConfig
 from src.extraction.pdf_extractor import PDFExtractionError, PDFExtractor
 from src.utils.logging_config import get_logger
 
@@ -38,6 +44,7 @@ CascadeMethod = Literal[
     "arxiv_html",
     "ar5iv",
     "opendataloader",
+    "opendataloader_hybrid",
     "marker",
     "pymupdf",
     "ocr",
@@ -46,6 +53,14 @@ CascadeMethod = Literal[
 
 # Minimum words for an extraction to be considered successful
 MIN_EXTRACTION_WORDS = 100
+FORMULA_SIGNAL = re.compile(
+    r"\b(equation|formula|theorem|lemma|proof|corollary|optimization)\b",
+    re.IGNORECASE,
+)
+PICTURE_SIGNAL = re.compile(
+    r"\b(fig(?:ure)?\.?|chart|plot|diagram|image|visualization)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -77,6 +92,8 @@ class ExtractionCascade:
         min_words: int = MIN_EXTRACTION_WORDS,
         companion_dir: Path | None = None,
         opendataloader_mode: str = "fast",
+        opendataloader_hybrid: OpenDataLoaderHybridConfig | None = None,
+        opendataloader_hybrid_fallback: bool = False,
     ):
         """Initialize cascade.
 
@@ -88,7 +105,11 @@ class ExtractionCascade:
             arxiv_timeout: Timeout for arXiv/ar5iv HTTP requests.
             min_words: Minimum word count to accept an extraction.
             companion_dir: Optional directory for pre-extracted .md files.
-            opendataloader_mode: OpenDataLoader mode ("fast" or "hybrid").
+            opendataloader_mode: OpenDataLoader primary mode ("fast" or
+                "hybrid").
+            opendataloader_hybrid: Optional hybrid backend configuration.
+            opendataloader_hybrid_fallback: Try hybrid after fast ODL yields
+                insufficient text.
         """
         self.pdf_extractor = pdf_extractor
         self.enable_arxiv = enable_arxiv
@@ -100,6 +121,34 @@ class ExtractionCascade:
         self.min_words = min_words
         self.companion_dir = companion_dir
         self.opendataloader_mode = opendataloader_mode
+        self.opendataloader_hybrid = None
+        self.enable_opendataloader_hybrid_fallback = False
+
+        if self.enable_opendataloader and (
+            opendataloader_mode == "hybrid"
+            or opendataloader_hybrid_fallback
+            or opendataloader_hybrid is not None
+        ):
+            requested_hybrid = opendataloader_hybrid or OpenDataLoaderHybridConfig(
+                enabled=True
+            )
+            self.opendataloader_hybrid = opendataloader_extractor.ensure_hybrid_server(
+                requested_hybrid
+            )
+            if self.opendataloader_hybrid is None:
+                if opendataloader_mode == "hybrid":
+                    logger.info(
+                        "OpenDataLoader hybrid requested but backend unavailable; "
+                        "downgrading to fast mode"
+                    )
+                    self.opendataloader_mode = "fast"
+                elif opendataloader_hybrid_fallback:
+                    logger.info(
+                        "OpenDataLoader hybrid fallback requested but backend "
+                        "unavailable; skipping hybrid fallback"
+                    )
+            elif opendataloader_hybrid_fallback and opendataloader_mode != "hybrid":
+                self.enable_opendataloader_hybrid_fallback = True
 
         if enable_opendataloader and not opendataloader_extractor.is_available():
             logger.info(
@@ -189,20 +238,63 @@ class ExtractionCascade:
 
         # Tier 3: OpenDataLoader PDF (primary PDF tier -- better reading order)
         if self.enable_opendataloader:
-            tiers_attempted.append("opendataloader")
+            odl_tier: CascadeMethod = (
+                "opendataloader_hybrid"
+                if self.opendataloader_mode == "hybrid"
+                else "opendataloader"
+            )
+            tiers_attempted.append(odl_tier)
             text = opendataloader_extractor.extract_with_opendataloader(
-                pdf_path, mode=self.opendataloader_mode,
+                pdf_path,
+                mode=self.opendataloader_mode,
+                hybrid_config=self.opendataloader_hybrid,
             )
             if text and self._is_sufficient(text):
+                if (
+                    odl_tier == "opendataloader"
+                    and self.opendataloader_hybrid is not None
+                    and self._should_upgrade_fast_odl_to_hybrid(text)
+                ):
+                    tiers_attempted.append("opendataloader_hybrid")
+                    hybrid_text = opendataloader_extractor.extract_with_opendataloader(
+                        pdf_path,
+                        mode="hybrid",
+                        hybrid_config=self.opendataloader_hybrid,
+                    )
+                    if hybrid_text and self._is_sufficient(hybrid_text):
+                        return CascadeResult(
+                            text=hybrid_text,
+                            method="opendataloader_hybrid",
+                            word_count=len(hybrid_text.split()),
+                            tiers_attempted=tiers_attempted,
+                            is_markdown=True,
+                        )
                 return CascadeResult(
                     text=text,
-                    method="opendataloader",
+                    method=odl_tier,
                     word_count=len(text.split()),
                     tiers_attempted=tiers_attempted,
                     is_markdown=True,
                 )
 
-        # Tier 4: PyMuPDF (fallback for when ODL/Java unavailable)
+        # Tier 4: OpenDataLoader hybrid fallback for complex/scanned PDFs.
+        if self.enable_opendataloader_hybrid_fallback and self.opendataloader_hybrid:
+            tiers_attempted.append("opendataloader_hybrid")
+            text = opendataloader_extractor.extract_with_opendataloader(
+                pdf_path,
+                mode="hybrid",
+                hybrid_config=self.opendataloader_hybrid,
+            )
+            if text and self._is_sufficient(text):
+                return CascadeResult(
+                    text=text,
+                    method="opendataloader_hybrid",
+                    word_count=len(text.split()),
+                    tiers_attempted=tiers_attempted,
+                    is_markdown=True,
+                )
+
+        # Tier 5: PyMuPDF (fallback for when ODL/Java unavailable)
         tiers_attempted.append("pymupdf")
         try:
             text, method = self.pdf_extractor.extract_text_with_method(pdf_path)
@@ -221,7 +313,7 @@ class ExtractionCascade:
         except PDFExtractionError:
             pass
 
-        # Tier 5: Marker (ML fallback for complex layouts, scanned docs)
+        # Tier 6: Marker (ML fallback for complex layouts, scanned docs)
         if self.enable_marker:
             tiers_attempted.append("marker")
             text = marker_extractor.extract_with_marker(pdf_path)
@@ -238,6 +330,22 @@ class ExtractionCascade:
             f"All extraction tiers failed for {pdf_path.name}. "
             f"Tiers attempted: {', '.join(tiers_attempted)}"
         )
+
+    def _should_upgrade_fast_odl_to_hybrid(self, text: str) -> bool:
+        """Return True when fast ODL output suggests hybrid enrichments are useful."""
+        if self.opendataloader_hybrid is None:
+            return False
+
+        lowered = text.lower()
+        wants_formula = (
+            self.opendataloader_hybrid.enrich_formula
+            and FORMULA_SIGNAL.search(lowered) is not None
+        )
+        wants_picture = (
+            self.opendataloader_hybrid.enrich_picture_description
+            and PICTURE_SIGNAL.search(lowered) is not None
+        )
+        return wants_formula or wants_picture
 
     def _find_companion(self, pdf_path: Path) -> Path | None:
         """Find a companion .md file for the given PDF.

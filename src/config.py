@@ -387,6 +387,22 @@ class ProcessingConfig(BaseModel):
     arxiv_enabled: bool = True
     opendataloader_enabled: bool = True
     opendataloader_mode: str = "fast"
+    opendataloader_hybrid_enabled: bool = False
+    opendataloader_hybrid_fallback: bool = False
+    opendataloader_hybrid_backend: str = "docling-fast"
+    opendataloader_hybrid_client_mode: str = "auto"
+    opendataloader_hybrid_url: str | None = None
+    opendataloader_hybrid_timeout_ms: int = 0
+    opendataloader_hybrid_autostart: bool = False
+    opendataloader_hybrid_host: str = "127.0.0.1"
+    opendataloader_hybrid_port: int = 5002
+    opendataloader_hybrid_startup_timeout_seconds: float = 30.0
+    opendataloader_hybrid_force_ocr: bool = False
+    opendataloader_hybrid_ocr_lang: str | None = None
+    opendataloader_hybrid_enrich_formula: bool = False
+    opendataloader_hybrid_enrich_picture_description: bool = False
+    opendataloader_hybrid_picture_description_prompt: str | None = None
+    opendataloader_hybrid_device: str = "auto"
     marker_enabled: bool = True
     classification: ClassificationConfig = Field(default_factory=ClassificationConfig)
 

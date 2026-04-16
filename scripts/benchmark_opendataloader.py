@@ -23,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import Config
+from src.extraction.opendataloader_extractor import build_hybrid_config
 from src.extraction.text_cleaner import TextCleaner
 from src.zotero.database import ZoteroDatabase
 
@@ -43,6 +44,11 @@ def parse_args() -> argparse.Namespace:
         "--quick",
         action="store_true",
         help="Benchmark a smaller sample size.",
+    )
+    parser.add_argument(
+        "--include-hybrid",
+        action="store_true",
+        help="Benchmark OpenDataLoader hybrid when a backend is reachable.",
     )
     return parser.parse_args()
 
@@ -69,6 +75,7 @@ def extract_opendataloader(
     pdf_path: Path,
     mode: str = "fast",
     use_struct_tree: bool = False,
+    hybrid_config=None,
 ) -> tuple[str, float]:
     """Extract text using OpenDataLoader PDF.
 
@@ -85,6 +92,7 @@ def extract_opendataloader(
             pdf_path,
             mode=mode,
             use_struct_tree=use_struct_tree,
+            hybrid_config=hybrid_config,
         )
         if text is None:
             text = "EMPTY: no text extracted"
@@ -216,6 +224,36 @@ def main() -> None:
             papers_map[p.pdf_attachment_key] = p
 
     text_cleaner = TextCleaner()
+    hybrid_config = build_hybrid_config(
+        enabled=(
+            config.processing.opendataloader_hybrid_enabled or args.include_hybrid
+        ),
+        backend=config.processing.opendataloader_hybrid_backend,
+        client_mode=config.processing.opendataloader_hybrid_client_mode,
+        server_url=config.processing.opendataloader_hybrid_url,
+        timeout_ms=config.processing.opendataloader_hybrid_timeout_ms,
+        autostart=config.processing.opendataloader_hybrid_autostart,
+        host=config.processing.opendataloader_hybrid_host,
+        port=config.processing.opendataloader_hybrid_port,
+        startup_timeout_seconds=(
+            config.processing.opendataloader_hybrid_startup_timeout_seconds
+        ),
+        force_ocr=config.processing.opendataloader_hybrid_force_ocr,
+        ocr_lang=config.processing.opendataloader_hybrid_ocr_lang,
+        enrich_formula=config.processing.opendataloader_hybrid_enrich_formula,
+        enrich_picture_description=(
+            config.processing.opendataloader_hybrid_enrich_picture_description
+        ),
+        picture_description_prompt=(
+            config.processing.opendataloader_hybrid_picture_description_prompt
+        ),
+        device=config.processing.opendataloader_hybrid_device,
+    )
+    hybrid_ready = None
+    if hybrid_config is not None:
+        from src.extraction import opendataloader_extractor
+
+        hybrid_ready = opendataloader_extractor.ensure_hybrid_server(hybrid_config)
     target_limit = QUICK_TARGET_LIMIT if args.quick else DEFAULT_TARGET_LIMIT
     targets = load_targets_from_env() or autodiscover_targets(papers_map, target_limit)
     if not targets:
@@ -311,7 +349,33 @@ def main() -> None:
             "preview": (odl_tree_clean or "")[:200],
         }
 
-        # 4. Marker (if available)
+        # 4. OpenDataLoader hybrid
+        if hybrid_ready is not None:
+            print("\n  [ODL-hybrid] Extracting...")
+            odl_hybrid_text, odl_hybrid_time = extract_opendataloader(
+                pdf_path,
+                mode="hybrid",
+                hybrid_config=hybrid_ready,
+            )
+            odl_hybrid_clean = (
+                text_cleaner.clean(odl_hybrid_text, preserve_markdown=True)
+                if not is_error_text(odl_hybrid_text)
+                else odl_hybrid_text
+            )
+            odl_hybrid_wc = word_count(odl_hybrid_clean)
+            per_page = odl_hybrid_time / pages if pages else 0
+            print(
+                f"  [ODL-hybrid] {odl_hybrid_wc} words in "
+                f"{odl_hybrid_time:.2f}s ({per_page:.3f}s/page)"
+            )
+            record["odl_hybrid"] = {
+                "word_count": odl_hybrid_wc,
+                "time_seconds": round(odl_hybrid_time, 3),
+                "time_per_page": round(per_page, 4),
+                "preview": (odl_hybrid_clean or "")[:200],
+            }
+
+        # 5. Marker (if available)
         print("\n  [Marker] Extracting...")
         marker_text, marker_time = extract_marker(pdf_path)
         marker_clean = (
@@ -334,6 +398,11 @@ def main() -> None:
             "pymupdf": pymupdf_wc if not is_error_text(pymupdf_clean) else 0,
             "odl_fast": odl_wc if not is_error_text(odl_clean) else 0,
             "odl_struct_tree": odl_tree_wc if not is_error_text(odl_tree_clean) else 0,
+            "odl_hybrid": (
+                record.get("odl_hybrid", {}).get("word_count", 0)
+                if not is_error_text(record.get("odl_hybrid", {}).get("preview", ""))
+                else 0
+            ),
             "marker": marker_wc if not is_error_text(marker_clean) else 0,
         }
         best = max(methods, key=methods.get)  # type: ignore[arg-type]
@@ -353,52 +422,84 @@ def main() -> None:
     print(f"\n{'=' * 100}")
     print("WORD COUNT SUMMARY")
     print(f"{'=' * 100}")
-    header = f"{'Paper':<35} {'Cat':<10} {'PyMuPDF':>8} {'ODL-fast':>9} {'ODL-tree':>9} {'Marker':>8} {'Best':>10}"
+    header = (
+        f"{'Paper':<35} {'Cat':<10} {'PyMuPDF':>8} {'ODL-fast':>9} "
+        f"{'ODL-tree':>9} {'ODL-hyb':>8} {'Marker':>8} {'Best':>10}"
+    )
     print(header)
-    print(f"{'-' * 35} {'-' * 10} {'-' * 8} {'-' * 9} {'-' * 9} {'-' * 8} {'-' * 10}")
+    print(
+        f"{'-' * 35} {'-' * 10} {'-' * 8} {'-' * 9} {'-' * 9} "
+        f"{'-' * 8} {'-' * 8} {'-' * 10}"
+    )
     for r in results:
         title = r["title"][:33]
         cat = r["category"][:8]
         pm = r["pymupdf"]["word_count"]
         of = r["odl_fast"]["word_count"]
         ot = r["odl_struct_tree"]["word_count"]
+        oh = r.get("odl_hybrid", {}).get("word_count", 0)
         mk = r["marker"]["word_count"]
         best_val = r["best_method"]
-        print(f"{title:<35} {cat:<10} {pm:>8} {of:>9} {ot:>9} {mk:>8} {best_val:>10}")
+        print(
+            f"{title:<35} {cat:<10} {pm:>8} {of:>9} {ot:>9} "
+            f"{oh:>8} {mk:>8} {best_val:>10}"
+        )
 
     print(f"\n{'=' * 100}")
     print("TIMING SUMMARY (seconds)")
     print(f"{'=' * 100}")
-    header = f"{'Paper':<35} {'Pages':>5} {'PyMuPDF':>8} {'ODL-fast':>9} {'ODL-tree':>9} {'Marker':>8}"
+    header = (
+        f"{'Paper':<35} {'Pages':>5} {'PyMuPDF':>8} {'ODL-fast':>9} "
+        f"{'ODL-tree':>9} {'ODL-hyb':>8} {'Marker':>8}"
+    )
     print(header)
-    print(f"{'-' * 35} {'-' * 5} {'-' * 8} {'-' * 9} {'-' * 9} {'-' * 8}")
+    print(
+        f"{'-' * 35} {'-' * 5} {'-' * 8} {'-' * 9} {'-' * 9} {'-' * 8} {'-' * 8}"
+    )
     for r in results:
         title = r["title"][:33]
         pages = r["page_count"]
         pm = r["pymupdf"]["time_seconds"]
         of = r["odl_fast"]["time_seconds"]
         ot = r["odl_struct_tree"]["time_seconds"]
+        oh = r.get("odl_hybrid", {}).get("time_seconds", 0)
         mk = r["marker"]["time_seconds"]
-        print(f"{title:<35} {pages:>5} {pm:>8.2f} {of:>9.2f} {ot:>9.2f} {mk:>8.2f}")
+        print(
+            f"{title:<35} {pages:>5} {pm:>8.2f} {of:>9.2f} {ot:>9.2f} "
+            f"{oh:>8.2f} {mk:>8.2f}"
+        )
 
     # Compute averages
     if results:
         avg_pm = sum(r["pymupdf"]["time_seconds"] for r in results) / len(results)
         avg_of = sum(r["odl_fast"]["time_seconds"] for r in results) / len(results)
         avg_ot = sum(r["odl_struct_tree"]["time_seconds"] for r in results) / len(results)
+        avg_oh = sum(r.get("odl_hybrid", {}).get("time_seconds", 0) for r in results) / len(results)
         avg_mk = sum(r["marker"]["time_seconds"] for r in results) / len(results)
-        print(f"{'AVERAGE':<35} {'':>5} {avg_pm:>8.2f} {avg_of:>9.2f} {avg_ot:>9.2f} {avg_mk:>8.2f}")
+        print(
+            f"{'AVERAGE':<35} {'':>5} {avg_pm:>8.2f} {avg_of:>9.2f} "
+            f"{avg_ot:>9.2f} {avg_oh:>8.2f} {avg_mk:>8.2f}"
+        )
 
         # Word count comparison
         pm_total = sum(r["pymupdf"]["word_count"] for r in results)
         of_total = sum(r["odl_fast"]["word_count"] for r in results)
         ot_total = sum(r["odl_struct_tree"]["word_count"] for r in results)
+        oh_total = sum(r.get("odl_hybrid", {}).get("word_count", 0) for r in results)
         mk_total = sum(r["marker"]["word_count"] for r in results)
-        print(f"\nTotal words: PyMuPDF={pm_total}, ODL-fast={of_total}, "
-              f"ODL-tree={ot_total}, Marker={mk_total}")
+        print(
+            f"\nTotal words: PyMuPDF={pm_total}, ODL-fast={of_total}, "
+            f"ODL-tree={ot_total}, ODL-hybrid={oh_total}, Marker={mk_total}"
+        )
 
         # Count best-method wins
-        wins = {"pymupdf": 0, "odl_fast": 0, "odl_struct_tree": 0, "marker": 0}
+        wins = {
+            "pymupdf": 0,
+            "odl_fast": 0,
+            "odl_struct_tree": 0,
+            "odl_hybrid": 0,
+            "marker": 0,
+        }
         for r in results:
             wins[r["best_method"]] += 1
         print(f"Best method wins: {wins}")
