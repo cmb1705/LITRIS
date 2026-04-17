@@ -59,6 +59,25 @@ metadata in `data/index/fulltext_manifest.json`. These snapshots are preserved
 as full cleaned text for retrieval. LLM input may be truncated for provider
 limits, but the stored snapshot is not truncated for search or quote retrieval.
 
+## Managed Hybrid Pool
+
+OpenDataLoader hybrid now defaults to a fixed localhost GPU server pool rather
+than per-run autostart. Fast OpenDataLoader remains the default PDF path, while
+hybrid OCR/formula/picture profiles resolve to exact localhost endpoints on
+ports `5002` through `5009`.
+
+Start the pool before a hybrid-heavy run:
+
+```bash
+python scripts/manage_opendataloader_hybrid.py start
+python scripts/manage_opendataloader_hybrid.py status
+python scripts/preflight.py
+```
+
+The manager reads `processing.opendataloader_hybrid_python_executable` from
+`config.yaml`, locates `opendataloader-pdf-hybrid.exe` next to that Python
+install, and launches the configured fixed URLs with `--device cuda`.
+
 ## Current Workflow Support
 
 The main entrypoints do not all expose the same provider surface area.

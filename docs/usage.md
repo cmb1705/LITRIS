@@ -1010,10 +1010,24 @@ processing:
   arxiv_enabled: true
   opendataloader_enabled: true
   opendataloader_mode: "fast"
-  opendataloader_hybrid_enabled: false
+  opendataloader_hybrid_enabled: true
   opendataloader_hybrid_fallback: false
+  opendataloader_hybrid_device: "cuda"
+  opendataloader_hybrid_python_executable: "C:\\Users\\cmb17\\AppData\\Local\\Programs\\Python\\Python310\\python.exe"
   marker_enabled: true
 ```
+
+Managed hybrid mode now defaults to the fixed localhost GPU pool defined in
+`processing.opendataloader_hybrid_servers`. Start and inspect that pool with:
+
+```bash
+python scripts/manage_opendataloader_hybrid.py start
+python scripts/manage_opendataloader_hybrid.py status
+python scripts/preflight.py
+```
+
+Fast OpenDataLoader remains the default primary PDF tier. Hybrid is only used
+when the route plan, fallback policy, or an explicit hybrid run selects it.
 
 ## Hook Scripts
 

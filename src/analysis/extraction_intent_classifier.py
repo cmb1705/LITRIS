@@ -13,7 +13,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Literal
 
-from src.extraction.opendataloader_extractor import OpenDataLoaderHybridConfig
+from src.extraction.opendataloader_extractor import (
+    OpenDataLoaderHybridConfig,
+    build_hybrid_config_from_processing,
+)
 
 if TYPE_CHECKING:
     from src.config import ProcessingConfig
@@ -100,25 +103,12 @@ class HybridProfileSpec:
         if not self.uses_hybrid:
             return base_config
 
-        template = base_config or OpenDataLoaderHybridConfig(
+        template = base_config or build_hybrid_config_from_processing(
+            processing,
             enabled=True,
-            backend=processing.opendataloader_hybrid_backend,
-            client_mode=processing.opendataloader_hybrid_client_mode,
-            server_url=processing.opendataloader_hybrid_url,
-            timeout_ms=processing.opendataloader_hybrid_timeout_ms,
-            fallback_to_fast=processing.opendataloader_hybrid_fallback,
-            autostart=processing.opendataloader_hybrid_autostart,
-            host=processing.opendataloader_hybrid_host,
-            port=processing.opendataloader_hybrid_port,
-            startup_timeout_seconds=(
-                processing.opendataloader_hybrid_startup_timeout_seconds
-            ),
-            ocr_lang=processing.opendataloader_hybrid_ocr_lang,
-            picture_description_prompt=(
-                processing.opendataloader_hybrid_picture_description_prompt
-            ),
-            device=processing.opendataloader_hybrid_device,
         )
+        if template is None:
+            return None
         return OpenDataLoaderHybridConfig(
             enabled=True,
             backend=self.backend or template.backend,
@@ -136,6 +126,8 @@ class HybridProfileSpec:
             enrich_picture_description=self.enrich_picture_description,
             picture_description_prompt=template.picture_description_prompt,
             device=template.device,
+            python_executable=template.python_executable,
+            managed_servers=template.managed_servers,
         )
 
 
@@ -198,18 +190,14 @@ def classify_extraction_intent(
 
     likely_scanned = False
     if page_count and page_count >= 4:
-        likely_scanned = (
-            word_count is not None and word_count < 500
-        ) or words_per_page < 80
+        likely_scanned = (word_count is not None and word_count < 500) or words_per_page < 80
     if text is not None and len(text.strip()) < 600 and (page_count or 0) >= 6:
         likely_scanned = True
     if ocr_hits > 0:
         likely_scanned = True
 
     needs_formula = formula_hits >= 2 or _looks_math_heavy(normalized_title_bits)
-    picture_signals_detected = picture_hits >= 2 or _looks_figure_heavy(
-        normalized_title_bits
-    )
+    picture_signals_detected = picture_hits >= 2 or _looks_figure_heavy(normalized_title_bits)
     needs_picture = picture_signals_detected and allow_picture_enrichment
     needs_ocr = likely_scanned
 
@@ -230,13 +218,14 @@ def classify_extraction_intent(
         reasons.append("figure/chart density suggests picture descriptions")
     elif picture_signals_detected:
         reasons.append(
-            "figure/chart signals detected but automatic picture-description "
-            "hybrid is disabled"
+            "figure/chart signals detected but automatic picture-description hybrid is disabled"
         )
     if not reasons:
         reasons.append("no strong OCR, formula, or picture signals; defaulting to fast mode")
 
-    intent = _intent_from_flags(needs_ocr=needs_ocr, needs_formula=needs_formula, needs_picture=needs_picture)
+    intent = _intent_from_flags(
+        needs_ocr=needs_ocr, needs_formula=needs_formula, needs_picture=needs_picture
+    )
 
     if sum([needs_ocr, needs_formula, needs_picture]) >= 2:
         confidence = min(0.95, confidence + 0.12)
@@ -361,9 +350,7 @@ def build_extraction_plan(
                 intent=intent,
                 intent_confidence=float(getattr(record, "intent_confidence", 0.0) or 0.0),
                 intent_reasons=list(getattr(record, "intent_reasons", []) or []),
-                source_tier=(
-                    getattr(record, "intent_source_tier", None) or "metadata_only"
-                ),
+                source_tier=(getattr(record, "intent_source_tier", None) or "metadata_only"),
                 profile=profile,
                 fallback_policy="runtime_escalation_allowed",
             )
@@ -381,7 +368,9 @@ def group_extraction_plan_by_profile(
     return grouped
 
 
-def summarize_intents(records: dict[str, object]) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+def summarize_intents(
+    records: dict[str, object],
+) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
     """Return counts by intent, by profile key, and by confidence bucket."""
     by_intent: dict[str, int] = {}
     by_profile: dict[str, int] = {}

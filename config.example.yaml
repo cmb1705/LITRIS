@@ -158,17 +158,20 @@ processing:
   opendataloader_enabled: false
   # OpenDataLoader mode: "fast" (Java-only, ~0.4s/page) or "hybrid" (AI-assisted)
   opendataloader_mode: "fast"
-  # Optional OpenDataLoader hybrid profile.
-  # Keep fast as the default until local benchmarks justify a global switch.
-  opendataloader_hybrid_enabled: false
+  # Managed OpenDataLoader hybrid pool. Fast remains the primary PDF mode,
+  # but hybrid requests default to the fixed localhost GPU-backed servers
+  # below when a paper or run selects hybrid routing.
+  opendataloader_hybrid_enabled: true
   # If true, try hybrid after fast ODL yields insufficient text.
   opendataloader_hybrid_fallback: false
   opendataloader_hybrid_backend: "docling-fast"
   opendataloader_hybrid_client_mode: "auto"  # "auto" or "full"
+  # Legacy single-endpoint override. Leave null to use the managed pool.
   opendataloader_hybrid_url: null
   # Bound hybrid requests so heavy picture/OCR enrichments cannot stall a run indefinitely.
   opendataloader_hybrid_timeout_ms: 60000
-  # Autostart a local `opendataloader-pdf-hybrid` backend when needed.
+  # Legacy autostart for a single local backend. Managed pool mode never
+  # autostarts; use `python scripts/manage_opendataloader_hybrid.py start`.
   opendataloader_hybrid_autostart: false
   opendataloader_hybrid_host: "127.0.0.1"
   opendataloader_hybrid_port: 5002
@@ -183,7 +186,53 @@ processing:
   opendataloader_hybrid_auto_picture_intents: false
   opendataloader_hybrid_enrich_picture_description: false
   opendataloader_hybrid_picture_description_prompt: null
-  opendataloader_hybrid_device: "auto"
+  opendataloader_hybrid_device: "cuda"
+  # Python install that owns the managed GPU hybrid launcher.
+  opendataloader_hybrid_python_executable: "C:\\Users\\cmb17\\AppData\\Local\\Programs\\Python\\Python310\\python.exe"
+  # Fixed localhost GPU server pool. URL matching is exact on the three
+  # hybrid feature flags below: force_ocr, enrich_formula, and
+  # enrich_picture_description.
+  opendataloader_hybrid_servers:
+    base:
+      url: "http://127.0.0.1:5002"
+      force_ocr: false
+      enrich_formula: false
+      enrich_picture_description: false
+    ocr:
+      url: "http://127.0.0.1:5003"
+      force_ocr: true
+      enrich_formula: false
+      enrich_picture_description: false
+    formula:
+      url: "http://127.0.0.1:5004"
+      force_ocr: false
+      enrich_formula: true
+      enrich_picture_description: false
+    picture:
+      url: "http://127.0.0.1:5005"
+      force_ocr: false
+      enrich_formula: false
+      enrich_picture_description: true
+    ocr_formula:
+      url: "http://127.0.0.1:5006"
+      force_ocr: true
+      enrich_formula: true
+      enrich_picture_description: false
+    ocr_picture:
+      url: "http://127.0.0.1:5007"
+      force_ocr: true
+      enrich_formula: false
+      enrich_picture_description: true
+    formula_picture:
+      url: "http://127.0.0.1:5008"
+      force_ocr: false
+      enrich_formula: true
+      enrich_picture_description: true
+    ocr_formula_picture:
+      url: "http://127.0.0.1:5009"
+      force_ocr: true
+      enrich_formula: true
+      enrich_picture_description: true
 
   # Attempt OCR when initial text checks fail (recommended for scanned books)
   ocr_on_fail: true

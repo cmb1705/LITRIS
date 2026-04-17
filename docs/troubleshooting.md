@@ -217,6 +217,25 @@ brew install tesseract
 sudo apt install tesseract-ocr
 ```
 
+### Managed Hybrid Pool Not Running
+
+**Symptoms**:
+1. Hybrid extraction downgrades back to fast OpenDataLoader or PyMuPDF
+2. `scripts/preflight.py` reports one or more hybrid endpoints down
+
+**Solution**:
+
+Start the fixed localhost GPU pool:
+
+```bash
+python scripts/manage_opendataloader_hybrid.py start
+python scripts/manage_opendataloader_hybrid.py status
+```
+
+If startup fails, verify that `processing.opendataloader_hybrid_python_executable`
+points at the CUDA-capable Python install that owns
+`opendataloader-pdf-hybrid.exe`, then check `data/logs/opendataloader_hybrid_*.log`.
+
 ### Minimum Text Length
 
 **Error**: Paper skipped due to short text
