@@ -222,8 +222,8 @@ data/
 query_results/
 search_results/
 
-# Generated PDFs from proposals/docs (source .md is tracked)
-docs/proposals/*.pdf
+# Internal planning docs (proposals, completed task specs, schemas in flight)
+docs/proposals/
 
 # Local analysis drafts and exports
 docs/analysis/
