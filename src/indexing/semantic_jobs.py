@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
+from logging import Logger
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Protocol
 
 from src.analysis.constants import ANTHROPIC_BATCH_PRICING, DEFAULT_MODELS, OPENAI_PRICING
 from src.analysis.dimensions import (
@@ -15,7 +17,7 @@ from src.analysis.dimensions import (
     get_default_dimension_registry,
     load_dimension_profile,
 )
-from src.analysis.schemas import DimensionedExtraction
+from src.analysis.schemas import DimensionedExtraction, ExtractionResult
 from src.analysis.semantic_prompts import SEMANTIC_PROMPT_VERSION, build_pass_definitions
 from src.config import Config
 from src.indexing.structured_store import StructuredStore
@@ -28,6 +30,7 @@ logger = get_logger(__name__)
 SEMANTIC_BATCH_STATE_DIRNAME = ".semantic_batches"
 SEMANTIC_BATCH_SCHEMA_VERSION = "1.0.0"
 SEMANTIC_BATCH_MODE = "batch_api"
+_DEFAULT_INDEX_TIMESTAMP = "2020-01-01T00:00:00"
 
 
 @dataclass
@@ -103,6 +106,38 @@ class SemanticBatchPlan:
             "live_text_fallback": self.live_text_fallback,
             "estimated_cost": dict(self.estimated_cost),
         }
+
+
+class BatchClientProtocol(Protocol):
+    """Minimal interface shared by provider-specific semantic batch clients."""
+
+    def create_batch_requests(
+        self,
+        papers: list[PaperMetadata],
+        text_getter: Callable[[PaperMetadata], str],
+        pass_definitions: list[tuple[str, list[tuple[str, str]]]] | None = None,
+    ) -> list[Any]: ...
+
+    def submit_batch(self, requests: list[Any], *, persist_state: bool = True) -> str: ...
+
+    def get_batch_status(self, batch_id: str) -> Any: ...
+
+    def wait_for_batch(
+        self,
+        batch_id: str,
+        poll_interval: int = 60,
+        max_wait: int = 86400,
+        progress_callback: Callable[..., Any] | None = None,
+    ) -> Any: ...
+
+    def get_results(
+        self,
+        batch_id: str,
+        *,
+        pass_definitions: list[tuple[str, list[tuple[str, str]]]] | None = None,
+        profile: DimensionProfile | None = None,
+        prompt_version: str = SEMANTIC_PROMPT_VERSION,
+    ) -> Iterator[ExtractionResult]: ...
 
 
 def semantic_batch_state_dir(index_dir: Path) -> Path:
@@ -404,7 +439,7 @@ def collect_semantic_batch(
     index_dir: Path,
     batch_id: str,
     config: Config,
-    logger_override=None,
+    logger_override: Logger | None = None,
 ) -> dict[str, Any]:
     """Collect one batch into semantic_analyses.json without embeddings/similarity."""
 
@@ -525,7 +560,7 @@ def retry_semantic_papers(
     *,
     index_dir: Path,
     config: Config,
-    logger_override,
+    logger_override: Logger | None,
     paper_ids: list[str],
     provider: str | None = None,
     mode: str | None = None,
@@ -548,7 +583,9 @@ def retry_semantic_papers(
     if profile is not None:
         _ensure_index_profile_compatible(index_dir=index_dir, profile=profile)
 
-    selected_papers = [_paper_from_index_dict(paper_id, papers[paper_id]) for paper_id in selected_ids]
+    selected_papers = [
+        _paper_from_index_dict(paper_id, papers[paper_id]) for paper_id in selected_ids
+    ]
     text_snapshots: dict[str, dict[str, object]] = {}
     missing_snapshots: list[str] = []
     for paper in selected_papers:
@@ -559,9 +596,7 @@ def retry_semantic_papers(
         text_snapshots[paper.paper_id] = snapshot
 
     if missing_snapshots:
-        raise ValueError(
-            "Missing fulltext snapshots for: " + ", ".join(sorted(missing_snapshots))
-        )
+        raise ValueError("Missing fulltext snapshots for: " + ", ".join(sorted(missing_snapshots)))
 
     from src.indexing.pipeline import (
         build_section_extractor,
@@ -692,7 +727,9 @@ def serialize_pass_definitions(
     ]
 
 
-def deserialize_pass_definitions(payload: list[dict[str, Any]]) -> list[tuple[str, list[tuple[str, str]]]]:
+def deserialize_pass_definitions(
+    payload: list[dict[str, Any]],
+) -> list[tuple[str, list[tuple[str, str]]]]:
     """Convert JSON-safe pass definitions into the tuple form expected by clients."""
 
     deserialized: list[tuple[str, list[tuple[str, str]]]] = []
@@ -713,7 +750,7 @@ def create_batch_client(
     model: str,
     reasoning_effort: str | None,
     batch_dir: Path,
-):
+) -> BatchClientProtocol:
     """Create a provider-specific batch client bound to one state directory."""
 
     if provider == "openai":
@@ -910,7 +947,24 @@ def _paper_from_index_dict(paper_id: str, paper_dict: dict[str, Any]) -> PaperMe
         source_path=paper_dict.get("source_path"),
         source_attachment_key=paper_dict.get("source_attachment_key"),
         source_media_type=paper_dict.get("source_media_type"),
-        date_added=paper_dict.get("date_added") or "2020-01-01T00:00:00",
-        date_modified=paper_dict.get("date_modified") or "2020-01-01T00:00:00",
+        date_added=_coerce_index_datetime(paper_dict.get("date_added")),
+        date_modified=_coerce_index_datetime(paper_dict.get("date_modified")),
         indexed_at=paper_dict.get("indexed_at"),
     )
+
+
+def _coerce_index_datetime(value: Any) -> datetime:
+    """Parse timestamp fields from papers.json into datetimes."""
+
+    if isinstance(value, datetime):
+        return value
+
+    raw_value = str(value or _DEFAULT_INDEX_TIMESTAMP).strip()
+    normalized = raw_value.replace("Z", "+00:00")
+    if " " in normalized and "T" not in normalized:
+        normalized = normalized.replace(" ", "T", 1)
+
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return datetime.fromisoformat(_DEFAULT_INDEX_TIMESTAMP)

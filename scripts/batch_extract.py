@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from logging import Logger
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ sys.path.insert(0, str(project_root))
 
 from src.config import Config
 from src.indexing.semantic_jobs import (
+    SemanticBatchPlan,
     collect_semantic_batch,
     get_semantic_batch_status,
     list_pending_semantic_batches,
@@ -35,7 +37,7 @@ def _emit_payload(payload: dict[str, Any]) -> None:
     print(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False).strip())
 
 
-def _build_plan(args: argparse.Namespace, config: Config):
+def _build_plan(args: argparse.Namespace, config: Config) -> SemanticBatchPlan:
     provider = args.provider or config.extraction.provider
     if args.model:
         config.extraction.model = args.model
@@ -53,7 +55,7 @@ def _build_plan(args: argparse.Namespace, config: Config):
     )
 
 
-def cmd_estimate(args: argparse.Namespace, config: Config, logger) -> int:
+def cmd_estimate(args: argparse.Namespace, config: Config, logger: Logger) -> int:
     plan = _build_plan(args, config)
     _emit_payload(
         {
@@ -71,7 +73,7 @@ def cmd_estimate(args: argparse.Namespace, config: Config, logger) -> int:
     return 0
 
 
-def cmd_submit(args: argparse.Namespace, config: Config, logger) -> int:
+def cmd_submit(args: argparse.Namespace, config: Config, logger: Logger) -> int:
     plan = _build_plan(args, config)
     if args.dry_run:
         _emit_payload(plan.to_dict())
@@ -92,7 +94,7 @@ def cmd_submit(args: argparse.Namespace, config: Config, logger) -> int:
     return 0
 
 
-def cmd_status(args: argparse.Namespace, config: Config, logger) -> int:
+def cmd_status(args: argparse.Namespace, config: Config, logger: Logger) -> int:
     manifest, status = get_semantic_batch_status(
         index_dir=args.index_dir,
         batch_id=args.batch_id,
@@ -112,7 +114,7 @@ def cmd_status(args: argparse.Namespace, config: Config, logger) -> int:
     return 0
 
 
-def cmd_wait(args: argparse.Namespace, config: Config, logger) -> int:
+def cmd_wait(args: argparse.Namespace, config: Config, logger: Logger) -> int:
     manifest, status = wait_for_semantic_batch(
         index_dir=args.index_dir,
         batch_id=args.batch_id,
@@ -138,7 +140,7 @@ def cmd_wait(args: argparse.Namespace, config: Config, logger) -> int:
     return 0
 
 
-def cmd_collect(args: argparse.Namespace, config: Config, logger) -> int:
+def cmd_collect(args: argparse.Namespace, config: Config, logger: Logger) -> int:
     _emit_payload(
         collect_semantic_batch(
             index_dir=args.index_dir,
@@ -150,7 +152,7 @@ def cmd_collect(args: argparse.Namespace, config: Config, logger) -> int:
     return 0
 
 
-def cmd_pending(args: argparse.Namespace, config: Config, logger) -> int:
+def cmd_pending(args: argparse.Namespace, config: Config, logger: Logger) -> int:
     _emit_payload(
         {
             "index_dir": str(args.index_dir),

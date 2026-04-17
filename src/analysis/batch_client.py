@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any, cast
 
 from anthropic import Anthropic
 
@@ -176,7 +177,7 @@ class BatchExtractionClient:
             raise ValueError("No requests to submit")
 
         # Build the batch request format
-        batch_requests = []
+        batch_requests: list[dict[str, Any]] = []
         for req in requests:
             batch_requests.append(
                 {
@@ -193,7 +194,7 @@ class BatchExtractionClient:
         logger.info(f"Submitting batch with {len(batch_requests)} requests...")
 
         # Create the batch
-        response = self.client.messages.batches.create(requests=batch_requests)
+        response = self.client.messages.batches.create(requests=cast(Any, batch_requests))
 
         batch_id = response.id
         logger.info(f"Batch submitted: {batch_id}")
@@ -318,7 +319,9 @@ class BatchExtractionClient:
             if result.result.type == "succeeded":
                 try:
                     message = result.result.message
-                    response_text = message.content[0].text
+                    response_text = getattr(message.content[0], "text", None)
+                    if not isinstance(response_text, str):
+                        raise ValueError("Anthropic batch response did not include a text block")
                     pass_data = self._parse_pass_response(response_text)
 
                     # Get expected fields for this pass
@@ -410,7 +413,11 @@ class BatchExtractionClient:
         if not text:
             raise ValueError("Cannot parse empty response from LLM")
 
-        data = json.loads(text)
+        raw_data = json.loads(text)
+        if not isinstance(raw_data, dict):
+            raise ValueError("Pass response must decode to a JSON object")
+
+        data = {str(key): None if value is None else str(value) for key, value in raw_data.items()}
 
         # Validate that we got q-field keys
         has_q_fields = any(k.startswith("q") and k[1:3].isdigit() for k in data)
@@ -554,19 +561,20 @@ def _build_extraction(
     """Build an extraction object from pass answers."""
 
     if profile is None:
-        analysis = SemanticAnalysis(
-            paper_id=paper_id,
-            prompt_version=prompt_version,
-            extraction_model=model,
-            extracted_at=datetime.now().isoformat(),
-            **answers,
-        )
+        analysis_payload: dict[str, Any] = {
+            "paper_id": paper_id,
+            "prompt_version": prompt_version,
+            "extraction_model": model,
+            "extracted_at": datetime.now().isoformat(),
+        }
+        analysis_payload.update(answers)
+        analysis = SemanticAnalysis.model_validate(analysis_payload)
         coverage_result = score_coverage(analysis)
         analysis.dimension_coverage = coverage_result.coverage
         analysis.coverage_flags = coverage_result.flags
         return analysis
 
-    dimensions = {dimension.id: None for dimension in profile.dimensions}
+    dimensions: dict[str, str | None] = {dimension.id: None for dimension in profile.dimensions}
     for field_name, value in answers.items():
         canonical_id = field_to_dimension.get(field_name)
         if canonical_id:

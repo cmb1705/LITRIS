@@ -6,12 +6,13 @@ from __future__ import annotations
 import argparse
 import inspect
 import json
+import logging
 import re
 import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 import yaml
 
@@ -27,7 +28,7 @@ from src.analysis.dimensions import (
     get_dimension_map,
     load_dimension_profile,
 )
-from src.analysis.llm_factory import create_llm_client
+from src.analysis.llm_factory import Provider, create_llm_client
 from src.analysis.schemas import DimensionedExtraction, SemanticAnalysis
 from src.config import Config
 from src.indexing.orchestrator import (
@@ -69,6 +70,10 @@ PROPOSALS_FILENAME = "dimension_proposals.json"
 MIGRATED_EXTRACTION_SCHEMA_VERSION = "2.0.0"
 BACKFILL_CHECKPOINT_ROOT = ".dimension_backfill"
 BACKFILL_STAGED_EXTRACTIONS_FILENAME = "semantic_analyses.backfill.json"
+_DEFAULT_INDEX_TIMESTAMP = "2020-01-01T00:00:00"
+SuggestionMode = Literal["api", "cli"]
+ExtractionRecord = dict[str, Any]
+ExtractionRecordMap = dict[str, ExtractionRecord]
 
 SUGGESTION_HEURISTICS = [
     {
@@ -166,20 +171,22 @@ def _truncate_text(value: str | None, max_chars: int = 480) -> str:
 def _resolve_llm_runtime(
     args: argparse.Namespace,
     config: Config,
-) -> tuple[str, str, str]:
+) -> tuple[Provider, SuggestionMode, str]:
     """Resolve provider, mode, and model for semantic suggestion generation."""
 
-    provider = getattr(args, "provider", None) or config.extraction.provider
+    provider = _coerce_provider(getattr(args, "provider", None) or config.extraction.provider)
     provider_settings = config.extraction.get_provider_settings(provider)
-    mode = getattr(args, "mode", None) or provider_settings.mode or config.extraction.mode
-    model = getattr(args, "model", None) or provider_settings.model or config.extraction.model
+    mode = _coerce_suggestion_mode(
+        getattr(args, "mode", None) or provider_settings.mode or config.extraction.mode
+    )
+    model = str(getattr(args, "model", None) or provider_settings.model or config.extraction.model)
     return provider, mode, model
 
 
 def _call_raw_llm_prompt(
     prompt: str,
-    provider: str,
-    mode: str,
+    provider: Provider,
+    mode: SuggestionMode,
     model: str,
 ) -> str:
     """Execute a raw prompt against an LLM client and return response text."""
@@ -974,7 +981,7 @@ def _emit_payload(payload: dict[str, Any], output: Path | None = None) -> None:
 
 
 def _paper_from_index_dict(paper_id: str, paper_dict: dict[str, Any]) -> PaperMetadata:
-    authors = []
+    authors: list[Author] = []
     for author_data in paper_dict.get("authors", []):
         if isinstance(author_data, dict):
             authors.append(Author(**author_data))
@@ -995,9 +1002,55 @@ def _paper_from_index_dict(paper_id: str, paper_dict: dict[str, Any]) -> PaperMe
         tags=paper_dict.get("tags", []),
         pdf_path=paper_dict.get("pdf_path"),
         pdf_attachment_key=paper_dict.get("pdf_attachment_key"),
-        date_added=paper_dict.get("date_added") or "2020-01-01T00:00:00",
-        date_modified=paper_dict.get("date_modified") or "2020-01-01T00:00:00",
+        date_added=_coerce_index_datetime(paper_dict.get("date_added")),
+        date_modified=_coerce_index_datetime(paper_dict.get("date_modified")),
     )
+
+
+def _coerce_provider(value: str) -> Provider:
+    """Validate an operator/provider string against the supported client set."""
+
+    if value not in {"anthropic", "openai", "google", "ollama", "llamacpp"}:
+        raise ValueError(f"Unsupported provider for suggestion analysis: {value}")
+    return cast(Provider, value)
+
+
+def _coerce_suggestion_mode(value: str) -> SuggestionMode:
+    """Validate suggestion mode against the synchronous raw-prompt code path."""
+
+    if value not in {"api", "cli"}:
+        raise ValueError("Suggestion analysis only supports api or cli mode")
+    return cast(SuggestionMode, value)
+
+
+def _coerce_extraction_record_map(raw: Any) -> ExtractionRecordMap:
+    """Normalize arbitrary JSON payloads into the extraction-record map shape."""
+
+    if not isinstance(raw, dict):
+        raise ValueError("Extraction payload must be a JSON object")
+
+    record_map: ExtractionRecordMap = {}
+    for paper_id, record in raw.items():
+        if isinstance(record, dict):
+            record_map[str(paper_id)] = dict(record)
+    return record_map
+
+
+def _coerce_index_datetime(value: Any) -> datetime:
+    """Parse stored index timestamps into datetimes for PaperMetadata reconstruction."""
+
+    if isinstance(value, datetime):
+        return value
+
+    raw_value = str(value or _DEFAULT_INDEX_TIMESTAMP).strip()
+    normalized = raw_value.replace("Z", "+00:00")
+    if " " in normalized and "T" not in normalized:
+        normalized = normalized.replace(" ", "T", 1)
+
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return datetime.fromisoformat(_DEFAULT_INDEX_TIMESTAMP)
 
 
 def _resolve_profile_reference(reference: str | None, index_dir: Path) -> DimensionProfile:
@@ -1033,12 +1086,12 @@ def _make_backup(path: Path, backup_dir: Path | None = None) -> Path:
     return backup_path
 
 
-def _load_extractions_payload(index_dir: Path) -> tuple[dict[str, Any], dict[str, dict]]:
+def _load_extractions_payload(index_dir: Path) -> tuple[dict[str, Any], ExtractionRecordMap]:
     raw_data = safe_read_json(index_dir / "semantic_analyses.json", default={})
     if isinstance(raw_data, dict) and "extractions" in raw_data:
-        return raw_data, raw_data.get("extractions", {})
+        return raw_data, _coerce_extraction_record_map(raw_data.get("extractions", {}))
     if isinstance(raw_data, dict):
-        return {}, raw_data
+        return {}, _coerce_extraction_record_map(raw_data)
     raise ValueError("Unsupported semantic_analyses.json structure")
 
 
@@ -1055,18 +1108,20 @@ def _staged_backfill_extractions_path(checkpoint_dir: Path) -> Path:
     return checkpoint_dir / BACKFILL_STAGED_EXTRACTIONS_FILENAME
 
 
-def _load_staged_backfill_extractions(checkpoint_dir: Path) -> dict[str, dict]:
+def _load_staged_backfill_extractions(checkpoint_dir: Path) -> ExtractionRecordMap:
     """Load staged extraction updates from a backfill checkpoint."""
 
-    return safe_read_json(
-        _staged_backfill_extractions_path(checkpoint_dir),
-        default={},
+    return _coerce_extraction_record_map(
+        safe_read_json(
+            _staged_backfill_extractions_path(checkpoint_dir),
+            default={},
+        )
     )
 
 
 def _save_staged_backfill_extractions(
     checkpoint_dir: Path,
-    staged_extractions: dict[str, dict],
+    staged_extractions: ExtractionRecordMap,
 ) -> None:
     """Persist staged extraction updates for a resumable backfill."""
 
@@ -1232,7 +1287,7 @@ def _update_manifest_profile_snapshot(
     manifest.save(manifest_path)
 
 
-def migrate_store(args: argparse.Namespace, logger) -> int:
+def migrate_store(args: argparse.Namespace, logger: logging.Logger) -> int:
     """Rewrite extraction storage into canonical dimension-map form."""
 
     store = StructuredStore(args.index_dir)
@@ -1481,7 +1536,11 @@ def suggest_dimensions(args: argparse.Namespace, config: Config) -> int:
     return 0
 
 
-def semantic_batch_command(args: argparse.Namespace, config: Config, logger) -> int:
+def semantic_batch_command(
+    args: argparse.Namespace,
+    config: Config,
+    logger: logging.Logger,
+) -> int:
     """Handle semantic batch planning, submission, and collection."""
 
     provider = getattr(args, "provider", None) or config.extraction.provider
@@ -1633,7 +1692,11 @@ def semantic_batch_command(args: argparse.Namespace, config: Config, logger) -> 
     raise ValueError(f"Unsupported batch command: {args.batch_command}")
 
 
-def retry_dimensions(args: argparse.Namespace, config: Config, logger) -> int:
+def retry_dimensions(
+    args: argparse.Namespace,
+    config: Config,
+    logger: logging.Logger,
+) -> int:
     """Retry semantic extraction for explicit papers using stored snapshots."""
 
     if not args.paper:
@@ -1736,7 +1799,11 @@ def approve_dimensions(args: argparse.Namespace) -> int:
     return 0
 
 
-def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int:
+def backfill_dimensions(
+    args: argparse.Namespace,
+    config: Config,
+    logger: logging.Logger,
+) -> int:
     """Backfill an index against a new profile by re-extracting targeted papers."""
 
     target_profile = _apply_dimension_profile_override(config, args.dimension_profile)
@@ -1749,18 +1816,19 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
     diff = registry.diff_profiles(old_profile.profile_id, target_profile.profile_id)
     changed_sections = sorted(
         {
-            entry.new_section or entry.old_section
+            section
             for entry in diff.entries
+            for section in [entry.new_section or entry.old_section]
             if entry.status in {"added", "reworded", "replaced", "disabled"}
-            and (entry.new_section or entry.old_section)
+            and isinstance(section, str)
         }
     )
     reextract_sections = sorted(
         {
-            entry.new_section or entry.old_section
+            section
             for entry in diff.entries
-            if entry.status in {"added", "reworded", "replaced"}
-            and (entry.new_section or entry.old_section)
+            for section in [entry.new_section or entry.old_section]
+            if entry.status in {"added", "reworded", "replaced"} and isinstance(section, str)
         }
     )
     disable_only = bool(diff.entries) and not reextract_sections
@@ -1828,7 +1896,7 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
         )
 
     staged_extractions = _load_staged_backfill_extractions(checkpoint_dir)
-    updated_extractions = dict(extractions)
+    updated_extractions: ExtractionRecordMap = dict(extractions)
     updated_extractions.update(staged_extractions)
     requested_target_ids = list(target_ids)
 
@@ -1938,11 +2006,11 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
                             error=Exception("; ".join(result.pass_errors)),
                         )
                     else:
-                        existing_record = updated_extractions.get(
+                        current_record = updated_extractions.get(
                             result.paper_id,
                             {"paper_id": result.paper_id},
                         )
-                        old_extraction = DimensionedExtraction.from_record(existing_record)
+                        old_extraction = DimensionedExtraction.from_record(current_record)
                         new_extraction = DimensionedExtraction.from_record(result.extraction)
                         merged = _merge_reextracted_dimensions(
                             old_extraction=old_extraction,
@@ -1951,7 +2019,7 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
                             section_ids=reextract_sections,
                         )
                         updated_extractions[result.paper_id] = {
-                            **existing_record,
+                            **current_record,
                             "paper_id": result.paper_id,
                             "extraction": merged.to_index_dict(),
                             "timestamp": result.timestamp.isoformat(),
@@ -2001,7 +2069,7 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
         return 0
 
     for paper_id in requested_target_ids:
-        existing_record = updated_extractions.get(paper_id)
+        existing_record: ExtractionRecord | None = updated_extractions.get(paper_id)
         if not existing_record:
             continue
         extraction = DimensionedExtraction.from_record(existing_record)
@@ -2018,21 +2086,28 @@ def backfill_dimensions(args: argparse.Namespace, config: Config, logger) -> int
             for paper_id in requested_target_ids
             if paper_id in updated_extractions
         ]
-        scoped_extractions = {
+        scoped_extractions: ExtractionRecordMap = {
             paper_id: record
             for paper_id, record in updated_extractions.items()
             if paper_id in {paper.paper_id for paper in scoped_papers}
         }
+        scoped_semantic_analyses = {
+            paper_id: SemanticAnalysis.model_validate(record.get("extraction", record))
+            for paper_id, record in scoped_extractions.items()
+        }
         raptor_summaries = generate_scoped_raptor_summaries(
             papers=scoped_papers,
-            extractions=scoped_extractions,
+            extractions=scoped_semantic_analyses,
             index_dir=args.index_dir,
             mode="template",
             force=True,
         )
+        embedding_extractions: dict[str, dict[str, Any] | SemanticAnalysis] = dict(
+            updated_extractions
+        )
         run_embedding_generation(
             papers=scoped_papers,
-            extractions=updated_extractions,
+            extractions=embedding_extractions,
             index_dir=args.index_dir,
             embedding_model=config.embeddings.model,
             rebuild=False,

@@ -16,6 +16,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from src.analysis.constants import DEFAULT_MODELS, OPENAI_PRICING
 from src.analysis.coverage import score_coverage, score_dimension_values
@@ -626,7 +627,11 @@ class OpenAIBatchClient:
         if not text:
             raise ValueError("Cannot parse empty response from LLM")
 
-        data = json.loads(text)
+        raw_data = json.loads(text)
+        if not isinstance(raw_data, dict):
+            raise ValueError("Pass response must decode to a JSON object")
+
+        data = {str(key): None if value is None else str(value) for key, value in raw_data.items()}
 
         has_q_fields = any(k.startswith("q") and k[1:3].isdigit() for k in data)
         if not has_q_fields:
@@ -744,19 +749,20 @@ def _build_extraction(
     """Build an extraction object from pass answers."""
 
     if profile is None:
-        analysis = SemanticAnalysis(
-            paper_id=paper_id,
-            prompt_version=prompt_version,
-            extraction_model=model,
-            extracted_at=datetime.now().isoformat(),
-            **answers,
-        )
+        analysis_payload: dict[str, Any] = {
+            "paper_id": paper_id,
+            "prompt_version": prompt_version,
+            "extraction_model": model,
+            "extracted_at": datetime.now().isoformat(),
+        }
+        analysis_payload.update(answers)
+        analysis = SemanticAnalysis.model_validate(analysis_payload)
         coverage_result = score_coverage(analysis)
         analysis.dimension_coverage = coverage_result.coverage
         analysis.coverage_flags = coverage_result.flags
         return analysis
 
-    dimensions = {dimension.id: None for dimension in profile.dimensions}
+    dimensions: dict[str, str | None] = {dimension.id: None for dimension in profile.dimensions}
     for field_name, value in answers.items():
         canonical_id = field_to_dimension.get(field_name)
         if canonical_id:
