@@ -236,12 +236,14 @@ def run_clustering(
         else:
             titles = members[:5]
 
-        clusters.append(TopicCluster(
-            cluster_id=cluster_id,
-            paper_ids=members,
-            size=len(members),
-            representative_titles=titles,
-        ))
+        clusters.append(
+            TopicCluster(
+                cluster_id=cluster_id,
+                paper_ids=members,
+                size=len(members),
+                representative_titles=titles,
+            )
+        )
 
     n_noise = len(cluster_members.get(-1, []))
 

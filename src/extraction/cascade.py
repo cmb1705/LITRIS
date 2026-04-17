@@ -130,9 +130,7 @@ class ExtractionCascade:
             or opendataloader_hybrid_fallback
             or opendataloader_hybrid is not None
         ):
-            requested_hybrid = opendataloader_hybrid or OpenDataLoaderHybridConfig(
-                enabled=True
-            )
+            requested_hybrid = opendataloader_hybrid or OpenDataLoaderHybridConfig(enabled=True)
             self.opendataloader_hybrid = opendataloader_extractor.ensure_hybrid_server(
                 requested_hybrid
             )
@@ -200,9 +198,7 @@ class ExtractionCascade:
                         tier_errors=tier_errors,
                     )
                 else:
-                    logger.debug(
-                        f"Companion file {companion_path.name} has insufficient text"
-                    )
+                    logger.debug(f"Companion file {companion_path.name} has insufficient text")
             except OSError as e:
                 logger.warning(f"Failed to read companion file: {e}")
 
@@ -210,7 +206,9 @@ class ExtractionCascade:
         arxiv_id = None
         if self.enable_arxiv:
             arxiv_id = arxiv_extractor.detect_arxiv_id(
-                doi=doi, url=url, pdf_path=pdf_path,
+                doi=doi,
+                url=url,
+                pdf_path=pdf_path,
             )
             if arxiv_id:
                 logger.info(f"Detected arXiv paper: {arxiv_id}")
@@ -347,11 +345,8 @@ class ExtractionCascade:
 
         diagnostics = ""
         if tier_errors:
-            diagnostics = (
-                " Diagnostics: "
-                + "; ".join(
-                    f"{tier}={error}" for tier, error in sorted(tier_errors.items())
-                )
+            diagnostics = " Diagnostics: " + "; ".join(
+                f"{tier}={error}" for tier, error in sorted(tier_errors.items())
             )
         raise PDFExtractionError(
             f"All extraction tiers failed for {pdf_path.name}. "
@@ -365,8 +360,7 @@ class ExtractionCascade:
 
         lowered = text.lower()
         wants_formula = (
-            self.opendataloader_hybrid.enrich_formula
-            and FORMULA_SIGNAL.search(lowered) is not None
+            self.opendataloader_hybrid.enrich_formula and FORMULA_SIGNAL.search(lowered) is not None
         )
         wants_picture = (
             self.opendataloader_hybrid.enrich_picture_description

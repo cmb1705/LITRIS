@@ -74,9 +74,7 @@ def test_adapter() -> bool:
         papers_passed = len(papers) == 3
 
         paper = papers[0] if papers else None
-        title_passed = (
-            paper is not None and paper.title == "Test Paper Title from Paperpile"
-        )
+        title_passed = paper is not None and paper.title == "Test Paper Title from Paperpile"
         print(f"  Title parsed: {'PASS' if title_passed else 'FAIL'}")
 
         author_passed = paper and len(paper.authors) == 2
@@ -103,9 +101,7 @@ def test_adapter() -> bool:
         print(f"  Collections parsed: {'PASS' if conf_collections_passed else 'FAIL'}")
 
         by_key = adapter.get_paper_by_key("Smith2022Testing")
-        key_passed = (
-            by_key is not None and by_key.title == "Test Paper Title from Paperpile"
-        )
+        key_passed = by_key is not None and by_key.title == "Test Paper Title from Paperpile"
         print(f"  Get by citation key: {'PASS' if key_passed else 'FAIL'}")
 
         by_prefixed_key = adapter.get_paper_by_key("paperpile_Smith2022Testing")

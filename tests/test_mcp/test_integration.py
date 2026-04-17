@@ -116,7 +116,9 @@ class TestErrorCases:
 class TestToolWorkflows:
     """Integration tests for multi-tool workflows."""
 
-    def test_search_then_get_paper_workflow(self, mock_search_engine, sample_paper_data, sample_extraction_data):
+    def test_search_then_get_paper_workflow(
+        self, mock_search_engine, sample_paper_data, sample_extraction_data
+    ):
         """Search followed by get_paper retrieves full details."""
         # Setup mock for search
         mock_result = MagicMock()

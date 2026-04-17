@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run pytest on test files that were directly edited."""
+
 import os
 import re
 import subprocess

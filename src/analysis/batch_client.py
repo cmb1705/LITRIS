@@ -27,6 +27,7 @@ logger = get_logger(__name__)
 
 CUSTOM_ID_PASS_SEPARATOR = "__pass"
 
+
 @dataclass
 class BatchRequest:
     """A single request in a batch."""
@@ -173,15 +174,17 @@ class BatchExtractionClient:
         # Build the batch request format
         batch_requests = []
         for req in requests:
-            batch_requests.append({
-                "custom_id": req.custom_id,
-                "params": {
-                    "model": self.model,
-                    "max_tokens": self.max_tokens,
-                    "system": SEMANTIC_SYSTEM_PROMPT,
-                    "messages": [{"role": "user", "content": req.prompt}],
-                },
-            })
+            batch_requests.append(
+                {
+                    "custom_id": req.custom_id,
+                    "params": {
+                        "model": self.model,
+                        "max_tokens": self.max_tokens,
+                        "system": SEMANTIC_SYSTEM_PROMPT,
+                        "messages": [{"role": "user", "content": req.prompt}],
+                    },
+                }
+            )
 
         logger.info(f"Submitting batch with {len(batch_requests)} requests...")
 
@@ -257,9 +260,7 @@ class BatchExtractionClient:
 
             elapsed = time.time() - start_time
             if elapsed > max_wait:
-                raise TimeoutError(
-                    f"Batch {batch_id} did not complete within {max_wait}s"
-                )
+                raise TimeoutError(f"Batch {batch_id} did not complete within {max_wait}s")
 
             logger.info(
                 f"Batch {batch_id}: {status.completed_requests}/{status.total_requests} "
@@ -279,9 +280,7 @@ class BatchExtractionClient:
             ExtractionResult for each paper.
         """
         # Collect all pass results grouped by paper_id
-        paper_results: dict[str, _PaperPassResults] = defaultdict(
-            _PaperPassResults
-        )
+        paper_results: dict[str, _PaperPassResults] = defaultdict(_PaperPassResults)
 
         for result in self.client.messages.batches.results(batch_id):
             custom_id = result.custom_id
@@ -320,12 +319,8 @@ class BatchExtractionClient:
                     acc.total_output_tokens += message.usage.output_tokens
 
                 except Exception as e:
-                    logger.error(
-                        f"Failed to parse pass {pass_num} for {paper_id}: {e}"
-                    )
-                    acc.errors.append(
-                        f"pass {pass_num}: parse error: {e}"
-                    )
+                    logger.error(f"Failed to parse pass {pass_num} for {paper_id}: {e}")
+                    acc.errors.append(f"pass {pass_num}: parse error: {e}")
             else:
                 error_msg = getattr(result.result, "error", {})
                 acc.errors.append(f"pass {pass_num}: {error_msg}")
@@ -337,8 +332,7 @@ class BatchExtractionClient:
                 yield ExtractionResult(
                     paper_id=paper_id,
                     success=False,
-                    error=f"All {num_passes} passes failed: "
-                    + "; ".join(acc.errors),
+                    error=f"All {num_passes} passes failed: " + "; ".join(acc.errors),
                     model_used=self.model,
                     input_tokens=acc.total_input_tokens,
                     output_tokens=acc.total_output_tokens,
@@ -412,8 +406,7 @@ class BatchExtractionClient:
         has_q_fields = any(k.startswith("q") and k[1:3].isdigit() for k in data)
         if not has_q_fields:
             logger.warning(
-                "Pass response does not contain q-field keys. "
-                "Got keys: %s",
+                "Pass response does not contain q-field keys. Got keys: %s",
                 list(data.keys()),
             )
 
@@ -422,11 +415,13 @@ class BatchExtractionClient:
     def _save_batch_state(self, batch_id: str, requests: list[BatchRequest]) -> None:
         """Save batch state to disk for recovery."""
         # Deduplicate paper_ids (each paper has 6 requests)
-        paper_ids = sorted({
-            parsed[0] if parsed else r.custom_id
-            for r in requests
-            for parsed in [self._parse_custom_id(r.custom_id)]
-        })
+        paper_ids = sorted(
+            {
+                parsed[0] if parsed else r.custom_id
+                for r in requests
+                for parsed in [self._parse_custom_id(r.custom_id)]
+            }
+        )
 
         state = {
             "batch_id": batch_id,

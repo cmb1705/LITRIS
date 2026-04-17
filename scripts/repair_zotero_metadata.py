@@ -78,43 +78,67 @@ def get_authorless_items(conn: sqlite3.Connection) -> list[dict]:
     cursor = conn.cursor()
 
     target_types = (
-        "journalArticle", "book", "bookSection", "report",
-        "document", "conferencePaper", "thesis", "preprint",
+        "journalArticle",
+        "book",
+        "bookSection",
+        "report",
+        "document",
+        "conferencePaper",
+        "thesis",
+        "preprint",
     )
     placeholders = ",".join("?" * len(target_types))
 
-    cursor.execute(f"""
+    cursor.execute(
+        f"""
         SELECT i.itemID, i.key, it.typeName, i.dateAdded
         FROM items i
         JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
         WHERE it.typeName IN ({placeholders})
         AND i.itemID NOT IN (SELECT itemID FROM deletedItems)
         AND i.itemID NOT IN (SELECT itemID FROM itemCreators)
-    """, target_types)
+    """,
+        target_types,
+    )
 
     items = []
     for item_id, key, item_type, date_added in cursor.fetchall():
         # Get current field values
         fields = {}
-        for field_name in ("title", "date", "abstractNote", "DOI", "publicationTitle",
-                           "volume", "issue", "pages", "url"):
+        for field_name in (
+            "title",
+            "date",
+            "abstractNote",
+            "DOI",
+            "publicationTitle",
+            "volume",
+            "issue",
+            "pages",
+            "url",
+        ):
             fid = cursor.execute(
                 "SELECT fieldID FROM fields WHERE fieldName = ?", (field_name,)
             ).fetchone()
             if fid:
-                row = cursor.execute("""
+                row = cursor.execute(
+                    """
                     SELECT idv.value FROM itemData id
                     JOIN itemDataValues idv ON id.valueID = idv.valueID
                     WHERE id.itemID = ? AND id.fieldID = ?
-                """, (item_id, fid[0])).fetchone()
+                """,
+                    (item_id, fid[0]),
+                ).fetchone()
                 fields[field_name] = row[0] if row else None
 
         # Get PDF attachment path
-        pdf_row = cursor.execute("""
+        pdf_row = cursor.execute(
+            """
             SELECT i2.key, ia.path FROM itemAttachments ia
             JOIN items i2 ON ia.itemID = i2.itemID
             WHERE ia.parentItemID = ? AND ia.contentType = 'application/pdf'
-        """, (item_id,)).fetchone()
+        """,
+            (item_id,),
+        ).fetchone()
 
         pdf_path = None
         if pdf_row:
@@ -122,14 +146,16 @@ def get_authorless_items(conn: sqlite3.Connection) -> list[dict]:
             if att_path and att_path.startswith("storage:"):
                 pdf_path = ZOTERO_STORAGE / att_key / att_path[8:]
 
-        items.append({
-            "item_id": item_id,
-            "key": key,
-            "item_type": item_type,
-            "date_added": date_added,
-            "pdf_path": pdf_path,
-            **fields,
-        })
+        items.append(
+            {
+                "item_id": item_id,
+                "key": key,
+                "item_type": item_type,
+                "date_added": date_added,
+                "pdf_path": pdf_path,
+                **fields,
+            }
+        )
 
     return items
 
@@ -143,8 +169,13 @@ def classify_item(item: dict) -> str:
 
     # Category E: garbled/scanner titles
     garbled_patterns = [
-        r"^KMBT_", r"^214ps", r"^Scannable Document", r"^Scanned using",
-        r"^pdf$", r"^\d+$", r"^__$",
+        r"^KMBT_",
+        r"^214ps",
+        r"^Scannable Document",
+        r"^Scanned using",
+        r"^pdf$",
+        r"^\d+$",
+        r"^__$",
     ]
     for pat in garbled_patterns:
         if re.match(pat, title, re.I):
@@ -152,13 +183,30 @@ def classify_item(item: dict) -> str:
 
     # Category D: non-publications (coursework, drafts, personal docs)
     non_pub_patterns = [
-        r"^cc\d", r"^Activity \d", r"concept map", r"^DRAFT ",
-        r"PROGRESS REPORT", r"Template-", r"cheatsheet",
-        r"\.docx?$", r"\.pptx?$", r"\.jpg$", r"ACFT-Score",
-        r"ARTIFACT ARCHIVE", r"User Agreement", r"biosketch",
-        r"^annotated-", r"^bisht ", r"^moore ", r"Learning Outcomes",
-        r"CHECKLIST", r"Recruitment-Script", r"STAC ActionPlan",
-        r"Score-Cart", r"File Styles", r"Knitting Tips",
+        r"^cc\d",
+        r"^Activity \d",
+        r"concept map",
+        r"^DRAFT ",
+        r"PROGRESS REPORT",
+        r"Template-",
+        r"cheatsheet",
+        r"\.docx?$",
+        r"\.pptx?$",
+        r"\.jpg$",
+        r"ACFT-Score",
+        r"ARTIFACT ARCHIVE",
+        r"User Agreement",
+        r"biosketch",
+        r"^annotated-",
+        r"^bisht ",
+        r"^moore ",
+        r"Learning Outcomes",
+        r"CHECKLIST",
+        r"Recruitment-Script",
+        r"STAC ActionPlan",
+        r"Score-Cart",
+        r"File Styles",
+        r"Knitting Tips",
     ]
     for pat in non_pub_patterns:
         if re.search(pat, title, re.I):
@@ -166,10 +214,22 @@ def classify_item(item: dict) -> str:
 
     # Category C: government/policy reports (identifiable by org names)
     gov_patterns = [
-        r"GAO", r"ODNI", r"NCSC", r"FAA", r"Biden", r"White House",
-        r"National Strategy", r"CALL \d", r"Army", r"Defense",
-        r"Strategic Guidance", r"Threat Assessment", r"NAS Roadmap",
-        r"Rule Part 107", r"DOD", r"Emerging Tech.*Factsheet",
+        r"GAO",
+        r"ODNI",
+        r"NCSC",
+        r"FAA",
+        r"Biden",
+        r"White House",
+        r"National Strategy",
+        r"CALL \d",
+        r"Army",
+        r"Defense",
+        r"Strategic Guidance",
+        r"Threat Assessment",
+        r"NAS Roadmap",
+        r"Rule Part 107",
+        r"DOD",
+        r"Emerging Tech.*Factsheet",
     ]
     for pat in gov_patterns:
         if re.search(pat, title, re.I):
@@ -241,6 +301,7 @@ def extract_pdf_metadata(pdf_path: Path) -> dict | None:
 
     try:
         import fitz
+
         doc = fitz.open(str(pdf_path))
         meta = doc.metadata
         doc.close()
@@ -276,10 +337,12 @@ def _parse_crossref(data: dict) -> dict:
     # Authors
     authors = []
     for a in data.get("author", []):
-        authors.append({
-            "first": a.get("given", ""),
-            "last": a.get("family", ""),
-        })
+        authors.append(
+            {
+                "first": a.get("given", ""),
+                "last": a.get("family", ""),
+            }
+        )
     if authors:
         result["authors"] = authors
 
@@ -469,8 +532,7 @@ def _apply_metadata(fix: MetadataFix, metadata: dict, item: dict) -> None:
     if metadata.get("title"):
         # Only update title if current one looks garbled
         current = item.get("title", "")
-        if (current.endswith(".pdf") or re.match(r"^\d{4}\s", current)
-                or len(current) > 100):
+        if current.endswith(".pdf") or re.match(r"^\d{4}\s", current) or len(current) > 100:
             fix.new_title = metadata["title"]
 
 
@@ -492,7 +554,8 @@ def _parse_author_string(raw: str) -> list[dict]:
 
 
 def apply_fixes_to_db(
-    conn: sqlite3.Connection, fixes: list[MetadataFix],
+    conn: sqlite3.Connection,
+    fixes: list[MetadataFix],
 ) -> int:
     """Apply fixes to the Zotero database."""
     cursor = conn.cursor()
@@ -563,9 +626,7 @@ def apply_fixes_to_db(
                 if val_row:
                     val_id = val_row[0]
                 else:
-                    cursor.execute(
-                        "INSERT INTO itemDataValues (value) VALUES (?)", (value,)
-                    )
+                    cursor.execute("INSERT INTO itemDataValues (value) VALUES (?)", (value,))
                     val_id = cursor.lastrowid
 
                 # Upsert itemData
@@ -591,9 +652,9 @@ def print_report(fixes: list[MetadataFix]) -> None:
         by_cat[fix.category] = by_cat.get(fix.category, 0) + 1
         by_source[fix.source] = by_source.get(fix.source, 0) + 1
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Metadata Repair Report ({len(fixes)} items)")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"\nBy category: {by_cat}")
     print(f"By source: {by_source}")
 
@@ -610,7 +671,7 @@ def print_report(fixes: list[MetadataFix]) -> None:
         if fix.authors:
             author_str = "; ".join(f"{a['last']}, {a['first']}" for a in fix.authors[:3])
             if len(fix.authors) > 3:
-                author_str += f" +{len(fix.authors)-3} more"
+                author_str += f" +{len(fix.authors) - 3} more"
             changes.append(f"authors={author_str}")
         if fix.date:
             changes.append(f"date={fix.date}")
@@ -631,9 +692,7 @@ def print_report(fixes: list[MetadataFix]) -> None:
             print(f"    Current: {fix.current_title[:60]}")
             if changes:
                 # Sanitize for Windows console encoding
-                safe_changes = " | ".join(
-                    c.encode("ascii", "replace").decode() for c in changes
-                )
+                safe_changes = " | ".join(c.encode("ascii", "replace").decode() for c in changes)
                 print(f"    Fix: {safe_changes}")
             elif fix.notes:
                 print(f"    Note: {fix.notes}")
@@ -692,7 +751,8 @@ def main():
                     "doi": f.doi,
                     "title_changed": f.new_title is not None,
                 }
-                for f in fixes if f.confidence >= 0.5
+                for f in fixes
+                if f.confidence >= 0.5
             ],
         }
         report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")

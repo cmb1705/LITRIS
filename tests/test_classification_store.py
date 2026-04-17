@@ -9,6 +9,7 @@ import pytest
 from src.analysis.classification_store import (
     ClassificationIndex,
     ClassificationRecord,
+    SCHEMA_VERSION,
     ClassificationStore,
 )
 
@@ -62,7 +63,7 @@ class TestClassificationStoreIO:
     def test_load_returns_empty_when_no_file(self, store):
         index = store.load()
         assert index.papers == {}
-        assert index.schema_version == "1.0.0"
+        assert index.schema_version == SCHEMA_VERSION
 
     def test_save_and_load_roundtrip(self, store, sample_record):
         index = ClassificationIndex()
@@ -196,7 +197,10 @@ class TestClassificationStoreClassify:
         )
 
         record = store.classify_paper(
-            paper, text="Full text here", word_count=5000, page_count=20,
+            paper,
+            text="Full text here",
+            word_count=5000,
+            page_count=20,
         )
         assert record.document_type == "review_paper"
         assert record.tier == 2

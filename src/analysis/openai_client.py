@@ -87,6 +87,7 @@ class OpenAILLMClient(BaseLLMClient):
             # Lazy import to avoid requiring openai package if not used
             try:
                 from openai import OpenAI
+
                 self.client = OpenAI(api_key=api_key)
             except ImportError as e:
                 raise ImportError(
@@ -144,6 +145,7 @@ class OpenAILLMClient(BaseLLMClient):
 
         # Check common npm global bin locations
         import platform
+
         npm_paths = []
 
         if platform.system() == "Windows":
@@ -155,22 +157,27 @@ class OpenAILLMClient(BaseLLMClient):
             # Also check user profile
             userprofile = os.environ.get("USERPROFILE", "")
             if userprofile:
-                npm_paths.append(os.path.join(userprofile, "AppData", "Roaming", "npm", "codex.cmd"))
+                npm_paths.append(
+                    os.path.join(userprofile, "AppData", "Roaming", "npm", "codex.cmd")
+                )
         else:
             # Unix-like systems
             home = os.environ.get("HOME", "")
             if home:
-                npm_paths.extend([
-                    os.path.join(home, ".npm-global", "bin", "codex"),
-                    os.path.join(home, ".nvm", "versions", "node", "*", "bin", "codex"),
-                    "/usr/local/bin/codex",
-                    "/opt/homebrew/bin/codex",
-                ])
+                npm_paths.extend(
+                    [
+                        os.path.join(home, ".npm-global", "bin", "codex"),
+                        os.path.join(home, ".nvm", "versions", "node", "*", "bin", "codex"),
+                        "/usr/local/bin/codex",
+                        "/opt/homebrew/bin/codex",
+                    ]
+                )
 
         for path in npm_paths:
             if "*" in path:
                 # Handle glob patterns (for nvm)
                 import glob
+
                 matches = glob.glob(path)
                 for match in matches:
                     if os.path.isfile(match) and os.access(match, os.X_OK):
@@ -208,8 +215,7 @@ class OpenAILLMClient(BaseLLMClient):
             )
             if result.returncode != 0:
                 logger.warning(
-                    "Codex CLI may not be authenticated. "
-                    "Run 'codex login' to authenticate."
+                    "Codex CLI may not be authenticated. Run 'codex login' to authenticate."
                 )
             else:
                 logger.debug(f"Codex auth: {result.stdout.strip()}")
@@ -264,9 +270,7 @@ class OpenAILLMClient(BaseLLMClient):
             duration = time.time() - start_time
             confidence = getattr(extraction, "extraction_confidence", None)
             conf_str = f", confidence: {confidence:.2f}" if confidence else ""
-            logger.info(
-                f"Extracted paper {paper_id} in {duration:.1f}s{conf_str}"
-            )
+            logger.info(f"Extracted paper {paper_id} in {duration:.1f}s{conf_str}")
 
             return ExtractionResult(
                 paper_id=paper_id,
@@ -379,8 +383,10 @@ class OpenAILLMClient(BaseLLMClient):
             cmd = [
                 codex_cmd,
                 "exec",  # Non-interactive mode
-                "-m", self.model,  # Model selection
-                "-o", output_path,  # Output file for response
+                "-m",
+                self.model,  # Model selection
+                "-o",
+                output_path,  # Output file for response
                 "--skip-git-repo-check",  # Allow running outside git repo
                 "-",  # Read prompt from stdin
             ]
@@ -396,9 +402,7 @@ class OpenAILLMClient(BaseLLMClient):
             )
 
             if result.returncode != 0:
-                raise RuntimeError(
-                    f"Codex CLI failed (exit {result.returncode}): {result.stderr}"
-                )
+                raise RuntimeError(f"Codex CLI failed (exit {result.returncode}): {result.stderr}")
 
             # Read response from output file
             response_text = Path(output_path).read_text(encoding="utf-8").strip()
@@ -408,9 +412,7 @@ class OpenAILLMClient(BaseLLMClient):
             # Clean up temp file
             Path(output_path).unlink(missing_ok=True)
 
-    def _parse_response(
-        self, response_text: str
-    ) -> SemanticAnalysis:
+    def _parse_response(self, response_text: str) -> SemanticAnalysis:
         """Parse JSON response into SemanticAnalysis.
 
         Detects q-field keys (from 6-pass pipeline) and returns SemanticAnalysis.
@@ -444,7 +446,9 @@ class OpenAILLMClient(BaseLLMClient):
             # The caller (section_extractor._extract_6_pass) builds the final
             # SemanticAnalysis from merged answers; these placeholders are
             # only used by _extract_pass_answers via getattr.
-            profile_id = data.get("profile_id") or get_default_dimension_registry().active_profile_id
+            profile_id = (
+                data.get("profile_id") or get_default_dimension_registry().active_profile_id
+            )
             normalized_data = normalize_dimension_input_values(data, profile_id=profile_id)
             return SemanticAnalysis(
                 paper_id=normalized_data.get("paper_id", "pending"),
@@ -455,11 +459,7 @@ class OpenAILLMClient(BaseLLMClient):
                 extraction_model=normalized_data.get("extraction_model", self.model),
                 extracted_at=normalized_data.get("extracted_at", ""),
                 dimensions=normalize_dimension_payload(normalized_data, profile_id=profile_id),
-                **{
-                    k: v
-                    for k, v in normalized_data.items()
-                    if k not in EXTRACTION_METADATA_KEYS
-                },
+                **{k: v for k, v in normalized_data.items() if k not in EXTRACTION_METADATA_KEYS},
             )
 
         # Legacy single-pass: normalize GPT responses and adapt them into
@@ -689,9 +689,7 @@ class OpenAILLMClient(BaseLLMClient):
                 data["methodology"] = {}
             else:
                 methodology = data["methodology"]
-                methodology["data_sources"] = _coerce_str_list(
-                    methodology.get("data_sources")
-                )
+                methodology["data_sources"] = _coerce_str_list(methodology.get("data_sources"))
                 methodology["analysis_methods"] = _coerce_str_list(
                     methodology.get("analysis_methods")
                 )
@@ -714,9 +712,7 @@ class OpenAILLMClient(BaseLLMClient):
                                 break
                     if "finding" not in finding:
                         continue
-                    finding["significance"] = _normalize_significance(
-                        finding.get("significance")
-                    )
+                    finding["significance"] = _normalize_significance(finding.get("significance"))
                     finding["evidence_type"] = _normalize_evidence_type(
                         finding.get("evidence_type")
                     )
@@ -736,34 +732,31 @@ class OpenAILLMClient(BaseLLMClient):
                                 break
                     if "claim" not in claim:
                         continue
-                    claim["support_type"] = _normalize_support_type(
-                        claim.get("support_type")
-                    )
-                    claim["strength"] = _normalize_significance(
-                        claim.get("strength")
-                    )
+                    claim["support_type"] = _normalize_support_type(claim.get("support_type"))
+                    claim["strength"] = _normalize_significance(claim.get("strength"))
                     normalized_claims.append(claim)
             data["key_claims"] = normalized_claims
 
         # Handle nested methodology
         if "methodology" in data and isinstance(data["methodology"], dict):
             from src.analysis.schemas import Methodology
+
             data["methodology"] = Methodology(**data["methodology"])
 
         # Handle nested key_findings
         if "key_findings" in data and isinstance(data["key_findings"], list):
             from src.analysis.schemas import KeyFinding
+
             data["key_findings"] = [
-                KeyFinding(**f) if isinstance(f, dict) else f
-                for f in data["key_findings"]
+                KeyFinding(**f) if isinstance(f, dict) else f for f in data["key_findings"]
             ]
 
         # Handle nested key_claims
         if "key_claims" in data and isinstance(data["key_claims"], list):
             from src.analysis.schemas import KeyClaim
+
             data["key_claims"] = [
-                KeyClaim(**c) if isinstance(c, dict) else c
-                for c in data["key_claims"]
+                KeyClaim(**c) if isinstance(c, dict) else c for c in data["key_claims"]
             ]
 
         profile_id = data.get("profile_id") or get_default_dimension_registry().active_profile_id
@@ -799,5 +792,3 @@ class OpenAILLMClient(BaseLLMClient):
         output_cost = (output_tokens / 1_000_000) * output_cost_per_million
 
         return input_cost + output_cost
-
-

@@ -162,11 +162,11 @@ class PyzoteroBackend(ZoteroBackend):
         if self._zot is None:
             try:
                 from pyzotero import zotero
+
                 self._zot = zotero.Zotero(self.user_id, "user", self.api_key)
             except ImportError as err:
                 raise RuntimeError(
-                    "pyzotero is not installed. "
-                    "Install with: pip install pyzotero"
+                    "pyzotero is not installed. Install with: pip install pyzotero"
                 ) from err
         return self._zot
 
@@ -176,6 +176,7 @@ class PyzoteroBackend(ZoteroBackend):
             return False
         try:
             from pyzotero import zotero  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -193,11 +194,13 @@ class PyzoteroBackend(ZoteroBackend):
             template["creators"] = []
             for author in request.authors:
                 first_name, last_name = _parse_author_name(author)
-                template["creators"].append({
-                    "creatorType": "author",
-                    "firstName": first_name,
-                    "lastName": last_name,
-                })
+                template["creators"].append(
+                    {
+                        "creatorType": "author",
+                        "firstName": first_name,
+                        "lastName": last_name,
+                    }
+                )
 
             # Add metadata fields
             if request.doi:
@@ -238,17 +241,13 @@ class PyzoteroBackend(ZoteroBackend):
                             item_key,
                         )
                     except Exception as e:
-                        logger.warning(
-                            f"Item created but PDF attachment failed: {e}"
-                        )
+                        logger.warning(f"Item created but PDF attachment failed: {e}")
 
                 # Add to collection if specified
                 if request.collection_name:
                     self._add_to_collection(zot, item_key, request.collection_name)
 
-                logger.info(
-                    f"Created Zotero item via API: {item_key} - {request.title}"
-                )
+                logger.info(f"Created Zotero item via API: {item_key} - {request.title}")
                 return WriteResult(
                     success=True,
                     item_key=item_key,
@@ -321,6 +320,7 @@ class SqliteBackend(ZoteroBackend):
         """Lazy-load ParentItemCreator."""
         if self._creator is None:
             from src.zotero.parent_item_creator import ParentItemCreator
+
             self._creator = ParentItemCreator(self.db_path, dry_run=self.dry_run)
         return self._creator
 
@@ -494,6 +494,7 @@ class SqliteBackend(ZoteroBackend):
         try:
             # Create a unique storage subdirectory (mimics Zotero's key-based dirs)
             import hashlib
+
             hash_val = hashlib.sha256(str(pdf_path).encode()).hexdigest()[:8].upper()
             dest_dir = self.storage_path / hash_val
             dest_dir.mkdir(parents=True, exist_ok=True)
@@ -536,9 +537,7 @@ class ZoteroWriter:
                 self._api_backend = PyzoteroBackend(config.user_id, config.api_key)
 
         if config.write_method in ("auto", "sqlite"):
-            self._sqlite_backend = SqliteBackend(
-                config.database_path, config.storage_path
-            )
+            self._sqlite_backend = SqliteBackend(config.database_path, config.storage_path)
 
     def write_item(self, request: PaperWriteRequest) -> WriteResult:
         """Write a paper to Zotero using the best available backend.
@@ -555,8 +554,7 @@ class ZoteroWriter:
             if result.success:
                 return result
             logger.warning(
-                f"API write failed for '{request.title}': {result.error}. "
-                "Falling back to SQLite."
+                f"API write failed for '{request.title}': {result.error}. Falling back to SQLite."
             )
 
         # Fall back to SQLite
@@ -569,7 +567,7 @@ class ZoteroWriter:
             item_type=request.item_type,
             backend="none",
             error="No write backend available. Configure zotero.api_key + zotero.user_id "
-                  "for API writes, or ensure zotero.database_path points to a valid database.",
+            "for API writes, or ensure zotero.database_path points to a valid database.",
         )
 
     def write_batch(
@@ -591,9 +589,7 @@ class ZoteroWriter:
 
         succeeded = sum(1 for r in results if r.success)
         failed = sum(1 for r in results if not r.success)
-        logger.info(
-            f"Zotero write batch complete: {succeeded} succeeded, {failed} failed"
-        )
+        logger.info(f"Zotero write batch complete: {succeeded} succeeded, {failed} failed")
         return results
 
     def close(self) -> None:

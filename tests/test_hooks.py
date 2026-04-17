@@ -12,9 +12,7 @@ HOOKS_DIR = os.path.join(os.path.dirname(__file__), "..", "scripts", "hooks")
 def _ruff_available() -> bool:
     """Check if ruff is on PATH without crashing on FileNotFoundError."""
     try:
-        return subprocess.run(
-            ["ruff", "--version"], capture_output=True
-        ).returncode == 0
+        return subprocess.run(["ruff", "--version"], capture_output=True).returncode == 0
     except FileNotFoundError:
         return False
 
@@ -43,10 +41,13 @@ class TestZoteroGuard:
 
     def test_blocks_custom_zotero_path(self):
         """Custom ZOTERO_STORAGE_PATH is matched."""
-        assert self._run_guard(
-            "D:/MyLibrary/papers/file.pdf",
-            zotero_path="D:/MyLibrary",
-        ) == 1
+        assert (
+            self._run_guard(
+                "D:/MyLibrary/papers/file.pdf",
+                zotero_path="D:/MyLibrary",
+            )
+            == 1
+        )
 
     def test_allows_safe_path(self):
         """Non-Zotero paths pass (exit 0)."""

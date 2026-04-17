@@ -72,11 +72,13 @@ def get_orphan_pdfs(db_path: str, collection_id: int) -> list[dict]:
 
     orphans = []
     for row in cursor:
-        orphans.append({
-            "item_id": row["itemID"],
-            "key": row["key"],
-            "path": row["path"],
-        })
+        orphans.append(
+            {
+                "item_id": row["itemID"],
+                "key": row["key"],
+                "path": row["path"],
+            }
+        )
 
     conn.close()
     return orphans
@@ -129,13 +131,15 @@ def process_orphans(
     for i, orphan in enumerate(orphans):
         pdf_path = resolve_pdf_path(orphan, storage_path)
         if pdf_path is None:
-            results.append({
-                "orphan": orphan,
-                "pdf_path": None,
-                "extracted": None,
-                "enriched": None,
-                "status": "file_not_found",
-            })
+            results.append(
+                {
+                    "orphan": orphan,
+                    "pdf_path": None,
+                    "extracted": None,
+                    "enriched": None,
+                    "status": "file_not_found",
+                }
+            )
             continue
 
         # Extract metadata
@@ -157,13 +161,15 @@ def process_orphans(
         if enricher:
             enriched = enricher.enrich(extracted)
 
-        results.append({
-            "orphan": orphan,
-            "pdf_path": pdf_path,
-            "extracted": extracted,
-            "enriched": enriched,
-            "status": "processed",
-        })
+        results.append(
+            {
+                "orphan": orphan,
+                "pdf_path": pdf_path,
+                "extracted": extracted,
+                "enriched": enriched,
+                "status": "processed",
+            }
+        )
 
         # Progress
         if (i + 1) % 50 == 0:
@@ -181,19 +187,21 @@ def generate_report(results: list[dict], output_path: Path) -> None:
     """
     with open(output_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            "attachment_key",
-            "filename",
-            "status",
-            "extraction_source",
-            "extraction_confidence",
-            "enrichment_source",
-            "enrichment_confidence",
-            "doi",
-            "title",
-            "authors",
-            "year",
-        ])
+        writer.writerow(
+            [
+                "attachment_key",
+                "filename",
+                "status",
+                "extraction_source",
+                "extraction_confidence",
+                "enrichment_source",
+                "enrichment_confidence",
+                "doi",
+                "title",
+                "authors",
+                "year",
+            ]
+        )
 
         for result in results:
             orphan = result["orphan"]
@@ -231,19 +239,21 @@ def generate_report(results: list[dict], output_path: Path) -> None:
                 if enriched.best_year:
                     year = str(enriched.best_year)
 
-            writer.writerow([
-                orphan["key"],
-                filename[:100],
-                result["status"],
-                extraction_source,
-                extraction_confidence,
-                enrichment_source,
-                enrichment_confidence,
-                doi,
-                title[:200],
-                authors[:200],
-                year,
-            ])
+            writer.writerow(
+                [
+                    orphan["key"],
+                    filename[:100],
+                    result["status"],
+                    extraction_source,
+                    extraction_confidence,
+                    enrichment_source,
+                    enrichment_confidence,
+                    doi,
+                    title[:200],
+                    authors[:200],
+                    year,
+                ]
+            )
 
     logger.info(f"Report saved to {output_path}")
 
@@ -323,6 +333,7 @@ def create_parent_items(
             if enriched is None:
                 # Use extracted as base
                 from src.zotero.metadata_enricher import EnrichedMetadata
+
                 enriched = EnrichedMetadata(original=result["extracted"])
 
             created = creator.create_parent_item(
@@ -330,10 +341,12 @@ def create_parent_items(
                 collection_id=collection_id,
                 tag="auto-created",
             )
-            creation_results.append({
-                "orphan": result["orphan"],
-                "created": created,
-            })
+            creation_results.append(
+                {
+                    "orphan": result["orphan"],
+                    "created": created,
+                }
+            )
 
         if not dry_run:
             creator.commit()

@@ -120,9 +120,7 @@ class StructuredStore:
             else:
                 self._extractions_cache = extractions_list
         elif isinstance(data, list):
-            self._extractions_cache = {
-                e["paper_id"]: e for e in data if "paper_id" in e
-            }
+            self._extractions_cache = {e["paper_id"]: e for e in data if "paper_id" in e}
         else:
             self._extractions_cache = data
 
@@ -446,7 +444,7 @@ class StructuredStore:
             end = min(len(text), match.end() + context_chars)
             matches.append(
                 {
-                    "match_text": text[match.start():match.end()],
+                    "match_text": text[match.start() : match.end()],
                     "context": text[start:end],
                     "start_char": match.start(),
                     "end_char": match.end(),
@@ -463,11 +461,7 @@ class StructuredStore:
             "query": query,
             "match_count": len(matches),
             "matches": matches,
-            "fulltext_metadata": {
-                key: value
-                for key, value in snapshot.items()
-                if key != "text"
-            },
+            "fulltext_metadata": {key: value for key, value in snapshot.items() if key != "text"},
         }
 
     def get_paper(self, paper_id: str) -> dict | None:
@@ -555,9 +549,7 @@ class StructuredStore:
             if author_contains:
                 authors = paper.get("author_string", "") or ""
                 if isinstance(paper.get("authors"), list):
-                    authors = " ".join(
-                        a.get("full_name", "") for a in paper["authors"]
-                    )
+                    authors = " ".join(a.get("full_name", "") for a in paper["authors"])
                 if author_contains.lower() not in authors.lower():
                     continue
 
@@ -647,8 +639,7 @@ class StructuredStore:
             fulltext_stats = {
                 "snapshot_count": len(fulltext_manifest),
                 "total_characters": sum(
-                    int(entry.get("char_count", 0) or 0)
-                    for entry in fulltext_manifest.values()
+                    int(entry.get("char_count", 0) or 0) for entry in fulltext_manifest.values()
                 ),
                 "generated_at": safe_read_json(
                     self.fulltext_manifest_file,

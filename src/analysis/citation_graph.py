@@ -26,9 +26,30 @@ _MIN_TITLE_LENGTH = 15
 
 # Words that are too common to be meaningful in title matching
 _COMMON_TITLE_WORDS = {
-    "the", "and", "for", "from", "with", "that", "this", "are",
-    "was", "were", "been", "have", "has", "had", "not", "but",
-    "can", "will", "may", "use", "its", "our", "all", "new",
+    "the",
+    "and",
+    "for",
+    "from",
+    "with",
+    "that",
+    "this",
+    "are",
+    "was",
+    "were",
+    "been",
+    "have",
+    "has",
+    "had",
+    "not",
+    "but",
+    "can",
+    "will",
+    "may",
+    "use",
+    "its",
+    "our",
+    "all",
+    "new",
 }
 
 
@@ -101,11 +122,7 @@ def _extract_text_fields(extraction: dict) -> str:
 
     Concatenates all non-None q-fields into a single search string.
     """
-    parts = [
-        str(value)
-        for value in get_dimension_map(extraction).values()
-        if value
-    ]
+    parts = [str(value) for value in get_dimension_map(extraction).values() if value]
     return " ".join(parts)
 
 
@@ -321,7 +338,9 @@ def _deduplicate_papers(
 
     logger.info(
         "Deduplication: %d papers -> %d (%d duplicates merged)",
-        len(papers), len(result), len(redirect_map),
+        len(papers),
+        len(result),
+        len(redirect_map),
     )
     return result, redirect_map
 
@@ -347,19 +366,23 @@ def _redirect_edges(
             continue
         seen.add(key)
 
-        redirected.append(GraphEdge(
-            source=source,
-            target=target,
-            edge_type=edge.edge_type,
-            confidence=edge.confidence,
-            source_type=edge.source_type,
-            context=edge.context,
-        ))
+        redirected.append(
+            GraphEdge(
+                source=source,
+                target=target,
+                edge_type=edge.edge_type,
+                confidence=edge.confidence,
+                source_type=edge.source_type,
+                context=edge.context,
+            )
+        )
 
     return redirected
 
 
-def _build_title_index(papers: list[dict], min_title_length: int = _MIN_TITLE_LENGTH) -> dict[str, dict]:
+def _build_title_index(
+    papers: list[dict], min_title_length: int = _MIN_TITLE_LENGTH
+) -> dict[str, dict]:
     """Build a lookup of normalized title tokens to papers."""
     index: dict[str, dict] = {}
     for paper in papers:
@@ -567,7 +590,8 @@ def build_citation_graph(
         title = paper.get("title") or "Unknown"
         nodes[paper_id] = GraphNode(
             id=paper_id,
-            label=title[:config.max_label_length] + ("..." if len(title) > config.max_label_length else ""),
+            label=title[: config.max_label_length]
+            + ("..." if len(title) > config.max_label_length else ""),
             title=title,
             authors=paper.get("authors") or "",
             year=paper.get("publication_year"),
@@ -586,7 +610,7 @@ def build_citation_graph(
             nodes[parent_id] = GraphNode(
                 id=parent_id,
                 node_type="collection",
-                label=label[:config.max_label_length],
+                label=label[: config.max_label_length],
                 title=label,
                 in_library=False,
                 color="#8a6a3a",
@@ -599,14 +623,16 @@ def build_citation_graph(
             resolved_child = redirect_map.get(child_id, child_id)
             resolved_parent = redirect_map.get(parent_id, parent_id)
             if resolved_child != resolved_parent:
-                part_of_edges.append(GraphEdge(
-                    source=resolved_child,
-                    target=resolved_parent,
-                    edge_type="part_of",
-                    confidence=1.0,
-                    source_type="metadata_match",
-                    context=subtype,
-                ))
+                part_of_edges.append(
+                    GraphEdge(
+                        source=resolved_child,
+                        target=resolved_parent,
+                        edge_type="part_of",
+                        confidence=1.0,
+                        source_type="metadata_match",
+                        context=subtype,
+                    )
+                )
 
     # Find citation edges
     edges: list[GraphEdge] = []
@@ -618,12 +644,14 @@ def build_citation_graph(
         key = (source_id, target_id)
         if key not in edge_set:
             edge_set.add(key)
-            edges.append(GraphEdge(
-                source=source_id,
-                target=target_id,
-                confidence=confidence,
-                source_type="doi_match",
-            ))
+            edges.append(
+                GraphEdge(
+                    source=source_id,
+                    target=target_id,
+                    confidence=confidence,
+                    source_type="doi_match",
+                )
+            )
 
     # Reference-list-based matches (higher confidence than title matching)
     ref_matches = _find_reference_matches(
@@ -633,12 +661,14 @@ def build_citation_graph(
         key = (source_id, target_id)
         if key not in edge_set:
             edge_set.add(key)
-            edges.append(GraphEdge(
-                source=source_id,
-                target=target_id,
-                confidence=confidence,
-                source_type=source_type,
-            ))
+            edges.append(
+                GraphEdge(
+                    source=source_id,
+                    target=target_id,
+                    confidence=confidence,
+                    source_type=source_type,
+                )
+            )
 
     # Title-based matches
     for paper in filtered_papers:
@@ -650,20 +680,20 @@ def build_citation_graph(
         if not text.strip():
             continue
 
-        title_matches = _find_title_matches(
-            text, paper_id, title_index, config.fuzzy_threshold
-        )
+        title_matches = _find_title_matches(text, paper_id, title_index, config.fuzzy_threshold)
         for target_id, confidence, context in title_matches:
             key = (paper_id, target_id)
             if key not in edge_set:
                 edge_set.add(key)
-                edges.append(GraphEdge(
-                    source=paper_id,
-                    target=target_id,
-                    confidence=confidence,
-                    source_type="extraction",
-                    context=context,
-                ))
+                edges.append(
+                    GraphEdge(
+                        source=paper_id,
+                        target=target_id,
+                        confidence=confidence,
+                        source_type="extraction",
+                        context=context,
+                    )
+                )
 
     # Redirect edges for deduplicated papers
     if redirect_map:
@@ -693,10 +723,7 @@ def build_citation_graph(
             "papers_analyzed": len(filtered_papers),
             "duplicates_merged": len(redirect_map),
             "part_of_count": len(part_of_edges),
-            "extractions_used": sum(
-                1 for p in filtered_papers
-                if p.get("paper_id") in extractions
-            ),
+            "extractions_used": sum(1 for p in filtered_papers if p.get("paper_id") in extractions),
             "filters_applied": {
                 "collections": config.collections_filter,
                 "year_range": list(config.year_range) if config.year_range else None,
@@ -740,15 +767,13 @@ def _filter_papers(papers: list[dict], config: GraphConfig) -> list[dict]:
 
     if config.collections_filter:
         cols = set(config.collections_filter)
-        filtered = [
-            p for p in filtered
-            if cols & set(p.get("collections", []) or [])
-        ]
+        filtered = [p for p in filtered if cols & set(p.get("collections", []) or [])]
 
     if config.year_range:
         min_year, max_year = config.year_range
         filtered = [
-            p for p in filtered
+            p
+            for p in filtered
             if p.get("publication_year") and min_year <= p["publication_year"] <= max_year
         ]
 

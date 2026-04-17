@@ -274,6 +274,7 @@ class TestBibTeXAuthorParsing:
         bib_file.write_text("@article{test, title={Test}}", encoding="utf-8")
 
         from src.references.bibtex_adapter import BibTeXReferenceDB
+
         return BibTeXReferenceDB(bib_file)
 
     def test_single_author_last_first(self, bibtex_db):
@@ -316,6 +317,7 @@ class TestBibTeXLaTeXCleaning:
         bib_file.write_text("@article{test, title={Test}}", encoding="utf-8")
 
         from src.references.bibtex_adapter import BibTeXReferenceDB
+
         return BibTeXReferenceDB(bib_file)
 
     def test_clean_textbf(self, bibtex_db):
@@ -436,6 +438,7 @@ class TestPDFFolderFilenameParsing:
     def pdffolder_db(self, tmp_path):
         """Create minimal PDF folder database for testing."""
         from src.references.pdffolder_adapter import PDFFolderReferenceDB
+
         return PDFFolderReferenceDB(tmp_path)
 
     def test_author_dash_year_dash_title(self, pdffolder_db):
@@ -474,6 +477,7 @@ class TestPDFFolderAuthorParsing:
     def pdffolder_db(self, tmp_path):
         """Create minimal PDF folder database for testing."""
         from src.references.pdffolder_adapter import PDFFolderReferenceDB
+
         return PDFFolderReferenceDB(tmp_path)
 
     def test_last_comma_first(self, pdffolder_db):

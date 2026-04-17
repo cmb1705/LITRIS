@@ -89,9 +89,11 @@ def register_migration(target_version: str):
             config.setdefault("extraction", {}).setdefault("provider", "anthropic")
             return config
     """
+
     def decorator(func: Callable[[dict[str, Any]], dict[str, Any]]):
         _migrations[target_version] = func
         return func
+
     return decorator
 
 
@@ -206,6 +208,7 @@ def backup_config(config_path: Path) -> Path:
         counter += 1
 
     import shutil
+
     shutil.copy2(config_path, backup_path)
     logger.info(f"Config backup created: {backup_path}")
     return backup_path

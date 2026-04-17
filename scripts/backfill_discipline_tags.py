@@ -31,6 +31,7 @@ from src.analysis.cli_executor import ClaudeCliExecutor
 def log_info(msg: str) -> None:
     print(f"[INFO] {msg}")
 
+
 def log_warning(msg: str) -> None:
     print(f"[WARN] {msg}")
 
@@ -88,6 +89,7 @@ def extract_with_api(prompt: str, model: str) -> list[str] | None:
     except Exception as e:
         log_warning(f"API extraction failed: {e}")
         return None
+
 
 # Minimal prompt for discipline extraction only
 DISCIPLINE_EXTRACTION_PROMPT = """Analyze this academic paper and identify 2-5 academic disciplines it contributes to.

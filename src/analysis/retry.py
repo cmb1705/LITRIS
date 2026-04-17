@@ -107,6 +107,7 @@ def get_retry_after(error: Exception) -> float | None:
     if "retry after" in error_msg.lower():
         # Try to extract number from message
         import re
+
         match = re.search(r"retry after (\d+)", error_msg.lower())
         if match:
             return float(match.group(1))
@@ -138,6 +139,7 @@ def with_retry(
         def call_api(prompt: str) -> str:
             return api.call(prompt)
     """
+
     def decorator(func: Callable[P, R]) -> Callable[P, R]:
         @functools.wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
@@ -161,7 +163,7 @@ def with_retry(
                         raise
 
                     # Calculate delay with exponential backoff
-                    delay = min(retry_delay * (2 ** attempt), max_delay)
+                    delay = min(retry_delay * (2**attempt), max_delay)
 
                     # Check if error specifies retry-after
                     retry_after = get_retry_after(e)
@@ -170,6 +172,7 @@ def with_retry(
 
                     # Add small jitter to avoid thundering herd
                     import random
+
                     delay = delay * (0.5 + random.random())
 
                     logger.warning(
@@ -188,6 +191,7 @@ def with_retry(
             raise RuntimeError(f"{func.__name__} failed with unknown error")
 
         return wrapper
+
     return decorator
 
 
@@ -232,13 +236,14 @@ def retry_api_call(
                 logger.error(f"{func.__name__} failed after {max_retries + 1} attempts: {e}")
                 raise
 
-            delay = min(retry_delay * (2 ** attempt), max_delay)
+            delay = min(retry_delay * (2**attempt), max_delay)
 
             retry_after = get_retry_after(e)
             if retry_after is not None:
                 delay = max(delay, retry_after)
 
             import random
+
             delay = delay * (0.5 + random.random())
 
             logger.warning(

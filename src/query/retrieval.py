@@ -213,10 +213,12 @@ def format_brief(results: list[EnrichedResult], query: str) -> str:
     for i, result in enumerate(results, 1):
         year_str = f" ({result.year})" if result.year else ""
         score_pct = result.score * 100
+        lines.append(f"  {i}. [{score_pct:.1f}%] {result.title[:60]}...{year_str}")
         lines.append(
-            f"  {i}. [{score_pct:.1f}%] {result.title[:60]}...{year_str}"
+            f"      {result.authors[:50]}..."
+            if len(result.authors) > 50
+            else f"      {result.authors}"
         )
-        lines.append(f"      {result.authors[:50]}..." if len(result.authors) > 50 else f"      {result.authors}")
         lines.append(f"      Match: {result.chunk_type}")
         lines.append("")
 
@@ -369,7 +371,9 @@ def _results_to_html(
         html.append('<div class="result">')
         html.append(f'<p class="title">{i}. {result.title}{year_str}</p>')
         html.append(f'<p class="info"><b>Authors:</b> {result.authors or "Unknown"}</p>')
-        html.append(f'<p class="info"><b>Score:</b> {result.score:.4f} | <b>Type:</b> {result.item_type} | <b>Match:</b> {result.chunk_type}</p>')
+        html.append(
+            f'<p class="info"><b>Score:</b> {result.score:.4f} | <b>Type:</b> {result.item_type} | <b>Match:</b> {result.chunk_type}</p>'
+        )
 
         if result.collections:
             colls = ", ".join(result.collections[:3])
@@ -379,7 +383,11 @@ def _results_to_html(
 
         html.append(f'<p class="info paper-id">Paper ID: {result.paper_id}</p>')
 
-        matched = result.matched_text[:600] + "..." if len(result.matched_text) > 600 else result.matched_text
+        matched = (
+            result.matched_text[:600] + "..."
+            if len(result.matched_text) > 600
+            else result.matched_text
+        )
         html.append(f'<div class="matched"><b>Matched:</b> {matched}</div>')
 
         if include_extraction and result.extraction_data:
@@ -652,7 +660,8 @@ def _convert_markdown_simple(md_content: str, pdf_path: Path) -> None:
             page.draw_line(
                 fitz.Point(margin, y),
                 fitz.Point(page_width - margin, y),
-                color=(0.7, 0.7, 0.7), width=0.5
+                color=(0.7, 0.7, 0.7),
+                width=0.5,
             )
             y += 10
             continue
@@ -820,9 +829,7 @@ def format_summary(summary: dict) -> str:
                 "",
             ]
         )
-        for item_type, count in sorted(
-            summary["papers_by_type"].items(), key=lambda x: -x[1]
-        ):
+        for item_type, count in sorted(summary["papers_by_type"].items(), key=lambda x: -x[1]):
             lines.append(f"- {item_type}: {count}")
         lines.append("")
 

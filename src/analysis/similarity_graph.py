@@ -24,11 +24,44 @@ logger = logging.getLogger(__name__)
 
 # Words too common to be meaningful for Jaccard validation
 _COMMON_WORDS = {
-    "the", "and", "for", "from", "with", "that", "this", "are",
-    "was", "were", "been", "have", "has", "had", "not", "but",
-    "can", "will", "may", "use", "its", "our", "all", "new",
-    "also", "than", "more", "which", "their", "other", "these",
-    "some", "such", "into", "they", "between", "most", "about",
+    "the",
+    "and",
+    "for",
+    "from",
+    "with",
+    "that",
+    "this",
+    "are",
+    "was",
+    "were",
+    "been",
+    "have",
+    "has",
+    "had",
+    "not",
+    "but",
+    "can",
+    "will",
+    "may",
+    "use",
+    "its",
+    "our",
+    "all",
+    "new",
+    "also",
+    "than",
+    "more",
+    "which",
+    "their",
+    "other",
+    "these",
+    "some",
+    "such",
+    "into",
+    "they",
+    "between",
+    "most",
+    "about",
 }
 
 
@@ -103,7 +136,7 @@ def _get_paper_embeddings(
     centroids: dict[str, np.ndarray] = {}
 
     for i in range(0, len(paper_ids), batch_size):
-        batch_ids = paper_ids[i: i + batch_size]
+        batch_ids = paper_ids[i : i + batch_size]
 
         for paper_id in batch_ids:
             results = vector_store.collection.get(
@@ -147,9 +180,7 @@ def _get_paper_texts(
         if not results["ids"] or not results["documents"]:
             continue
 
-        combined_text = " ".join(
-            doc for doc in results["documents"] if doc
-        )
+        combined_text = " ".join(doc for doc in results["documents"] if doc)
         paper_tokens[paper_id] = _tokenize_text(combined_text)
 
     return paper_tokens
@@ -180,12 +211,8 @@ def build_similarity_graph(
     logger.info("Building similarity graph for %d papers", len(paper_ids))
 
     # Step 1: Get paper centroids
-    centroids = _get_paper_embeddings(
-        vector_store, paper_ids, batch_size=config.batch_size
-    )
-    logger.info(
-        "Computed centroids for %d/%d papers", len(centroids), len(paper_ids)
-    )
+    centroids = _get_paper_embeddings(vector_store, paper_ids, batch_size=config.batch_size)
+    logger.info("Computed centroids for %d/%d papers", len(centroids), len(paper_ids))
 
     if len(centroids) < 2:
         logger.warning("Fewer than 2 papers with embeddings, returning empty graph")
@@ -220,20 +247,23 @@ def build_similarity_graph(
         source, target = (id_a, id_b) if id_a < id_b else (id_b, id_a)
 
         # Check cap for both nodes
-        if (edge_counts[source] >= config.max_edges_per_node
-                or edge_counts[target] >= config.max_edges_per_node):
+        if (
+            edge_counts[source] >= config.max_edges_per_node
+            or edge_counts[target] >= config.max_edges_per_node
+        ):
             continue
 
-        edges.append(SimilarityEdge(
-            source=source,
-            target=target,
-            confidence=round(score, 4),
-        ))
+        edges.append(
+            SimilarityEdge(
+                source=source,
+                target=target,
+                confidence=round(score, 4),
+            )
+        )
         edge_counts[source] += 1
         edge_counts[target] += 1
 
-    logger.info("Found %d similarity edges above threshold %.2f",
-                len(edges), config.min_similarity)
+    logger.info("Found %d similarity edges above threshold %.2f", len(edges), config.min_similarity)
 
     # Step 4: Optional Jaccard validation
     if compute_jaccard and edges:
@@ -248,9 +278,7 @@ def build_similarity_graph(
         for edge in edges:
             tokens_a = paper_tokens.get(edge.source, set())
             tokens_b = paper_tokens.get(edge.target, set())
-            edge.jaccard_score = round(
-                _compute_jaccard(tokens_a, tokens_b), 4
-            )
+            edge.jaccard_score = round(_compute_jaccard(tokens_a, tokens_b), 4)
 
     # Step 5: Build metadata lookup
     meta_lookup: dict[str, dict] = {}
@@ -265,17 +293,19 @@ def build_similarity_graph(
     for pid in ordered_ids:
         pm = meta_lookup.get(pid, {})
         title = pm.get("title") or pid
-        nodes.append({
-            "id": pid,
-            "type": "paper",
-            "label": title[:50] + ("..." if len(title) > 50 else ""),
-            "title": title,
-            "authors": pm.get("authors") or "",
-            "year": pm.get("publication_year"),
-            "collections": list(pm.get("collections") or []),
-            "in_library": True,
-            "edge_count": edge_counts.get(pid, 0),
-        })
+        nodes.append(
+            {
+                "id": pid,
+                "type": "paper",
+                "label": title[:50] + ("..." if len(title) > 50 else ""),
+                "title": title,
+                "authors": pm.get("authors") or "",
+                "year": pm.get("publication_year"),
+                "collections": list(pm.get("collections") or []),
+                "in_library": True,
+                "edge_count": edge_counts.get(pid, 0),
+            }
+        )
 
     edge_dicts = []
     for e in edges:

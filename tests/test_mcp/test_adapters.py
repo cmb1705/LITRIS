@@ -28,9 +28,16 @@ class TestLitrisAdapterSearch:
             if results["results"]:
                 result = results["results"][0]
                 required_fields = [
-                    "rank", "score", "paper_id", "title",
-                    "authors", "year", "collections", "item_type",
-                    "chunk_type", "matched_text"
+                    "rank",
+                    "score",
+                    "paper_id",
+                    "title",
+                    "authors",
+                    "year",
+                    "collections",
+                    "item_type",
+                    "chunk_type",
+                    "matched_text",
                 ]
                 for field in required_fields:
                     assert field in result, f"Missing field: {field}"
@@ -88,7 +95,9 @@ class TestLitrisAdapterGetPaper:
             assert result["found"] is False
             assert "error" in result
 
-    def test_get_paper_structure(self, mock_search_engine, sample_paper_data, sample_extraction_data):
+    def test_get_paper_structure(
+        self, mock_search_engine, sample_paper_data, sample_extraction_data
+    ):
         """get_paper result has correct structure."""
         mock_search_engine.get_paper.return_value = {
             "paper": sample_paper_data,
@@ -101,13 +110,22 @@ class TestLitrisAdapterGetPaper:
 
             paper = result["paper"]
             paper_fields = [
-                "title", "authors", "author_string", "publication_year",
-                "journal", "doi", "abstract", "collections", "item_type"
+                "title",
+                "authors",
+                "author_string",
+                "publication_year",
+                "journal",
+                "doi",
+                "abstract",
+                "collections",
+                "item_type",
             ]
             for field in paper_fields:
                 assert field in paper, f"Missing paper field: {field}"
 
-    def test_get_paper_reports_fulltext_availability(self, mock_search_engine, sample_paper_data, sample_extraction_data):
+    def test_get_paper_reports_fulltext_availability(
+        self, mock_search_engine, sample_paper_data, sample_extraction_data
+    ):
         """get_paper surfaces full-text metadata when available."""
         mock_search_engine.get_paper.return_value = {
             "paper": sample_paper_data,
@@ -126,7 +144,9 @@ class TestLitrisAdapterGetPaper:
 class TestLitrisAdapterFulltextContext:
     """Tests for verbatim full-text context lookup."""
 
-    def test_get_fulltext_context_returns_matches(self, mock_search_engine, sample_paper_data, sample_extraction_data):
+    def test_get_fulltext_context_returns_matches(
+        self, mock_search_engine, sample_paper_data, sample_extraction_data
+    ):
         """Adapter forwards full-text context lookups and annotates them with paper metadata."""
         mock_search_engine.get_paper.return_value = {
             "paper": sample_paper_data,

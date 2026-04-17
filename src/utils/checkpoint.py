@@ -11,7 +11,6 @@ from src.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-
 @dataclass
 class FailedItem:
     """Record of a failed item."""
@@ -53,7 +52,9 @@ class CheckpointState:
     def to_dict(self) -> dict:
         """Convert to dictionary."""
         data = asdict(self)
-        data["failed_items"] = [f if isinstance(f, dict) else f.to_dict() for f in self.failed_items]
+        data["failed_items"] = [
+            f if isinstance(f, dict) else f.to_dict() for f in self.failed_items
+        ]
         return data
 
     @classmethod
@@ -61,8 +62,7 @@ class CheckpointState:
         """Create from dictionary."""
         if "failed_items" in data:
             data["failed_items"] = [
-                FailedItem.from_dict(f) if isinstance(f, dict) else f
-                for f in data["failed_items"]
+                FailedItem.from_dict(f) if isinstance(f, dict) else f for f in data["failed_items"]
             ]
         return cls(**data)
 
@@ -180,9 +180,7 @@ class CheckpointManager:
         else:
             self._state.failed_count += 1
             # Check if already failed before (retry)
-            existing = next(
-                (f for f in self._state.failed_items if f.item_id == item_id), None
-            )
+            existing = next((f for f in self._state.failed_items if f.item_id == item_id), None)
             if existing:
                 existing.retry_count += 1
                 existing.timestamp = datetime.now().isoformat()

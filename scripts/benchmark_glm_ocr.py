@@ -53,10 +53,7 @@ def load_targets_from_env() -> list[tuple[str, str]] | None:
 
     path = Path(raw_path).expanduser()
     payload = json.loads(path.read_text(encoding="utf-8"))
-    return [
-        (str(item["key"]), str(item["description"]))
-        for item in payload
-    ]
+    return [(str(item["key"]), str(item["description"])) for item in payload]
 
 
 def extract_pymupdf(pdf_path: Path) -> tuple[str, float]:
@@ -81,7 +78,6 @@ def extract_tesseract(pdf_path: Path) -> tuple[str, float]:
         from pdf2image import convert_from_path
     except ImportError:
         return "UNAVAILABLE: pytesseract or pdf2image not installed", 0.0
-
 
     from src.extraction.ocr_handler import _find_poppler, _find_tesseract
 
@@ -147,9 +143,7 @@ def extract_glm_ocr(pdf_path: Path) -> tuple[str, float]:
                 new_size = (GLM_TARGET_WIDTH, int(img.size[1] * scale))
                 img = img.resize(new_size, PILImage.LANCZOS)
 
-            tmppath = os.path.join(
-                tempfile.gettempdir(), f"glm_ocr_page_{i}.png"
-            )
+            tmppath = os.path.join(tempfile.gettempdir(), f"glm_ocr_page_{i}.png")
             img.save(tmppath)
             try:
                 result = subprocess.run(
@@ -173,7 +167,7 @@ def extract_glm_ocr(pdf_path: Path) -> tuple[str, float]:
                         # Remove opening fence (with optional language tag)
                         end = cleaned.find("\n")
                         if end >= 0:
-                            cleaned = cleaned[end + 1:]
+                            cleaned = cleaned[end + 1 :]
                         else:
                             cleaned = ""
                     if cleaned.endswith("```"):
@@ -283,7 +277,11 @@ def main() -> None:
         # 1. PyMuPDF
         print("\n  [PyMuPDF] Extracting...")
         pymupdf_text, pymupdf_time = extract_pymupdf(pdf_path)
-        pymupdf_clean = text_cleaner.clean(pymupdf_text) if pymupdf_text and not pymupdf_text.startswith("ERROR") else pymupdf_text
+        pymupdf_clean = (
+            text_cleaner.clean(pymupdf_text)
+            if pymupdf_text and not pymupdf_text.startswith("ERROR")
+            else pymupdf_text
+        )
         pymupdf_wc = word_count(pymupdf_clean)
         print(f"  [PyMuPDF] {pymupdf_wc} words in {pymupdf_time:.2f}s")
         if pymupdf_clean:
@@ -298,7 +296,11 @@ def main() -> None:
         # 2. Tesseract OCR (first 3 pages only via pdf2image)
         print("\n  [Tesseract] Extracting...")
         tess_text, tess_time = extract_tesseract(pdf_path)
-        tess_clean = text_cleaner.clean(tess_text) if tess_text and not tess_text.startswith(("ERROR", "UNAVAILABLE")) else tess_text
+        tess_clean = (
+            text_cleaner.clean(tess_text)
+            if tess_text and not tess_text.startswith(("ERROR", "UNAVAILABLE"))
+            else tess_text
+        )
         tess_wc = word_count(tess_clean)
         print(f"  [Tesseract] {tess_wc} words in {tess_time:.2f}s")
         if tess_clean:
@@ -313,7 +315,11 @@ def main() -> None:
         # 3. GLM-OCR (first 3 pages)
         print("\n  [GLM-OCR] Extracting (first 3 pages)...")
         glm_text, glm_time = extract_glm_ocr(pdf_path)
-        glm_clean = text_cleaner.clean(glm_text) if glm_text and not glm_text.startswith(("ERROR", "UNAVAILABLE")) else glm_text
+        glm_clean = (
+            text_cleaner.clean(glm_text)
+            if glm_text and not glm_text.startswith(("ERROR", "UNAVAILABLE"))
+            else glm_text
+        )
         glm_wc = word_count(glm_clean)
         print(f"  [GLM-OCR] {glm_wc} words in {glm_time:.2f}s")
         if glm_clean:
@@ -363,7 +369,9 @@ def main() -> None:
     print(f"{'-' * 40} {'-' * 10} {'-' * 10} {'-' * 10}")
     for r in results:
         title = r["title"][:38]
-        print(f"{title:<40} {r['pymupdf']['time_seconds']:>10.1f} {r['tesseract']['time_seconds']:>10.1f} {r['glm_ocr']['time_seconds']:>10.1f}")
+        print(
+            f"{title:<40} {r['pymupdf']['time_seconds']:>10.1f} {r['tesseract']['time_seconds']:>10.1f} {r['glm_ocr']['time_seconds']:>10.1f}"
+        )
 
 
 if __name__ == "__main__":

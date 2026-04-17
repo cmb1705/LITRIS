@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run ruff check and format on modified Python files."""
+
 import os
 import subprocess
 import sys

@@ -191,12 +191,14 @@ class TestChangeDetector:
         with open(papers_file) as f:
             data = json.load(f)
 
-        data["papers"].append({
-            "paper_id": "paper-deleted",
-            "zotero_key": "DELETED123",
-            "title": "Deleted Paper",
-            "date_modified": "2024-01-05T00:00:00",
-        })
+        data["papers"].append(
+            {
+                "paper_id": "paper-deleted",
+                "zotero_key": "DELETED123",
+                "title": "Deleted Paper",
+                "date_modified": "2024-01-05T00:00:00",
+            }
+        )
 
         with open(papers_file, "w") as f:
             json.dump(data, f)

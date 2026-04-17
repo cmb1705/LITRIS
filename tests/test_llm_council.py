@@ -432,7 +432,11 @@ class TestLLMCouncilIntegration:
             "openai": self._make_mock_client(analysis_b),
         }
 
-        with patch.object(council, "_get_client", side_effect=lambda p: clients[p.name if hasattr(p, "name") else p]):
+        with patch.object(
+            council,
+            "_get_client",
+            side_effect=lambda p: clients[p.name if hasattr(p, "name") else p],
+        ):
             result = council.extract(
                 paper_id="test_paper",
                 title="Test Paper",
@@ -488,7 +492,11 @@ class TestLLMCouncilIntegration:
             "google": self._make_failing_client("API quota exceeded"),
         }
 
-        with patch.object(council, "_get_client", side_effect=lambda p: clients[p.name if hasattr(p, "name") else p]):
+        with patch.object(
+            council,
+            "_get_client",
+            side_effect=lambda p: clients[p.name if hasattr(p, "name") else p],
+        ):
             result = council.extract(
                 paper_id="test",
                 title="Test",
@@ -530,7 +538,11 @@ class TestLLMCouncilIntegration:
             "openai": self._make_failing_client(),
         }
 
-        with patch.object(council, "_get_client", side_effect=lambda p: clients[p.name if hasattr(p, "name") else p]):
+        with patch.object(
+            council,
+            "_get_client",
+            side_effect=lambda p: clients[p.name if hasattr(p, "name") else p],
+        ):
             result = council.extract(
                 paper_id="test",
                 title="Test",
@@ -566,7 +578,11 @@ class TestLLMCouncilIntegration:
             "openai": self._make_failing_client("Error B"),
         }
 
-        with patch.object(council, "_get_client", side_effect=lambda p: clients[p.name if hasattr(p, "name") else p]):
+        with patch.object(
+            council,
+            "_get_client",
+            side_effect=lambda p: clients[p.name if hasattr(p, "name") else p],
+        ):
             result = council.extract(
                 paper_id="test",
                 title="Test",
@@ -613,7 +629,11 @@ class TestParallelExecution:
             "provider_b": make_client("Thesis B from provider B is longer"),
         }
 
-        with patch.object(council, "_get_client", side_effect=lambda p: clients[p.name if hasattr(p, "name") else p]):
+        with patch.object(
+            council,
+            "_get_client",
+            side_effect=lambda p: clients[p.name if hasattr(p, "name") else p],
+        ):
             result = council.extract(
                 paper_id="test",
                 title="Test",
@@ -657,7 +677,11 @@ class TestParallelExecution:
 
         clients = {"fast": fast_client, "slow": slow_client}
 
-        with patch.object(council, "_get_client", side_effect=lambda p: clients[p.name if hasattr(p, "name") else p]):
+        with patch.object(
+            council,
+            "_get_client",
+            side_effect=lambda p: clients[p.name if hasattr(p, "name") else p],
+        ):
             result = council.extract(
                 paper_id="test",
                 title="Test",
@@ -690,7 +714,9 @@ class TestProviderConfigMode:
     def test_custom_mode_and_model(self):
         """Custom mode and model are accepted."""
         config = ProviderConfig(
-            name="openai", mode="api", model="gpt-5.4",
+            name="openai",
+            mode="api",
+            model="gpt-5.4",
         )
         assert config.mode == "api"
         assert config.model == "gpt-5.4"
@@ -767,10 +793,7 @@ class TestQualityScore:
 
     def test_ideal_sentence_count(self):
         """2-5 sentences get maximum sentence bonus."""
-        text = (
-            "First finding is important. Second finding builds on it. "
-            "Third finding adds nuance."
-        )
+        text = "First finding is important. Second finding builds on it. Third finding adds nuance."
         score = _compute_quality_score(text)
         assert score >= 0.3
 
@@ -785,20 +808,24 @@ class TestQualityWeightedAggregation:
             "The study found 95% accuracy (Smith, 2020). "
             "Cross-validation confirmed results across 5 datasets."
         )
-        result = strategy_quality_weighted([
-            (verbose, 1.0),
-            (concise, 1.0),
-        ])
+        result = strategy_quality_weighted(
+            [
+                (verbose, 1.0),
+                (concise, 1.0),
+            ]
+        )
         assert result == concise
 
     def test_weight_breaks_tie(self):
         """When quality is similar, higher weight wins."""
         text_a = "Finding one is notable. Finding two confirms it."
         text_b = "Finding one is notable. Finding two confirms it."
-        result = strategy_quality_weighted([
-            (text_a, 0.5),
-            (text_b, 2.0),
-        ])
+        result = strategy_quality_weighted(
+            [
+                (text_a, 0.5),
+                (text_b, 2.0),
+            ]
+        )
         # Same quality, but text_b has higher weight
         assert result == text_b
 
@@ -871,28 +898,34 @@ class TestStrategyUnionMerge:
 
     def test_unique_sentences_merged(self):
         """Unique sentences from different providers are combined."""
-        result = strategy_union_merge([
-            ("First finding is important. Second finding is notable.", 1.0),
-            ("Third finding adds context. Fourth insight is key.", 1.0),
-        ])
+        result = strategy_union_merge(
+            [
+                ("First finding is important. Second finding is notable.", 1.0),
+                ("Third finding adds context. Fourth insight is key.", 1.0),
+            ]
+        )
         assert "First finding" in result
         assert "Third finding" in result
 
     def test_duplicate_sentences_removed(self):
         """Near-duplicate sentences are deduplicated."""
-        result = strategy_union_merge([
-            ("The study found significant results.", 1.0),
-            ("The study found significant results.", 0.8),
-        ])
+        result = strategy_union_merge(
+            [
+                ("The study found significant results.", 1.0),
+                ("The study found significant results.", 0.8),
+            ]
+        )
         # Should only appear once
         assert result.count("significant results") == 1
 
     def test_higher_weight_phrasing_preserved(self):
         """Higher-weight provider's sentences are processed first."""
-        result = strategy_union_merge([
-            ("Lower weight version of the finding.", 0.5),
-            ("Higher weight version of the finding.", 2.0),
-        ])
+        result = strategy_union_merge(
+            [
+                ("Lower weight version of the finding.", 0.5),
+                ("Higher weight version of the finding.", 2.0),
+            ]
+        )
         # Higher weight is processed first, so its phrasing wins
         assert "Higher weight" in result
 
@@ -902,10 +935,12 @@ class TestStrategyUnionMerge:
 
     def test_overlap_threshold(self):
         """Sentences with <60% word overlap are both kept."""
-        result = strategy_union_merge([
-            ("Network analysis reveals community structure.", 1.0),
-            ("Graph theory provides mathematical framework.", 1.0),
-        ])
+        result = strategy_union_merge(
+            [
+                ("Network analysis reveals community structure.", 1.0),
+                ("Graph theory provides mathematical framework.", 1.0),
+            ]
+        )
         assert "Network" in result
         assert "Graph" in result
 
@@ -955,9 +990,7 @@ class TestImprovedConfidence:
 
     def test_agreement_on_core_fields_boosts_confidence(self):
         """High word overlap on core fields increases confidence."""
-        config = CouncilConfig(
-            providers=[ProviderConfig(name="a"), ProviderConfig(name="b")]
-        )
+        config = CouncilConfig(providers=[ProviderConfig(name="a"), ProviderConfig(name="b")])
         analyses = [
             _make_analysis(
                 q01_research_question="What is the impact of network analysis on policy?",
@@ -979,12 +1012,12 @@ class TestImprovedConfidence:
 
     def test_coverage_spread_affects_confidence(self):
         """Divergent field coverage lowers confidence."""
-        config = CouncilConfig(
-            providers=[ProviderConfig(name="a"), ProviderConfig(name="b")]
-        )
+        config = CouncilConfig(providers=[ProviderConfig(name="a"), ProviderConfig(name="b")])
         # Provider A fills many fields, provider B fills few
-        a_fields = {f"q{i:02d}_{name}": f"Value for {name}"
-                    for i, name in enumerate(["research_question", "thesis"], 1)}
+        a_fields = {
+            f"q{i:02d}_{name}": f"Value for {name}"
+            for i, name in enumerate(["research_question", "thesis"], 1)
+        }
         b_fields = {}
         for field_name in SemanticAnalysis.DIMENSION_FIELDS[:30]:
             a_fields[field_name] = f"Filled by A: {field_name}"
@@ -1027,14 +1060,16 @@ class TestSynthesisPrompt:
             ProviderResponse(
                 provider="anthropic",
                 extraction=_make_analysis(
-                    q02_thesis="Anthropic thesis", q07_methods="Qualitative",
+                    q02_thesis="Anthropic thesis",
+                    q07_methods="Qualitative",
                 ),
                 success=True,
             ),
             ProviderResponse(
                 provider="openai",
                 extraction=_make_analysis(
-                    q02_thesis="OpenAI thesis", q07_methods="Quantitative",
+                    q02_thesis="OpenAI thesis",
+                    q07_methods="Quantitative",
                 ),
                 success=True,
             ),
@@ -1066,7 +1101,9 @@ class TestSynthesisRound:
             min_responses=2,
             parallel=False,
             synthesis=SynthesisConfig(
-                enabled=True, judge_provider="anthropic", judge_mode="api",
+                enabled=True,
+                judge_provider="anthropic",
+                judge_mode="api",
             ),
         )
         council = LLMCouncil(config)
@@ -1146,7 +1183,8 @@ class TestSynthesisRound:
             clients[name].extract.return_value = result_mock
 
         with patch.object(
-            council, "_get_client",
+            council,
+            "_get_client",
             side_effect=lambda p: clients[p.name if hasattr(p, "name") else p],
         ):
             with patch.object(council, "_run_synthesis_round") as mock_synth:
@@ -1183,7 +1221,9 @@ class TestQueryMethod:
         def mock_get_client(provider):
             client = MagicMock()
             client.raw_query.return_value = (
-                f"Response from {provider.name}", True, None,
+                f"Response from {provider.name}",
+                True,
+                None,
             )
             return client
 
@@ -1360,7 +1400,9 @@ class TestGracefulFallbacks:
             min_responses=2,
             parallel=False,
             synthesis=SynthesisConfig(
-                enabled=True, judge_provider="anthropic", judge_mode="api",
+                enabled=True,
+                judge_provider="anthropic",
+                judge_mode="api",
             ),
         )
         council = LLMCouncil(config)
@@ -1442,9 +1484,11 @@ class TestGracefulFallbacks:
 
     def test_union_merge_single_provider(self):
         """Union merge with single provider returns its content."""
-        result = strategy_union_merge([
-            ("First sentence. Second sentence.", 1.0),
-        ])
+        result = strategy_union_merge(
+            [
+                ("First sentence. Second sentence.", 1.0),
+            ]
+        )
         assert "First sentence" in result
         assert "Second sentence" in result
 
@@ -1462,9 +1506,7 @@ class TestGracefulFallbacks:
 
     def test_confidence_single_analysis(self):
         """Confidence with single analysis returns reasonable value."""
-        config = CouncilConfig(
-            providers=[ProviderConfig(name="only_one")]
-        )
+        config = CouncilConfig(providers=[ProviderConfig(name="only_one")])
         analyses = [_make_analysis(q02_thesis="Solo thesis")]
         confidence = calculate_consensus_confidence(analyses, config)
         # 1/1 response rate = 0.6, no agreement data = 0.5 default

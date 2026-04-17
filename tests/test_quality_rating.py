@@ -31,27 +31,36 @@ class TestDeriveQualityRating:
 
     def test_keyword_excellent(self):
         """Test 'excellent' keyword maps to 5."""
-        assert EmbeddingGenerator._derive_quality_rating(
-            "Excellent methodology with comprehensive analysis."
-        ) == 5
+        assert (
+            EmbeddingGenerator._derive_quality_rating(
+                "Excellent methodology with comprehensive analysis."
+            )
+            == 5
+        )
 
     def test_keyword_strong(self):
         """Test 'strong' keyword maps to 4."""
-        assert EmbeddingGenerator._derive_quality_rating(
-            "Strong methodology with rigorous evaluation."
-        ) == 4
+        assert (
+            EmbeddingGenerator._derive_quality_rating(
+                "Strong methodology with rigorous evaluation."
+            )
+            == 4
+        )
 
     def test_keyword_weak(self):
         """Test 'weak' keyword maps to 2."""
-        assert EmbeddingGenerator._derive_quality_rating(
-            "Weak methodology with limited sample."
-        ) == 2
+        assert (
+            EmbeddingGenerator._derive_quality_rating("Weak methodology with limited sample.") == 2
+        )
 
     def test_default_returns_three(self):
         """Test neutral prose defaults to 3."""
-        assert EmbeddingGenerator._derive_quality_rating(
-            "The methodology is adequate for the research questions posed."
-        ) == 3
+        assert (
+            EmbeddingGenerator._derive_quality_rating(
+                "The methodology is adequate for the research questions posed."
+            )
+            == 3
+        )
 
     def test_boundary_1_slash_5(self):
         """Test minimum rating 1/5."""
@@ -134,4 +143,6 @@ class TestPromptVersion:
 
         for key, template in DOCUMENT_TYPE_PROMPTS.items():
             assert "quality_rating" in template, f"quality_rating missing from {key} template"
-            assert "quality_explanation" in template, f"quality_explanation missing from {key} template"
+            assert "quality_explanation" in template, (
+                f"quality_explanation missing from {key} template"
+            )

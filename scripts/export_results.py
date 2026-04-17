@@ -33,16 +33,16 @@ def escape_bibtex(text: str) -> str:
         return ""
     # Order matters - escape backslash first
     replacements = [
-        ('\\', '\\textbackslash{}'),
-        ('{', '\\{'),
-        ('}', '\\}'),
-        ('%', '\\%'),
-        ('_', '\\_'),
-        ('^', '\\^{}'),
-        ('&', '\\&'),
-        ('#', '\\#'),
-        ('$', '\\$'),
-        ('~', '\\textasciitilde{}'),
+        ("\\", "\\textbackslash{}"),
+        ("{", "\\{"),
+        ("}", "\\}"),
+        ("%", "\\%"),
+        ("_", "\\_"),
+        ("^", "\\^{}"),
+        ("&", "\\&"),
+        ("#", "\\#"),
+        ("$", "\\$"),
+        ("~", "\\textasciitilde{}"),
     ]
     for old, new in replacements:
         text = text.replace(old, new)
@@ -62,41 +62,43 @@ def sanitize_csv_field(field: str) -> str:
         return ""
     field = str(field)
     # Prefix potentially dangerous formulas with a single quote
-    if field and field[0] in ('=', '+', '-', '@', '\t', '\r'):
+    if field and field[0] in ("=", "+", "-", "@", "\t", "\r"):
         return "'" + field
     return field
 
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Export search results and literature data"
-    )
+    parser = argparse.ArgumentParser(description="Export search results and literature data")
 
     subparsers = parser.add_subparsers(dest="command", help="Export command")
 
     # Search export
     search_parser = subparsers.add_parser("search", help="Export search results")
     search_parser.add_argument(
-        "-q", "--query",
+        "-q",
+        "--query",
         type=str,
         required=True,
         help="Search query",
     )
     search_parser.add_argument(
-        "-n", "--num-results",
+        "-n",
+        "--num-results",
         type=int,
         default=20,
         help="Number of results (default: 20)",
     )
     search_parser.add_argument(
-        "-f", "--format",
+        "-f",
+        "--format",
         choices=["json", "csv", "bibtex", "markdown"],
         default="markdown",
         help="Output format (default: markdown)",
     )
     search_parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         type=Path,
         help="Output file (default: stdout)",
     )
@@ -114,13 +116,15 @@ def parse_args():
     # Full export
     full_parser = subparsers.add_parser("full", help="Export all papers")
     full_parser.add_argument(
-        "-f", "--format",
+        "-f",
+        "--format",
         choices=["json", "csv", "bibtex"],
         default="json",
         help="Output format (default: json)",
     )
     full_parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         type=Path,
         required=True,
         help="Output file",
@@ -134,13 +138,15 @@ def parse_args():
     # Summary export
     summary_parser = subparsers.add_parser("summary", help="Export summary stats")
     summary_parser.add_argument(
-        "-f", "--format",
+        "-f",
+        "--format",
         choices=["json", "markdown"],
         default="markdown",
         help="Output format (default: markdown)",
     )
     summary_parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         type=Path,
         help="Output file (default: stdout)",
     )
@@ -148,7 +154,8 @@ def parse_args():
     # BibTeX export
     bibtex_parser = subparsers.add_parser("bibtex", help="Export to BibTeX")
     bibtex_parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         type=Path,
         required=True,
         help="Output .bib file",
@@ -167,7 +174,8 @@ def parse_args():
         help="Path to config.yaml",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Enable verbose logging",
     )
@@ -208,7 +216,7 @@ def format_bibtex_entry(paper: dict) -> str:
 
     # Title (escape special characters)
     title = escape_bibtex(paper.get("title", "Unknown Title"))
-    lines.append(f'  title = {{{title}}},')
+    lines.append(f"  title = {{{title}}},")
 
     # Authors (escape special characters)
     if authors:
@@ -221,37 +229,37 @@ def format_bibtex_entry(paper: dict) -> str:
             elif last:
                 author_strs.append(last)
         if author_strs:
-            lines.append(f'  author = {{{" and ".join(author_strs)}}},')
+            lines.append(f"  author = {{{' and '.join(author_strs)}}},")
 
     # Year
     if year and year != "n.d.":
-        lines.append(f'  year = {{{year}}},')
+        lines.append(f"  year = {{{year}}},")
 
     # Journal/Booktitle (escape special characters)
     journal = paper.get("journal")
     if journal:
         journal = escape_bibtex(journal)
         if bibtex_type == "inproceedings":
-            lines.append(f'  booktitle = {{{journal}}},')
+            lines.append(f"  booktitle = {{{journal}}},")
         else:
-            lines.append(f'  journal = {{{journal}}},')
+            lines.append(f"  journal = {{{journal}}},")
 
     # Volume/Issue/Pages
     if volume := paper.get("volume"):
-        lines.append(f'  volume = {{{volume}}},')
+        lines.append(f"  volume = {{{volume}}},")
     if issue := paper.get("issue"):
-        lines.append(f'  number = {{{issue}}},')
+        lines.append(f"  number = {{{issue}}},")
     if pages := paper.get("pages"):
-        lines.append(f'  pages = {{{pages}}},')
+        lines.append(f"  pages = {{{pages}}},")
 
     # DOI
     if doi := paper.get("doi"):
-        lines.append(f'  doi = {{{doi}}},')
+        lines.append(f"  doi = {{{doi}}},")
 
     # Abstract (escape special characters)
     if abstract := paper.get("abstract"):
         abstract = escape_bibtex(abstract)
-        lines.append(f'  abstract = {{{abstract}}},')
+        lines.append(f"  abstract = {{{abstract}}},")
 
     lines.append("}")
 
@@ -276,7 +284,9 @@ def format_search_result_markdown(
     lines = []
 
     # Title and basic info
-    title = paper.get("title", "Unknown Title") if paper else result.metadata.get("title", "Unknown")
+    title = (
+        paper.get("title", "Unknown Title") if paper else result.metadata.get("title", "Unknown")
+    )
     author = paper.get("author_string", "") if paper else ""
     year = paper.get("publication_year", "") if paper else result.metadata.get("year", "")
 
@@ -350,11 +360,13 @@ def export_search_results(
     for result in results:
         paper = store.get_paper(result.paper_id)
         extraction = store.get_extraction(result.paper_id)
-        papers_data.append({
-            "result": result,
-            "paper": paper,
-            "extraction": extraction,
-        })
+        papers_data.append(
+            {
+                "result": result,
+                "paper": paper,
+                "extraction": extraction,
+            }
+        )
 
     # Format output
     if output_format == "json":
@@ -376,17 +388,20 @@ def export_search_results(
         rows = []
         for d in papers_data:
             paper = d["paper"] or {}
-            rows.append({
-                "paper_id": sanitize_csv_field(d["result"].paper_id),
-                "score": d["result"].score,
-                "title": sanitize_csv_field(paper.get("title", "")),
-                "authors": sanitize_csv_field(paper.get("author_string", "")),
-                "year": paper.get("publication_year", ""),
-                "journal": sanitize_csv_field(paper.get("journal", "")),
-                "doi": sanitize_csv_field(paper.get("doi", "")),
-            })
+            rows.append(
+                {
+                    "paper_id": sanitize_csv_field(d["result"].paper_id),
+                    "score": d["result"].score,
+                    "title": sanitize_csv_field(paper.get("title", "")),
+                    "authors": sanitize_csv_field(paper.get("author_string", "")),
+                    "year": paper.get("publication_year", ""),
+                    "journal": sanitize_csv_field(paper.get("journal", "")),
+                    "doi": sanitize_csv_field(paper.get("doi", "")),
+                }
+            )
 
         from io import StringIO
+
         buffer = StringIO()
         if rows:
             writer = csv.DictWriter(buffer, fieldnames=rows[0].keys())
@@ -401,7 +416,7 @@ def export_search_results(
         output = "\n\n".join(entries)
     else:  # markdown
         lines = [
-            f"# Search Results: \"{query}\"",
+            f'# Search Results: "{query}"',
             "",
             f"*{len(results)} results found*",
             f"*Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}*",
@@ -410,9 +425,7 @@ def export_search_results(
             "",
         ]
         for d in papers_data:
-            lines.append(format_search_result_markdown(
-                d["result"], d["paper"], d["extraction"]
-            ))
+            lines.append(format_search_result_markdown(d["result"], d["paper"], d["extraction"]))
         output = "\n".join(lines)
 
     # Write output
@@ -457,18 +470,20 @@ def export_all_papers(
     elif output_format == "csv":
         rows = []
         for paper in papers.values():
-            rows.append({
-                "paper_id": sanitize_csv_field(paper.get("paper_id", "")),
-                "zotero_key": sanitize_csv_field(paper.get("zotero_key", "")),
-                "title": sanitize_csv_field(paper.get("title", "")),
-                "authors": sanitize_csv_field(paper.get("author_string", "")),
-                "year": paper.get("publication_year", ""),
-                "journal": sanitize_csv_field(paper.get("journal", "")),
-                "doi": sanitize_csv_field(paper.get("doi", "")),
-                "item_type": sanitize_csv_field(paper.get("item_type", "")),
-                "collections": sanitize_csv_field("; ".join(paper.get("collections", []))),
-                "tags": sanitize_csv_field("; ".join(paper.get("tags", []))),
-            })
+            rows.append(
+                {
+                    "paper_id": sanitize_csv_field(paper.get("paper_id", "")),
+                    "zotero_key": sanitize_csv_field(paper.get("zotero_key", "")),
+                    "title": sanitize_csv_field(paper.get("title", "")),
+                    "authors": sanitize_csv_field(paper.get("author_string", "")),
+                    "year": paper.get("publication_year", ""),
+                    "journal": sanitize_csv_field(paper.get("journal", "")),
+                    "doi": sanitize_csv_field(paper.get("doi", "")),
+                    "item_type": sanitize_csv_field(paper.get("item_type", "")),
+                    "collections": sanitize_csv_field("; ".join(paper.get("collections", []))),
+                    "tags": sanitize_csv_field("; ".join(paper.get("tags", []))),
+                }
+            )
 
         with open(output_path, "w", encoding="utf-8", newline="") as f:
             if rows:
@@ -517,39 +532,47 @@ def export_summary(
         for item_type, count in summary.get("papers_by_type", {}).items():
             lines.append(f"- {item_type}: {count}")
 
-        lines.extend([
-            "",
-            "## Papers by Year",
-            "",
-        ])
+        lines.extend(
+            [
+                "",
+                "## Papers by Year",
+                "",
+            ]
+        )
 
         for year, count in sorted(summary.get("papers_by_year", {}).items()):
             lines.append(f"- {year}: {count}")
 
-        lines.extend([
-            "",
-            "## Top Collections",
-            "",
-        ])
+        lines.extend(
+            [
+                "",
+                "## Top Collections",
+                "",
+            ]
+        )
 
         for coll, count in summary.get("papers_by_collection", {}).items():
             lines.append(f"- {coll}: {count}")
 
         if disciplines := summary.get("top_disciplines"):
-            lines.extend([
-                "",
-                "## Top Disciplines",
-                "",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "## Top Disciplines",
+                    "",
+                ]
+            )
             for disc, count in disciplines.items():
                 lines.append(f"- {disc}: {count}")
 
         if recent := summary.get("recent_papers"):
-            lines.extend([
-                "",
-                "## Recently Added",
-                "",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "## Recently Added",
+                    "",
+                ]
+            )
             for paper in recent:
                 lines.append(f"- {paper.get('title', 'Unknown')} ({paper.get('year', 'n.d.')})")
 
@@ -607,10 +630,7 @@ def main():
     # Setup paths
     index_dir = project_root / "data" / "index"
     if not index_dir.exists():
-        logger.error(
-            f"Index directory not found: {index_dir}\n"
-            "Please run build_index.py first."
-        )
+        logger.error(f"Index directory not found: {index_dir}\nPlease run build_index.py first.")
         return 1
 
     # Initialize stores

@@ -24,18 +24,18 @@ from src.utils.logging_config import setup_logging
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Query the literature review index"
-    )
+    parser = argparse.ArgumentParser(description="Query the literature review index")
 
     # Query options
     parser.add_argument(
-        "-q", "--query",
+        "-q",
+        "--query",
         type=str,
         help="Natural language search query",
     )
     parser.add_argument(
-        "-k", "--top-k",
+        "-k",
+        "--top-k",
         type=int,
         default=10,
         help="Number of results to return (default: 10)",
@@ -70,7 +70,8 @@ def parse_args():
 
     # Output options
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         choices=["json", "markdown", "brief", "pdf"],
         default="markdown",
         help="Output format (default: markdown)",
@@ -152,7 +153,8 @@ def parse_args():
         help="Path to config.yaml",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Enable verbose logging",
     )
@@ -231,9 +233,7 @@ def main():
                 query_prefix=config.embeddings.query_prefix,
                 document_prefix=config.embeddings.document_prefix,
             )
-            logger.info(
-                f"Federated search enabled with {len(engine.federated_engines)} indexes"
-            )
+            logger.info(f"Federated search enabled with {len(engine.federated_engines)} indexes")
         else:
             engine = SearchEngine(
                 index_dir=index_dir,

@@ -144,8 +144,7 @@ class ProgressTracker:
 
         # Remove from failed if previously failed
         self._state["failed"] = [
-            fp for fp in self._state["failed"]
-            if fp.get("paper_id") != paper_id
+            fp for fp in self._state["failed"] if fp.get("paper_id") != paper_id
         ]
 
         # Increment session counter
@@ -167,16 +166,17 @@ class ProgressTracker:
 
         # Remove existing failure record if any
         self._state["failed"] = [
-            fp for fp in self._state["failed"]
-            if fp.get("paper_id") != paper_id
+            fp for fp in self._state["failed"] if fp.get("paper_id") != paper_id
         ]
 
         # Add new failure record
-        self._state["failed"].append({
-            "paper_id": paper_id,
-            "error": str(error),
-            "timestamp": datetime.now().isoformat(),
-        })
+        self._state["failed"].append(
+            {
+                "paper_id": paper_id,
+                "error": str(error),
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
 
         self._state["last_updated"] = datetime.now().isoformat()
         self.save()

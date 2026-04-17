@@ -18,7 +18,7 @@ Guidelines:
 7. For keywords, extract specific terms that would help researchers find this paper.
 8. Assess the overall quality of the paper on a 1-5 scale considering: methodology rigor, evidence strength, contribution significance, and writing clarity. This rates the PAPER's quality, not the extraction quality."""
 
-EXTRACTION_USER_PROMPT = '''Analyze the following academic paper and extract structured information.
+EXTRACTION_USER_PROMPT = """Analyze the following academic paper and extract structured information.
 
 PAPER METADATA:
 Title: {title}
@@ -86,9 +86,9 @@ Enum rules (use exact tokens only, no extra words or parentheses):
 
 IMPORTANT: For reference_list, extract up to 50 entries from the paper's bibliography/references section. Include the DOI if present in the entry. If the paper has no reference list, return an empty array.
 
-Respond ONLY with valid JSON. No additional text or markdown formatting.'''
+Respond ONLY with valid JSON. No additional text or markdown formatting."""
 
-SUMMARY_EXTRACTION_USER_PROMPT = '''Analyze the following academic paper and extract structured information.
+SUMMARY_EXTRACTION_USER_PROMPT = """Analyze the following academic paper and extract structured information.
 
 PAPER METADATA:
 Title: {title}
@@ -115,9 +115,9 @@ Extract the following information and return as JSON:
   "extraction_notes": "Notes about extraction quality, missing sections, or ambiguous content"
 }}
 
-Respond ONLY with valid JSON. No additional text or markdown formatting.'''
+Respond ONLY with valid JSON. No additional text or markdown formatting."""
 
-METHODOLOGY_EXTRACTION_USER_PROMPT = '''Analyze the following academic paper and extract structured information.
+METHODOLOGY_EXTRACTION_USER_PROMPT = """Analyze the following academic paper and extract structured information.
 
 PAPER METADATA:
 Title: {title}
@@ -167,9 +167,9 @@ Enum rules (use exact tokens only, no extra words or parentheses):
   "extraction_notes": "Notes about extraction quality, missing sections, or ambiguous content"
 }}
 
-Respond ONLY with valid JSON. No additional text or markdown formatting.'''
+Respond ONLY with valid JSON. No additional text or markdown formatting."""
 
-BOOK_EXTRACTION_USER_PROMPT = '''Analyze the following book/monograph and extract structured information.
+BOOK_EXTRACTION_USER_PROMPT = """Analyze the following book/monograph and extract structured information.
 Focus on the central argument, key concepts, and theoretical contribution rather than
 empirical methodology.
 
@@ -207,9 +207,9 @@ Enum rules (use exact tokens only, no extra words or parentheses):
   "extraction_notes": "Notes about extraction quality or missing content"
 }}
 
-Respond ONLY with valid JSON. No additional text or markdown formatting.'''
+Respond ONLY with valid JSON. No additional text or markdown formatting."""
 
-REPORT_EXTRACTION_USER_PROMPT = '''Analyze the following report/white paper and extract structured information.
+REPORT_EXTRACTION_USER_PROMPT = """Analyze the following report/white paper and extract structured information.
 Focus on findings, recommendations, and data sources rather than academic methodology.
 
 DOCUMENT METADATA:
@@ -253,9 +253,9 @@ Enum rules (use exact tokens only, no extra words or parentheses):
   "extraction_notes": "Notes about extraction quality or missing content"
 }}
 
-Respond ONLY with valid JSON. No additional text or markdown formatting.'''
+Respond ONLY with valid JSON. No additional text or markdown formatting."""
 
-REVIEW_EXTRACTION_USER_PROMPT = '''Analyze the following review article and extract structured information.
+REVIEW_EXTRACTION_USER_PROMPT = """Analyze the following review article and extract structured information.
 Focus on the synthesis scope, included studies, synthesized findings, and identified gaps.
 Treat "methodology" as the review scope and search strategy, not empirical methods.
 
@@ -304,9 +304,9 @@ Enum rules (use exact tokens only, no extra words or parentheses):
   "extraction_notes": "Notes about extraction quality or missing content"
 }}
 
-Respond ONLY with valid JSON. No additional text or markdown formatting.'''
+Respond ONLY with valid JSON. No additional text or markdown formatting."""
 
-GENERIC_EXTRACTION_USER_PROMPT = '''Analyze the following document and extract whatever structured information is available.
+GENERIC_EXTRACTION_USER_PROMPT = """Analyze the following document and extract whatever structured information is available.
 This document may not follow standard academic paper structure.
 
 DOCUMENT METADATA:
@@ -331,7 +331,7 @@ Extract the following information and return as JSON:
   "extraction_notes": "Notes about the document type and extraction limitations"
 }}
 
-Respond ONLY with valid JSON. No additional text or markdown formatting.'''
+Respond ONLY with valid JSON. No additional text or markdown formatting."""
 
 # Mapping from document-type prompt keys to templates
 DOCUMENT_TYPE_PROMPTS: dict[str, str] = {

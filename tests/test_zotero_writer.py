@@ -128,9 +128,7 @@ class TestPyzoteroBackend:
         backend = PyzoteroBackend(user_id="12345", api_key="abc")
         mock_zot = MagicMock()
         mock_zot.item_template.return_value = {}
-        mock_zot.create_items.return_value = {
-            "successful": {"0": {"key": "ABC12345"}}
-        }
+        mock_zot.create_items.return_value = {"successful": {"0": {"key": "ABC12345"}}}
         backend._zot = mock_zot
 
         req = PaperWriteRequest(
@@ -147,9 +145,7 @@ class TestPyzoteroBackend:
         backend = PyzoteroBackend(user_id="12345", api_key="abc")
         mock_zot = MagicMock()
         mock_zot.item_template.return_value = {}
-        mock_zot.create_items.return_value = {
-            "failed": {"0": {"message": "Invalid field"}}
-        }
+        mock_zot.create_items.return_value = {"failed": {"0": {"message": "Invalid field"}}}
         backend._zot = mock_zot
 
         req = PaperWriteRequest(title="Test Paper")
@@ -161,9 +157,7 @@ class TestPyzoteroBackend:
         backend = PyzoteroBackend(user_id="12345", api_key="abc")
         mock_zot = MagicMock()
         mock_zot.item_template.return_value = {}
-        mock_zot.create_items.return_value = {
-            "successful": {"0": {"key": "XYZ99999"}}
-        }
+        mock_zot.create_items.return_value = {"successful": {"0": {"key": "XYZ99999"}}}
         backend._zot = mock_zot
 
         pdf_path = MagicMock(spec=Path)

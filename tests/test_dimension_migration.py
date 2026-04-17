@@ -122,6 +122,13 @@ def _write_legacy_index_many(index_dir: Path, paper_ids: list[str]) -> Structure
     return store
 
 
+def _write_fulltext_only_index(index_dir: Path, paper_ids: list[str]) -> StructuredStore:
+    store = StructuredStore(index_dir)
+    store.save_papers({paper_id: _paper_record(index_dir, paper_id) for paper_id in paper_ids})
+    store.save_extractions({})
+    return store
+
+
 def _write_text_snapshot(index_dir: Path, paper_id: str, text: str) -> None:
     store = StructuredStore(index_dir)
     paper = store.load_papers()[paper_id]
@@ -256,7 +263,11 @@ def test_backfill_disable_only_skips_extractor_and_updates_snapshot(
         summary_model=None,
         methodology_model=None,
     )
-    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    logger = SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+    )
     config = _make_config(tmp_path)
 
     assert dimensions_cli.backfill_dimensions(args, config, logger) == 0
@@ -351,7 +362,11 @@ def test_backfill_reextracts_changed_section_only_and_preserves_other_dimensions
         summary_model=None,
         methodology_model=None,
     )
-    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    logger = SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+    )
     config = _make_config(tmp_path)
 
     assert dimensions_cli.backfill_dimensions(args, config, logger) == 0
@@ -391,7 +406,9 @@ def test_backfill_reuses_matching_fulltext_snapshot_by_default(
     observed: dict[str, object] = {}
 
     class DummyExtractor:
-        def extract_batch(self, papers, progress_callback=None, section_ids=None, text_snapshots=None):
+        def extract_batch(
+            self, papers, progress_callback=None, section_ids=None, text_snapshots=None
+        ):
             observed["text_snapshots"] = text_snapshots
             for paper in papers:
                 yield ExtractionResult(
@@ -441,7 +458,11 @@ def test_backfill_reuses_matching_fulltext_snapshot_by_default(
         summary_model=None,
         methodology_model=None,
     )
-    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    logger = SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+    )
     config = _make_config(tmp_path)
 
     assert dimensions_cli.backfill_dimensions(args, config, logger) == 0
@@ -471,7 +492,9 @@ def test_backfill_refresh_text_bypasses_stored_snapshot(
     observed: dict[str, object] = {}
 
     class DummyExtractor:
-        def extract_batch(self, papers, progress_callback=None, section_ids=None, text_snapshots=None):
+        def extract_batch(
+            self, papers, progress_callback=None, section_ids=None, text_snapshots=None
+        ):
             observed["text_snapshots"] = text_snapshots
             for paper in papers:
                 yield ExtractionResult(
@@ -529,7 +552,11 @@ def test_backfill_refresh_text_bypasses_stored_snapshot(
         summary_model=None,
         methodology_model=None,
     )
-    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    logger = SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+    )
     config = _make_config(tmp_path)
 
     assert dimensions_cli.backfill_dimensions(args, config, logger) == 0
@@ -583,7 +610,9 @@ def test_fulltext_only_backfill_populates_canonical_snapshots_without_embeddings
         "configure_extraction_runtime",
         lambda *args, **kwargs: ("anthropic", "cli", tmp_path, 1, False),
     )
-    monkeypatch.setattr(dimensions_cli, "build_section_extractor", lambda **kwargs: DummyExtractor())
+    monkeypatch.setattr(
+        dimensions_cli, "build_section_extractor", lambda **kwargs: DummyExtractor()
+    )
     monkeypatch.setattr(
         dimensions_cli,
         "run_embedding_generation",
@@ -609,7 +638,11 @@ def test_fulltext_only_backfill_populates_canonical_snapshots_without_embeddings
         summary_model=None,
         methodology_model=None,
     )
-    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    logger = SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+    )
     config = _make_config(tmp_path)
 
     assert dimensions_cli.backfill_dimensions(args, config, logger) == 0
@@ -690,7 +723,14 @@ def test_backfill_resume_reuses_staged_extractions_and_skips_completed_ids(
     observed: dict[str, object] = {}
 
     class DummyExtractor:
-        def extract_batch(self, papers, progress_callback=None, section_ids=None, text_snapshots=None, skip_llm=False):
+        def extract_batch(
+            self,
+            papers,
+            progress_callback=None,
+            section_ids=None,
+            text_snapshots=None,
+            skip_llm=False,
+        ):
             observed["paper_ids"] = [paper.paper_id for paper in papers]
             for paper in papers:
                 yield ExtractionResult(
@@ -714,7 +754,9 @@ def test_backfill_resume_reuses_staged_extractions_and_skips_completed_ids(
         "configure_extraction_runtime",
         lambda *args, **kwargs: ("anthropic", "api", tmp_path, 1, False),
     )
-    monkeypatch.setattr(dimensions_cli, "build_section_extractor", lambda **kwargs: DummyExtractor())
+    monkeypatch.setattr(
+        dimensions_cli, "build_section_extractor", lambda **kwargs: DummyExtractor()
+    )
     monkeypatch.setattr(dimensions_cli, "generate_scoped_raptor_summaries", lambda **kwargs: {})
     monkeypatch.setattr(dimensions_cli, "run_embedding_generation", lambda **kwargs: None)
     monkeypatch.setattr(dimensions_cli, "compute_similarity_pairs", lambda **kwargs: 0)
@@ -738,7 +780,11 @@ def test_backfill_resume_reuses_staged_extractions_and_skips_completed_ids(
         summary_model=None,
         methodology_model=None,
     )
-    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    logger = SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+    )
     config = _make_config(tmp_path)
 
     assert dimensions_cli.backfill_dimensions(args, config, logger) == 0
@@ -844,7 +890,11 @@ def test_partial_backfill_keeps_index_snapshot_on_old_profile(
         summary_model=None,
         methodology_model=None,
     )
-    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    logger = SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+    )
     config = _make_config(tmp_path)
 
     assert dimensions_cli.backfill_dimensions(args, config, logger) == 0
@@ -943,7 +993,11 @@ def test_backfill_does_not_advance_profile_if_embedding_refresh_fails(
         summary_model=None,
         methodology_model=None,
     )
-    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    logger = SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+    )
     config = _make_config(tmp_path)
 
     with pytest.raises(RuntimeError, match="embedding refresh failed"):
@@ -1033,7 +1087,11 @@ def test_backfill_aborts_when_any_targeted_section_pass_fails(
         summary_model=None,
         methodology_model=None,
     )
-    logger = SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+    logger = SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+    )
     config = _make_config(tmp_path)
 
     assert dimensions_cli.backfill_dimensions(args, config, logger) == 1
@@ -1179,3 +1237,98 @@ def test_suggest_dimensions_can_run_heuristic_only(
     assert called["llm"] is False
     assert payload["semantic_candidate_count"] == 0
     assert payload["proposal_count"] >= 1
+
+
+def test_suggest_dimensions_uses_fulltext_only_index(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dimensions_cli: ModuleType,
+) -> None:
+    store = _write_fulltext_only_index(tmp_path, ["paper_001", "paper_002"])
+    papers = store.load_papers()
+    papers["paper_001"]["abstract"] = ""
+    papers["paper_002"]["abstract"] = ""
+    store.save_papers(papers)
+    _write_text_snapshot(
+        tmp_path,
+        "paper_001",
+        (
+            "Stakeholder communities coordinate around safety risk and governance "
+            "during regional deployment planning."
+        ),
+    )
+    _write_text_snapshot(
+        tmp_path,
+        "paper_002",
+        (
+            "Participant groups face budget constraints and local implementation "
+            "tradeoffs across city programs."
+        ),
+    )
+    store.save_similarity_pairs(
+        {
+            "paper_001": [{"similar_paper_id": "paper_002", "similarity_score": 0.73}],
+            "paper_002": [{"similar_paper_id": "paper_001", "similarity_score": 0.73}],
+        }
+    )
+
+    captured: dict[str, str] = {}
+
+    def _fake_llm(**kwargs):
+        captured["prompt"] = kwargs["prompt"]
+        return json.dumps(
+            {
+                "proposals": [
+                    {
+                        "dimension_id": "coordination_regime",
+                        "label": "Coordination Regime",
+                        "question": (
+                            "How does the work characterize coordination across actors "
+                            "or system components?"
+                        ),
+                        "rationale": (
+                            "Full-text evidence repeatedly discusses coordination and "
+                            "governance structures."
+                        ),
+                        "suggested_section": "impact",
+                        "suggested_roles": ["coordination"],
+                        "confidence": 0.79,
+                        "example_papers": ["paper_001", "paper_002"],
+                        "bridge_value": (
+                            "Helps compare governance and implementation papers "
+                            "through coordination structure."
+                        ),
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(dimensions_cli, "_call_raw_llm_prompt", _fake_llm)
+
+    args = argparse.Namespace(
+        index_dir=tmp_path,
+        paper=[],
+        sample_size=5,
+        min_hits=1,
+        max_proposals=5,
+        provider="openai",
+        mode="api",
+        model="gpt-5.4",
+        heuristic_only=False,
+        output=tmp_path / "dimension_proposals.json",
+        config=None,
+        verbose=False,
+    )
+    config = _make_config(tmp_path)
+
+    assert dimensions_cli.suggest_dimensions(args, config) == 0
+
+    payload = safe_read_json(args.output, default={})
+    proposal_ids = {proposal["dimension_id"] for proposal in payload["proposals"]}
+
+    assert payload["sample_size"] == 2
+    assert set(payload["sampled_paper_ids"]) == {"paper_001", "paper_002"}
+    assert payload["semantic_candidate_count"] == 1
+    assert "coordination_regime" in proposal_ids
+    assert "stakeholders" in proposal_ids
+    assert "Stakeholder communities coordinate around safety risk" in captured["prompt"]

@@ -1,6 +1,5 @@
 """Tests for PDF extraction and text cleaning."""
 
-
 import pymupdf
 import pytest
 

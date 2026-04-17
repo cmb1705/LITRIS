@@ -195,8 +195,6 @@ class PaperMetadata(BaseModel):
             "source_attachment_key": self.source_attachment_key,
             "source_media_type": self.source_media_type,
             "date_added": self.date_added.isoformat() if self.date_added else None,
-            "date_modified": (
-                self.date_modified.isoformat() if self.date_modified else None
-            ),
+            "date_modified": (self.date_modified.isoformat() if self.date_modified else None),
             "indexed_at": self.indexed_at.isoformat() if self.indexed_at else None,
         }

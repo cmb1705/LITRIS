@@ -64,9 +64,7 @@ class TestDeepReviewResult:
             papers_discovered=50,
             papers_used=10,
             review_text="## Introduction\n\nThis is the review.",
-            qa_result=QAResult(
-                verified=True, issues=[], uncited_papers=[], citation_count=15
-            ),
+            qa_result=QAResult(verified=True, issues=[], uncited_papers=[], citation_count=15),
             paper_readings=[_make_reading()],
         )
 
@@ -288,32 +286,54 @@ class TestDeepReviewPipeline:
         from src.query.search import SearchEngine
 
         store = StructuredStore(tmp_path)
-        store.save_papers([
-            {"paper_id": "p1", "title": "Paper One", "author_string": "Smith",
-             "publication_year": 2024, "collections": [], "item_type": "journalArticle"},
-            {"paper_id": "p2", "title": "Paper Two", "author_string": "Jones",
-             "publication_year": 2023, "collections": [], "item_type": "journalArticle"},
-        ])
-        store.save_extractions({
-            "p1": {"paper_id": "p1", "extraction": {
-                "q02_thesis": "Thesis 1",
-                "q07_methods": "Quantitative",
-                "q03_key_claims": "F1",
-                "q04_evidence": "Evidence for F1",
-                "q19_implications": "C1",
-                "q05_limitations": "L1",
-                "q17_field": "DS",
-            }},
-            "p2": {"paper_id": "p2", "extraction": {
-                "q02_thesis": "Thesis 2",
-                "q07_methods": "Qualitative",
-                "q03_key_claims": "F2",
-                "q04_evidence": "Evidence for F2",
-                "q19_implications": "C2",
-                "q05_limitations": "L2",
-                "q17_field": "ML",
-            }},
-        })
+        store.save_papers(
+            [
+                {
+                    "paper_id": "p1",
+                    "title": "Paper One",
+                    "author_string": "Smith",
+                    "publication_year": 2024,
+                    "collections": [],
+                    "item_type": "journalArticle",
+                },
+                {
+                    "paper_id": "p2",
+                    "title": "Paper Two",
+                    "author_string": "Jones",
+                    "publication_year": 2023,
+                    "collections": [],
+                    "item_type": "journalArticle",
+                },
+            ]
+        )
+        store.save_extractions(
+            {
+                "p1": {
+                    "paper_id": "p1",
+                    "extraction": {
+                        "q02_thesis": "Thesis 1",
+                        "q07_methods": "Quantitative",
+                        "q03_key_claims": "F1",
+                        "q04_evidence": "Evidence for F1",
+                        "q19_implications": "C1",
+                        "q05_limitations": "L1",
+                        "q17_field": "DS",
+                    },
+                },
+                "p2": {
+                    "paper_id": "p2",
+                    "extraction": {
+                        "q02_thesis": "Thesis 2",
+                        "q07_methods": "Qualitative",
+                        "q03_key_claims": "F2",
+                        "q04_evidence": "Evidence for F2",
+                        "q19_implications": "C2",
+                        "q05_limitations": "L2",
+                        "q17_field": "ML",
+                    },
+                },
+            }
+        )
 
         engine = SearchEngine.__new__(SearchEngine)
         engine.structured_store = store
@@ -335,10 +355,22 @@ class TestDeepReviewPipeline:
         from src.indexing.vector_store import SearchResult
 
         engine.vector_store.search.return_value = [
-            SearchResult(paper_id="p1", chunk_id="c1", chunk_type="dim_q02",
-                         text="text1", score=0.9, metadata={"title": "Paper One"}),
-            SearchResult(paper_id="p2", chunk_id="c2", chunk_type="dim_q02",
-                         text="text2", score=0.8, metadata={"title": "Paper Two"}),
+            SearchResult(
+                paper_id="p1",
+                chunk_id="c1",
+                chunk_type="dim_q02",
+                text="text1",
+                score=0.9,
+                metadata={"title": "Paper One"},
+            ),
+            SearchResult(
+                paper_id="p2",
+                chunk_id="c2",
+                chunk_type="dim_q02",
+                text="text2",
+                score=0.8,
+                metadata={"title": "Paper Two"},
+            ),
         ]
 
         mock_gaps.return_value = GapAnalysis(gaps=[], follow_up_queries=[])
@@ -402,8 +434,14 @@ class TestDeepReviewPipeline:
         from src.indexing.vector_store import SearchResult
 
         engine.vector_store.search.return_value = [
-            SearchResult(paper_id="p1", chunk_id="c1", chunk_type="dim_q02",
-                         text="text1", score=0.9, metadata={"title": "Paper One"}),
+            SearchResult(
+                paper_id="p1",
+                chunk_id="c1",
+                chunk_type="dim_q02",
+                text="text1",
+                score=0.9,
+                metadata={"title": "Paper One"},
+            ),
         ]
 
         mock_gaps.return_value = GapAnalysis(gaps=[], follow_up_queries=[])

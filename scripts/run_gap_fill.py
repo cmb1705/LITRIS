@@ -36,7 +36,7 @@ from src.analysis.llm_council import (
 from src.analysis.schemas import SemanticAnalysis
 from src.config import Config
 from src.extraction.cascade import ExtractionCascade
-from src.extraction.opendataloader_extractor import build_hybrid_config
+from src.extraction.opendataloader_extractor import build_hybrid_config_from_processing
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
 from src.utils.logging_config import setup_logging
@@ -52,8 +52,7 @@ MODEL_PROVIDER_MAP = {
     "google": set(GEMINI_MODELS) | {DEFAULT_MODELS["google"]},
 }
 LOWER_MODEL_PROVIDER_MAP = {
-    provider: {model.lower() for model in models}
-    for provider, models in MODEL_PROVIDER_MAP.items()
+    provider: {model.lower() for model in models} for provider, models in MODEL_PROVIDER_MAP.items()
 }
 
 
@@ -151,15 +150,29 @@ def main():
 
     # Academic item types worth gap-filling
     academic_types = {
-        "journalArticle", "book", "bookSection", "thesis",
-        "conferencePaper", "report", "preprint",
+        "journalArticle",
+        "book",
+        "bookSection",
+        "thesis",
+        "conferencePaper",
+        "report",
+        "preprint",
     }
 
     # Non-academic title patterns to skip
     skip_patterns = [
-        "errata", "youtube", "playlist", ".jpg", ".png", ".ppt",
-        "activity 12", "sharing.jpg", "draft methods", "draft research",
-        "ppt ", "dd form",
+        "errata",
+        "youtube",
+        "playlist",
+        ".jpg",
+        ".png",
+        ".ppt",
+        "activity 12",
+        "sharing.jpg",
+        "draft methods",
+        "draft research",
+        "ppt ",
+        "dd form",
     ]
 
     # Find academic papers below threshold
@@ -167,7 +180,8 @@ def main():
     for pid, entry in extractions.items():
         ext = entry.get("extraction", {})
         filled = sum(
-            1 for k, v in ext.items()
+            1
+            for k, v in ext.items()
             if k.startswith("q") and len(k) > 3 and k[1:3].isdigit() and v is not None
         )
         coverage = filled / 40
@@ -188,7 +202,7 @@ def main():
     candidates.sort(key=lambda x: x[1])
 
     if args.limit:
-        candidates = candidates[:args.limit]
+        candidates = candidates[: args.limit]
 
     print(f"Papers below {args.threshold:.0%}: {len(candidates)}")
     if not candidates:
@@ -220,29 +234,7 @@ def main():
         enable_ocr=config.processing.ocr_enabled or config.processing.ocr_on_fail,
     )
     text_cleaner = TextCleaner()
-    hybrid_config = build_hybrid_config(
-        enabled=config.processing.opendataloader_hybrid_enabled,
-        backend=config.processing.opendataloader_hybrid_backend,
-        client_mode=config.processing.opendataloader_hybrid_client_mode,
-        server_url=config.processing.opendataloader_hybrid_url,
-        timeout_ms=config.processing.opendataloader_hybrid_timeout_ms,
-        autostart=config.processing.opendataloader_hybrid_autostart,
-        host=config.processing.opendataloader_hybrid_host,
-        port=config.processing.opendataloader_hybrid_port,
-        startup_timeout_seconds=(
-            config.processing.opendataloader_hybrid_startup_timeout_seconds
-        ),
-        force_ocr=config.processing.opendataloader_hybrid_force_ocr,
-        ocr_lang=config.processing.opendataloader_hybrid_ocr_lang,
-        enrich_formula=config.processing.opendataloader_hybrid_enrich_formula,
-        enrich_picture_description=(
-            config.processing.opendataloader_hybrid_enrich_picture_description
-        ),
-        picture_description_prompt=(
-            config.processing.opendataloader_hybrid_picture_description_prompt
-        ),
-        device=config.processing.opendataloader_hybrid_device,
-    )
+    hybrid_config = build_hybrid_config_from_processing(config.processing)
     cascade = ExtractionCascade(
         pdf_extractor=pdf_extractor,
         enable_arxiv=config.processing.arxiv_enabled,
@@ -250,9 +242,7 @@ def main():
         enable_marker=config.processing.marker_enabled,
         opendataloader_mode=config.processing.opendataloader_mode,
         opendataloader_hybrid=hybrid_config,
-        opendataloader_hybrid_fallback=(
-            config.processing.opendataloader_hybrid_fallback
-        ),
+        opendataloader_hybrid_fallback=(config.processing.opendataloader_hybrid_fallback),
     )
 
     filled_total = 0
@@ -267,9 +257,7 @@ def main():
 
         paper = paper_lookup[pid]
         try:
-            gap_passes = identify_gap_passes(
-                SemanticAnalysis(**extractions[pid]["extraction"])
-            )
+            gap_passes = identify_gap_passes(SemanticAnalysis(**extractions[pid]["extraction"]))
         except Exception as exc:
             print(f"  [{idx}] {pid[:20]}: parse error: {exc}")
             failed += 1
@@ -312,9 +300,7 @@ def main():
             failed += 1
             return
 
-        authors = ", ".join(
-            f"{a.last_name}, {a.first_name}" for a in (paper.authors or [])
-        )
+        authors = ", ".join(f"{a.last_name}, {a.first_name}" for a in (paper.authors or []))
 
         try:
             # Each thread gets its own council instance to avoid shared client state
@@ -322,7 +308,10 @@ def main():
             analysis = SemanticAnalysis(**extractions[pid]["extraction"])
             gap_provider_name = resolve_gap_fill_provider(extractions[pid], args.provider)
             gap_provider = ProviderConfig(
-                name=gap_provider_name, weight=1.0, timeout=600, mode="cli",
+                name=gap_provider_name,
+                weight=1.0,
+                timeout=600,
+                mode="cli",
             )
 
             merged, gaps_filled = thread_council.fill_gaps(
@@ -340,7 +329,8 @@ def main():
                 if gaps_filled > 0:
                     filled_total += gaps_filled
                     new_filled = sum(
-                        1 for k, v in merged.model_dump().items()
+                        1
+                        for k, v in merged.model_dump().items()
                         if k.startswith("q") and len(k) > 3 and k[1:3].isdigit() and v is not None
                     )
                     print(f"  [{idx}] Filled {gaps_filled} gaps ({filled}/40 -> {new_filled}/40)")
@@ -366,7 +356,7 @@ def main():
         chunk_size = args.parallel * 3
 
         for chunk_start in range(0, len(indexed), chunk_size):
-            chunk = indexed[chunk_start:chunk_start + chunk_size]
+            chunk = indexed[chunk_start : chunk_start + chunk_size]
             with ThreadPoolExecutor(max_workers=args.parallel) as executor:
                 futures = {executor.submit(process_one, item): item for item in chunk}
                 for future in as_completed(futures):

@@ -13,6 +13,9 @@ def test_processing_config_cascade_defaults():
     assert config.companion_dir is None
     assert config.arxiv_enabled is True
     assert config.marker_enabled is True
+    assert config.opendataloader_hybrid_device == "cuda"
+    assert config.opendataloader_hybrid_python_executable.endswith("python.exe")
+    assert len(config.opendataloader_hybrid_servers) == 8
 
 
 def test_processing_config_cascade_overrides():

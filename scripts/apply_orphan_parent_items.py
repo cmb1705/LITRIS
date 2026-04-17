@@ -174,17 +174,15 @@ def print_summary(report: list[dict]) -> None:
     print("REPORT SUMMARY")
     print("=" * 60)
     print(f"Total PDFs: {total}")
-    print(f"With DOI: {with_doi} ({with_doi*100/total:.1f}%)")
-    print(f"With title: {with_title} ({with_title*100/total:.1f}%)")
-    print(f"With authors: {with_authors} ({with_authors*100/total:.1f}%)")
-    print(f"With year: {with_year} ({with_year*100/total:.1f}%)")
+    print(f"With DOI: {with_doi} ({with_doi * 100 / total:.1f}%)")
+    print(f"With title: {with_title} ({with_title * 100 / total:.1f}%)")
+    print(f"With authors: {with_authors} ({with_authors * 100 / total:.1f}%)")
+    print(f"With year: {with_year} ({with_year * 100 / total:.1f}%)")
     print("=" * 60)
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Create parent items from orphan PDFs report"
-    )
+    parser = argparse.ArgumentParser(description="Create parent items from orphan PDFs report")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -237,9 +235,7 @@ def main():
 
     # Create backup if requested
     if args.backup and args.apply:
-        backup_path = Path(db_path).with_suffix(
-            f".backup_{datetime.now():%Y%m%d_%H%M%S}.sqlite"
-        )
+        backup_path = Path(db_path).with_suffix(f".backup_{datetime.now():%Y%m%d_%H%M%S}.sqlite")
         shutil.copy2(db_path, backup_path)
         logger.info(f"Created backup: {backup_path}")
         print(f"Created backup: {backup_path}")

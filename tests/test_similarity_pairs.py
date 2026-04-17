@@ -77,16 +77,41 @@ class TestSearchEngineSimilarity:
     def _make_engine(self, tmp_path, pairs=None):
         """Create a SearchEngine with mocked components."""
         store = StructuredStore(tmp_path)
-        store.save_papers([
-            {"paper_id": "p1", "title": "Paper One", "author_string": "Smith", "publication_year": 2024, "collections": [], "item_type": "journalArticle"},
-            {"paper_id": "p2", "title": "Paper Two", "author_string": "Jones", "publication_year": 2023, "collections": [], "item_type": "journalArticle"},
-            {"paper_id": "p3", "title": "Paper Three", "author_string": "Lee", "publication_year": 2022, "collections": [], "item_type": "journalArticle"},
-        ])
-        store.save_extractions({
-            "p1": {"paper_id": "p1", "extraction": {"q02_thesis": "Thesis 1"}},
-            "p2": {"paper_id": "p2", "extraction": {"q02_thesis": "Thesis 2"}},
-            "p3": {"paper_id": "p3", "extraction": {"q02_thesis": "Thesis 3"}},
-        })
+        store.save_papers(
+            [
+                {
+                    "paper_id": "p1",
+                    "title": "Paper One",
+                    "author_string": "Smith",
+                    "publication_year": 2024,
+                    "collections": [],
+                    "item_type": "journalArticle",
+                },
+                {
+                    "paper_id": "p2",
+                    "title": "Paper Two",
+                    "author_string": "Jones",
+                    "publication_year": 2023,
+                    "collections": [],
+                    "item_type": "journalArticle",
+                },
+                {
+                    "paper_id": "p3",
+                    "title": "Paper Three",
+                    "author_string": "Lee",
+                    "publication_year": 2022,
+                    "collections": [],
+                    "item_type": "journalArticle",
+                },
+            ]
+        )
+        store.save_extractions(
+            {
+                "p1": {"paper_id": "p1", "extraction": {"q02_thesis": "Thesis 1"}},
+                "p2": {"paper_id": "p2", "extraction": {"q02_thesis": "Thesis 2"}},
+                "p3": {"paper_id": "p3", "extraction": {"q02_thesis": "Thesis 3"}},
+            }
+        )
 
         if pairs is not None:
             store.save_similarity_pairs(pairs)

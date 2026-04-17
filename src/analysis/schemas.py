@@ -309,8 +309,7 @@ class DimensionedExtraction(BaseModel):
 
         normalized = dict(data)
         normalized["dimensions"] = {
-            str(key): normalize_dimension_value(value)
-            for key, value in raw_dimensions.items()
+            str(key): normalize_dimension_value(value) for key, value in raw_dimensions.items()
         }
         return normalized
 
@@ -386,7 +385,11 @@ class DimensionedExtraction(BaseModel):
             return record
         if hasattr(record, "to_dimensioned_extraction"):
             return record.to_dimensioned_extraction()
-        if isinstance(record, dict) and "extraction" in record and isinstance(record["extraction"], dict):
+        if (
+            isinstance(record, dict)
+            and "extraction" in record
+            and isinstance(record["extraction"], dict)
+        ):
             record = record["extraction"]
         if isinstance(record, dict):
             dimensions = record.get("dimensions")
@@ -628,10 +631,7 @@ class SemanticAnalysis(BaseModel):
         registry = get_default_dimension_registry()
         profile = registry.profiles.get(profile_id, _LEGACY_PROFILE)
         dimension_map = (
-            {
-                str(key): normalize_dimension_value(value)
-                for key, value in dimensions.items()
-            }
+            {str(key): normalize_dimension_value(value) for key, value in dimensions.items()}
             if isinstance(dimensions, dict)
             else {}
         )
@@ -650,9 +650,7 @@ class SemanticAnalysis(BaseModel):
                 ):
                     data.setdefault(
                         dimension.legacy_field_name,
-                        normalize_dimension_value(
-                            dimensions.get(dimension.legacy_short_name)
-                        ),
+                        normalize_dimension_value(dimensions.get(dimension.legacy_short_name)),
                     )
 
         for dimension in profile.dimensions:
@@ -728,9 +726,9 @@ class SemanticAnalysis(BaseModel):
             for dimension_id in dimension_ids
             if _LEGACY_PROFILE.dimension_map[dimension_id].legacy_field_name
         ]
-        for group_name, dimension_ids in get_default_dimension_registry().get_dimension_groups(
-            profile_id=LEGACY_PROFILE_ID
-        ).items()
+        for group_name, dimension_ids in get_default_dimension_registry()
+        .get_dimension_groups(profile_id=LEGACY_PROFILE_ID)
+        .items()
     }
 
     @classmethod
@@ -815,9 +813,7 @@ class SemanticAnalysis(BaseModel):
 
         quality_summary = None
         if extraction.quality_rating is not None and extraction.quality_explanation:
-            quality_summary = (
-                f"{extraction.quality_rating}/5. {extraction.quality_explanation}"
-            )
+            quality_summary = f"{extraction.quality_rating}/5. {extraction.quality_explanation}"
         elif extraction.quality_rating is not None:
             quality_summary = f"{extraction.quality_rating}/5."
         elif extraction.quality_explanation:
@@ -925,10 +921,7 @@ class SemanticAnalysis(BaseModel):
 
     def to_legacy_q_dict(self) -> dict[str, str | None]:
         """Return legacy q-field answers for backward-compatible consumers."""
-        return {
-            field_name: getattr(self, field_name, None)
-            for field_name in self.DIMENSION_FIELDS
-        }
+        return {field_name: getattr(self, field_name, None) for field_name in self.DIMENSION_FIELDS}
 
     def to_index_dict(self) -> dict:
         """Convert to a storage dictionary with canonical and legacy fields."""

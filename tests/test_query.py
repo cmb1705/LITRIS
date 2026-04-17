@@ -515,10 +515,11 @@ class TestSearchEngine:
     @pytest.fixture
     def mock_dependencies(self, temp_index_dir):
         """Mock search engine dependencies."""
-        with patch("src.query.search.StructuredStore") as mock_store, \
-             patch("src.query.search.VectorStore") as mock_vector, \
-             patch("src.query.search.EmbeddingGenerator") as mock_embed:
-
+        with (
+            patch("src.query.search.StructuredStore") as mock_store,
+            patch("src.query.search.VectorStore") as mock_vector,
+            patch("src.query.search.EmbeddingGenerator") as mock_embed,
+        ):
             # Setup mock returns
             mock_store_instance = MagicMock()
             mock_store_instance.get_paper_with_extraction.return_value = {

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Lint markdown files using markdownlint-cli2."""
+
 import os
 import re
 import subprocess

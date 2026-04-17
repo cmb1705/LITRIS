@@ -13,13 +13,13 @@ from pathlib import Path
 from tqdm import tqdm
 
 from src.analysis.classification_store import ClassificationIndex
-from src.analysis.extraction_intent_classifier import HybridProfileSpec
 from src.analysis.cli_executor import ClaudeCliAuthenticator
+from src.analysis.extraction_intent_classifier import HybridProfileSpec
 from src.analysis.raptor import RaptorSummaries
 from src.analysis.schemas import SemanticAnalysis
 from src.analysis.section_extractor import SectionExtractor
 from src.config import Config
-from src.extraction.opendataloader_extractor import build_hybrid_config
+from src.extraction.opendataloader_extractor import build_hybrid_config_from_processing
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
 from src.indexing.embeddings import EmbeddingChunk, EmbeddingGenerator
@@ -213,9 +213,7 @@ def run_extraction(
                     "planned_extraction_intent": result.planned_extraction_intent,
                     "planned_profile_key": result.planned_profile_key,
                     "actual_profile_key": result.actual_profile_key,
-                    "extraction_routing_overridden": (
-                        result.extraction_routing_overridden
-                    ),
+                    "extraction_routing_overridden": (result.extraction_routing_overridden),
                     "extraction_override_reason": result.extraction_override_reason,
                     "extraction_diagnostics": dict(result.extraction_diagnostics),
                 }
@@ -237,9 +235,7 @@ def run_extraction(
                     result.paper_id,
                     "; ".join(
                         f"{tier}={message}"
-                        for tier, message in sorted(
-                            result.extraction_diagnostics.items()
-                        )
+                        for tier, message in sorted(result.extraction_diagnostics.items())
                     ),
                 )
 
@@ -274,9 +270,7 @@ def run_extraction(
         store.flush_fulltext_manifest()
 
     processed_id_set = set(processed_ids)
-    pending_ids = [
-        paper.paper_id for paper in papers if paper.paper_id not in processed_id_set
-    ]
+    pending_ids = [paper.paper_id for paper in papers if paper.paper_id not in processed_id_set]
     return ExtractionRunResult(
         paper_dicts=paper_dicts,
         extractions=existing_extractions,
@@ -331,9 +325,7 @@ def run_gap_fill(
         threshold * 100,
     )
 
-    secondary = gap_fill_provider or (
-        "anthropic" if primary_provider == "openai" else "openai"
-    )
+    secondary = gap_fill_provider or ("anthropic" if primary_provider == "openai" else "openai")
     council_config = CouncilConfig(
         providers=[
             ProviderConfig(name=primary_provider, weight=1.2, timeout=600, mode=mode),
@@ -412,7 +404,10 @@ def run_gap_fill(
                 item_type=paper.item_type,
                 text=text[:100000],
                 gap_provider=ProviderConfig(
-                    name=secondary, weight=1.0, timeout=600, mode=mode,
+                    name=secondary,
+                    weight=1.0,
+                    timeout=600,
+                    mode=mode,
                 ),
             )
             if gaps_filled > 0:
@@ -487,17 +482,19 @@ def write_skipped_report(
         if not any(result.error.startswith(prefix) for prefix in skip_prefixes):
             continue
         paper = paper_dicts.get(result.paper_id, {})
-        skipped_items.append({
-            "paper_id": result.paper_id,
-            "title": paper.get("title"),
-            "zotero_key": paper.get("zotero_key"),
-            "item_type": paper.get("item_type"),
-            "publication_year": paper.get("publication_year"),
-            "pdf_path": paper.get("pdf_path"),
-            "reason": result.error,
-            "model": result.model_used,
-            "timestamp": result.timestamp.isoformat(),
-        })
+        skipped_items.append(
+            {
+                "paper_id": result.paper_id,
+                "title": paper.get("title"),
+                "zotero_key": paper.get("zotero_key"),
+                "item_type": paper.get("item_type"),
+                "publication_year": paper.get("publication_year"),
+                "pdf_path": paper.get("pdf_path"),
+                "reason": result.error,
+                "model": result.model_used,
+                "timestamp": result.timestamp.isoformat(),
+            }
+        )
 
     if not skipped_items:
         return None, None
@@ -694,7 +691,9 @@ def compute_similarity_pairs(
             for idx, _chunk_id in enumerate(results["ids"]):
                 meta = results["metadatas"][idx] if results["metadatas"] is not None else {}
                 paper_id = meta.get("paper_id", "")
-                embedding = results["embeddings"][idx] if results["embeddings"] is not None else None
+                embedding = (
+                    results["embeddings"][idx] if results["embeddings"] is not None else None
+                )
                 if paper_id and embedding is not None:
                     paper_ids.append(paper_id)
                     embeddings.append(embedding)
@@ -717,7 +716,9 @@ def compute_similarity_pairs(
                 for idx, chunk_id in enumerate(results["ids"]):
                     meta = results["metadatas"][idx] if results["metadatas"] is not None else {}
                     paper_id = meta.get("paper_id", "")
-                    document = results["documents"][idx] if results["documents"] is not None else None
+                    document = (
+                        results["documents"][idx] if results["documents"] is not None else None
+                    )
                     if paper_id and document:
                         overview_chunks.append(
                             EmbeddingChunk(
@@ -786,10 +787,12 @@ def compute_similarity_pairs(
             sim_score = float(scores[similar_idx])
             if sim_score <= 0:
                 break
-            similar_list.append({
-                "similar_paper_id": paper_ids[similar_idx],
-                "similarity_score": round(sim_score, 4),
-            })
+            similar_list.append(
+                {
+                    "similar_paper_id": paper_ids[similar_idx],
+                    "similarity_score": round(sim_score, 4),
+                }
+            )
         if similar_list:
             pairs[source_id] = similar_list
 
@@ -884,10 +887,9 @@ def _snapshot_matches_paper(
         if stored_source_size is None or stored_source_mtime_ns is None:
             return True
 
-        return (
-            int(stored_source_size) == int(source_stat.st_size)
-            and int(stored_source_mtime_ns) == int(source_stat.st_mtime_ns)
-        )
+        return int(stored_source_size) == int(source_stat.st_size) and int(
+            stored_source_mtime_ns
+        ) == int(source_stat.st_mtime_ns)
 
     if not paper.pdf_path or not paper.pdf_path.exists():
         return True
@@ -907,10 +909,7 @@ def _snapshot_matches_paper(
     if stored_size is None or stored_mtime_ns is None:
         return True
 
-    return (
-        int(stored_size) == int(stat.st_size)
-        and int(stored_mtime_ns) == int(stat.st_mtime_ns)
-    )
+    return int(stored_size) == int(stat.st_size) and int(stored_mtime_ns) == int(stat.st_mtime_ns)
 
 
 def build_section_extractor(
@@ -924,29 +923,7 @@ def build_section_extractor(
     planned_profile: HybridProfileSpec | None = None,
 ) -> SectionExtractor:
     """Build the configured section extractor for a run."""
-    base_hybrid_config = build_hybrid_config(
-        enabled=config.processing.opendataloader_hybrid_enabled,
-        backend=config.processing.opendataloader_hybrid_backend,
-        client_mode=config.processing.opendataloader_hybrid_client_mode,
-        server_url=config.processing.opendataloader_hybrid_url,
-        timeout_ms=config.processing.opendataloader_hybrid_timeout_ms,
-        autostart=config.processing.opendataloader_hybrid_autostart,
-        host=config.processing.opendataloader_hybrid_host,
-        port=config.processing.opendataloader_hybrid_port,
-        startup_timeout_seconds=(
-            config.processing.opendataloader_hybrid_startup_timeout_seconds
-        ),
-        force_ocr=config.processing.opendataloader_hybrid_force_ocr,
-        ocr_lang=config.processing.opendataloader_hybrid_ocr_lang,
-        enrich_formula=config.processing.opendataloader_hybrid_enrich_formula,
-        enrich_picture_description=(
-            config.processing.opendataloader_hybrid_enrich_picture_description
-        ),
-        picture_description_prompt=(
-            config.processing.opendataloader_hybrid_picture_description_prompt
-        ),
-        device=config.processing.opendataloader_hybrid_device,
-    )
+    base_hybrid_config = build_hybrid_config_from_processing(config.processing)
     effective_mode = config.processing.opendataloader_mode
     effective_hybrid_config = base_hybrid_config
     if planned_profile is not None:
@@ -974,9 +951,7 @@ def build_section_extractor(
         opendataloader_enabled=config.processing.opendataloader_enabled,
         opendataloader_mode=effective_mode,
         opendataloader_hybrid_config=effective_hybrid_config,
-        opendataloader_hybrid_fallback=(
-            config.processing.opendataloader_hybrid_fallback
-        ),
+        opendataloader_hybrid_fallback=(config.processing.opendataloader_hybrid_fallback),
         marker_enabled=config.processing.marker_enabled,
         use_cache=use_cache,
         parallel_workers=parallel_workers,

@@ -156,10 +156,12 @@ class TestGenerateRaptorSummaries:
     def test_generates_valid_summaries(self, mock_factory, sample_paper, sample_analysis):
         mock_client = MagicMock()
         mock_client._call_api.return_value = (
-            json.dumps({
-                "paper_overview": "A concise overview of the study...",
-                "core_contribution": "Key contribution in one sentence.",
-            }),
+            json.dumps(
+                {
+                    "paper_overview": "A concise overview of the study...",
+                    "core_contribution": "Key contribution in one sentence.",
+                }
+            ),
             100,
             200,
         )
@@ -232,10 +234,12 @@ class TestGenerateRaptorSummaries:
     def test_passes_provider_and_model(self, mock_factory, sample_paper, sample_analysis):
         mock_client = MagicMock()
         mock_client._call_api.return_value = (
-            json.dumps({
-                "paper_overview": "O",
-                "core_contribution": "C",
-            }),
+            json.dumps(
+                {
+                    "paper_overview": "O",
+                    "core_contribution": "C",
+                }
+            ),
             10,
             20,
         )
@@ -359,38 +363,50 @@ class TestChunkTypeIntegration:
         assert "raptor_core" not in chunk_types
 
     @patch("src.indexing.embeddings._SentenceTransformer")
-    def test_create_chunks_with_raptor(self, mock_st, sample_paper, sample_analysis, raptor_summaries):
+    def test_create_chunks_with_raptor(
+        self, mock_st, sample_paper, sample_analysis, raptor_summaries
+    ):
         """With RAPTOR summaries, 2 additional chunks are created."""
         mock_model = MagicMock()
         mock_st.return_value = mock_model
 
         gen = EmbeddingGenerator(model_name="test-model")
         chunks_without = gen.create_chunks(sample_paper, sample_analysis)
-        chunks_with = gen.create_chunks(sample_paper, sample_analysis, raptor_summaries=raptor_summaries)
+        chunks_with = gen.create_chunks(
+            sample_paper, sample_analysis, raptor_summaries=raptor_summaries
+        )
 
         assert len(chunks_with) == len(chunks_without) + 2
 
-        raptor_chunks = [c for c in chunks_with if c.chunk_type in ("raptor_overview", "raptor_core")]
+        raptor_chunks = [
+            c for c in chunks_with if c.chunk_type in ("raptor_overview", "raptor_core")
+        ]
         assert len(raptor_chunks) == 2
 
         raptor_types = {c.chunk_type for c in raptor_chunks}
         assert raptor_types == {"raptor_overview", "raptor_core"}
 
     @patch("src.indexing.embeddings._SentenceTransformer")
-    def test_raptor_chunks_have_correct_ids(self, mock_st, sample_paper, sample_analysis, raptor_summaries):
+    def test_raptor_chunks_have_correct_ids(
+        self, mock_st, sample_paper, sample_analysis, raptor_summaries
+    ):
         mock_model = MagicMock()
         mock_st.return_value = mock_model
 
         gen = EmbeddingGenerator(model_name="test-model")
         chunks = gen.create_chunks(sample_paper, sample_analysis, raptor_summaries=raptor_summaries)
 
-        raptor_chunks = {c.chunk_type: c for c in chunks if c.chunk_type in ("raptor_overview", "raptor_core")}
+        raptor_chunks = {
+            c.chunk_type: c for c in chunks if c.chunk_type in ("raptor_overview", "raptor_core")
+        }
 
         assert raptor_chunks["raptor_overview"].chunk_id == "test_001_raptor_overview"
         assert raptor_chunks["raptor_core"].chunk_id == "test_001_raptor_core"
 
     @patch("src.indexing.embeddings._SentenceTransformer")
-    def test_raptor_chunks_have_metadata(self, mock_st, sample_paper, sample_analysis, raptor_summaries):
+    def test_raptor_chunks_have_metadata(
+        self, mock_st, sample_paper, sample_analysis, raptor_summaries
+    ):
         mock_model = MagicMock()
         mock_st.return_value = mock_model
 
@@ -418,5 +434,7 @@ class TestChunkTypeIntegration:
         gen = EmbeddingGenerator(model_name="test-model")
         chunks = gen.create_chunks(sample_paper, sample_analysis, raptor_summaries=partial_raptor)
 
-        raptor_types = [c.chunk_type for c in chunks if c.chunk_type in ("raptor_overview", "raptor_core")]
+        raptor_types = [
+            c.chunk_type for c in chunks if c.chunk_type in ("raptor_overview", "raptor_core")
+        ]
         assert raptor_types == ["raptor_overview"]

@@ -53,35 +53,43 @@ def format_paper_embed(paper: dict[str, Any]) -> dict[str, Any]:
     fields = []
 
     if abstract:
-        fields.append({
-            "name": "Abstract",
-            "value": _truncate(abstract, MAX_FIELD_VALUE),
-            "inline": False,
-        })
+        fields.append(
+            {
+                "name": "Abstract",
+                "value": _truncate(abstract, MAX_FIELD_VALUE),
+                "inline": False,
+            }
+        )
 
     thesis = get_dimension_value(extraction, "thesis") if extraction else ""
     if thesis:
-        fields.append({
-            "name": "Thesis",
-            "value": _truncate(thesis, MAX_FIELD_VALUE),
-            "inline": False,
-        })
+        fields.append(
+            {
+                "name": "Thesis",
+                "value": _truncate(thesis, MAX_FIELD_VALUE),
+                "inline": False,
+            }
+        )
 
     methods = get_dimension_value(extraction, "methods") if extraction else ""
     if methods:
-        fields.append({
-            "name": "Methods",
-            "value": _truncate(methods, MAX_FIELD_VALUE),
-            "inline": False,
-        })
+        fields.append(
+            {
+                "name": "Methods",
+                "value": _truncate(methods, MAX_FIELD_VALUE),
+                "inline": False,
+            }
+        )
 
     key_claims = get_dimension_value(extraction, "key_claims") if extraction else ""
     if key_claims:
-        fields.append({
-            "name": "Key Claims",
-            "value": _truncate(key_claims, MAX_FIELD_VALUE),
-            "inline": False,
-        })
+        fields.append(
+            {
+                "name": "Key Claims",
+                "value": _truncate(key_claims, MAX_FIELD_VALUE),
+                "inline": False,
+            }
+        )
 
     quality = extraction.get("quality_rating") if extraction else None
     confidence = extraction.get("extraction_confidence", 0) if extraction else 0
@@ -91,11 +99,13 @@ def format_paper_embed(paper: dict[str, Any]) -> dict[str, Any]:
             meta_parts.append(f"Quality: {quality}/5")
         if confidence:
             meta_parts.append(f"Confidence: {confidence:.0%}")
-        fields.append({
-            "name": "Extraction Quality",
-            "value": " | ".join(meta_parts),
-            "inline": True,
-        })
+        fields.append(
+            {
+                "name": "Extraction Quality",
+                "value": " | ".join(meta_parts),
+                "inline": True,
+            }
+        )
 
     return {
         "title": _truncate(title, 256),
@@ -135,23 +145,17 @@ def format_search_result_embed(
     ]
 
     if matched_text:
-        description_parts.append(
-            f"**Match:** {_truncate(matched_text, 300)}"
-        )
+        description_parts.append(f"**Match:** {_truncate(matched_text, 300)}")
 
     extraction = result.get("extraction", {})
     if extraction:
         thesis = get_dimension_value(extraction, "thesis") or ""
         if thesis:
-            description_parts.append(
-                f"**Thesis:** {_truncate(thesis, 200)}"
-            )
+            description_parts.append(f"**Thesis:** {_truncate(thesis, 200)}")
 
     return {
         "title": _truncate(header, 256),
-        "description": _truncate(
-            "\n".join(description_parts), MAX_EMBED_DESCRIPTION
-        ),
+        "description": _truncate("\n".join(description_parts), MAX_EMBED_DESCRIPTION),
         "color": 0x2ECC71,
         "footer": {"text": f"Paper ID: {paper_id}"},
     }
@@ -180,10 +184,7 @@ def format_search_page(
     # Header embed
     header = {
         "title": f"Search: {_truncate(query, 200)}",
-        "description": (
-            f"Found {total_results} results | "
-            f"Page {page + 1}/{total_pages}"
-        ),
+        "description": (f"Found {total_results} results | Page {page + 1}/{total_pages}"),
         "color": 0x9B59B6,
     }
 
@@ -231,22 +232,26 @@ def format_summary_embed(summary: dict[str, Any]) -> dict[str, Any]:
     if collections:
         top_5 = sorted(collections.items(), key=lambda x: x[1], reverse=True)[:5]
         col_text = "\n".join(f"- {name}: {count}" for name, count in top_5)
-        fields.append({
-            "name": "Top Collections",
-            "value": _truncate(col_text, MAX_FIELD_VALUE),
-            "inline": False,
-        })
+        fields.append(
+            {
+                "name": "Top Collections",
+                "value": _truncate(col_text, MAX_FIELD_VALUE),
+                "inline": False,
+            }
+        )
 
     # Top disciplines
     disciplines = summary.get("top_disciplines", {})
     if disciplines:
         top_5 = sorted(disciplines.items(), key=lambda x: x[1], reverse=True)[:5]
         disc_text = "\n".join(f"- {name}: {count}" for name, count in top_5)
-        fields.append({
-            "name": "Top Disciplines",
-            "value": _truncate(disc_text, MAX_FIELD_VALUE),
-            "inline": False,
-        })
+        fields.append(
+            {
+                "name": "Top Disciplines",
+                "value": _truncate(disc_text, MAX_FIELD_VALUE),
+                "inline": False,
+            }
+        )
 
     return {
         "title": "LITRIS Index Summary",

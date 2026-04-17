@@ -33,9 +33,7 @@ def validate_query(query: str) -> str:
     query = query.strip()
 
     if len(query) > MAX_QUERY_LENGTH:
-        raise ValidationError(
-            f"Query too long: {len(query)} characters (max: {MAX_QUERY_LENGTH})"
-        )
+        raise ValidationError(f"Query too long: {len(query)} characters (max: {MAX_QUERY_LENGTH})")
 
     return query
 
@@ -98,8 +96,7 @@ def validate_year(year: int, param_name: str = "year") -> int:
     """
     if year < MIN_YEAR or year > MAX_YEAR:
         raise ValidationError(
-            f"Invalid {param_name}: {year}. "
-            f"Year must be between {MIN_YEAR} and {MAX_YEAR}."
+            f"Invalid {param_name}: {year}. Year must be between {MIN_YEAR} and {MAX_YEAR}."
         )
     return year
 
@@ -124,9 +121,7 @@ def validate_chunk_types(chunk_types: list[str]) -> list[str]:
 
     valid_static = {"abstract", "raptor_overview", "raptor_core"}
     invalid_types = [
-        ct
-        for ct in chunk_types
-        if ct not in valid_static and not ct.startswith("dim_")
+        ct for ct in chunk_types if ct not in valid_static and not ct.startswith("dim_")
     ]
     if invalid_types:
         raise ValidationError(
@@ -150,9 +145,7 @@ def validate_quality_min(quality_min: int) -> int:
         ValidationError: If quality_min is outside valid range.
     """
     if quality_min < 1 or quality_min > 5:
-        raise ValidationError(
-            f"Invalid quality_min: {quality_min}. Must be between 1 and 5."
-        )
+        raise ValidationError(f"Invalid quality_min: {quality_min}. Must be between 1 and 5.")
     return quality_min
 
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Block edits to Zotero storage directories."""
+
 import os
 import re
 import sys

@@ -33,8 +33,7 @@ Guidelines:
 
 DOCUMENT_TYPE_FRAMING: dict[str, str] = {
     "research_paper": (
-        "This is primary empirical or theoretical research. "
-        "Most dimensions should be answerable."
+        "This is primary empirical or theoretical research. Most dimensions should be answerable."
     ),
     "book": (
         "This is a book-length scholarly work. "
@@ -179,6 +178,7 @@ def get_pass_reasoning_effort(pass_number: int) -> str:
 
 # -- Prompt builders -----------------------------------------------------------
 
+
 def _format_questions(questions: list[tuple[str, str]]) -> str:
     """Format question definitions for inclusion in a user prompt."""
     lines = []
@@ -216,9 +216,7 @@ def build_pass_user_prompt(
     """
     pass_definitions = get_pass_definitions()
     if not 1 <= pass_number <= len(pass_definitions):
-        raise ValueError(
-            f"pass_number must be 1-{len(pass_definitions)}, got {pass_number}"
-        )
+        raise ValueError(f"pass_number must be 1-{len(pass_definitions)}, got {pass_number}")
 
     pass_label, questions = pass_definitions[pass_number - 1]
     framing = _get_framing(document_type)
@@ -259,9 +257,7 @@ def get_pass_fields(pass_number: int) -> list[str]:
     """
     pass_definitions = get_pass_definitions()
     if not 1 <= pass_number <= len(pass_definitions):
-        raise ValueError(
-            f"pass_number must be 1-{len(pass_definitions)}, got {pass_number}"
-        )
+        raise ValueError(f"pass_number must be 1-{len(pass_definitions)}, got {pass_number}")
     return [q[0] for q in pass_definitions[pass_number - 1][1]]
 
 

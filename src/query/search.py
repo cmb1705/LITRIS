@@ -189,7 +189,9 @@ class SearchEngine:
 
             # Get paper metadata via direct dictionary access
             paper_data = papers_dict.get(result.paper_id, {}) if include_paper_data else {}
-            extraction_data = extractions_dict.get(result.paper_id, {}) if include_extraction else {}
+            extraction_data = (
+                extractions_dict.get(result.paper_id, {}) if include_extraction else {}
+            )
 
             # Extract fields from metadata
             title = result.metadata.get("title", paper_data.get("title", "Unknown"))
@@ -198,8 +200,7 @@ class SearchEngine:
             year = int(year_str) if year_str and str(year_str).isdigit() else None
             collections_str = result.metadata.get("collections", "")
             collections_list = (
-                collections_str.split(",") if collections_str else
-                paper_data.get("collections", [])
+                collections_str.split(",") if collections_str else paper_data.get("collections", [])
             )
             item_type = result.metadata.get("item_type", paper_data.get("item_type", ""))
 
@@ -454,8 +455,7 @@ class SearchEngine:
             year = int(year_str) if year_str and str(year_str).isdigit() else None
             collections_str = raw.metadata.get("collections", "")
             collections_list = (
-                collections_str.split(",") if collections_str else
-                paper_data.get("collections", [])
+                collections_str.split(",") if collections_str else paper_data.get("collections", [])
             )
             item_type = raw.metadata.get("item_type", paper_data.get("item_type", ""))
 
@@ -475,7 +475,9 @@ class SearchEngine:
                 )
             )
 
-        logger.info(f"RRF search returned {len(enriched)} results from {len(all_results)} unique papers")
+        logger.info(
+            f"RRF search returned {len(enriched)} results from {len(all_results)} unique papers"
+        )
         return enriched, query_variants
 
     def search_agentic(
@@ -520,9 +522,7 @@ class SearchEngine:
         """
         from src.query.agentic import AgenticRound, AgenticSearchResult, analyze_gaps
 
-        logger.info(
-            f"Agentic search: '{query[:50]}...' max_rounds={max_rounds}"
-        )
+        logger.info(f"Agentic search: '{query[:50]}...' max_rounds={max_rounds}")
 
         search_kwargs = {
             "chunk_types": chunk_types,
@@ -569,9 +569,7 @@ class SearchEngine:
             )
 
             if not gap.follow_up_queries:
-                logger.info(
-                    f"Round {round_num}: No gaps identified, stopping early"
-                )
+                logger.info(f"Round {round_num}: No gaps identified, stopping early")
                 round_info = AgenticRound(
                     round_number=round_num,
                     queries_used=[],
@@ -614,9 +612,7 @@ class SearchEngine:
             metadata.rounds.append(round_info)
 
             if round_new == 0:
-                logger.info(
-                    f"Round {round_num}: No new papers found, stopping"
-                )
+                logger.info(f"Round {round_num}: No new papers found, stopping")
                 break
 
         # Sort all accumulated papers by score descending, take top_k

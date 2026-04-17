@@ -35,7 +35,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.config import Config
-from src.extraction.opendataloader_extractor import build_hybrid_config
+from src.extraction.opendataloader_extractor import build_hybrid_config_from_processing
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
 from src.indexing.structured_store import safe_read_json, safe_write_json
@@ -95,8 +95,7 @@ def get_unextracted_papers(config: Config, limit: int | None = None):
     skip_ids = set(skip_data.get("papers", {}).keys())
 
     unextracted = [
-        p for p in papers
-        if p.paper_id not in existing_ids and p.paper_id not in skip_ids
+        p for p in papers if p.paper_id not in existing_ids and p.paper_id not in skip_ids
     ]
     print(f"Total papers with PDFs: {len(papers)}")
     print(f"Already extracted: {len(existing_ids)}")
@@ -125,29 +124,7 @@ def make_text_getter(config: Config):
         enable_ocr=config.processing.ocr_enabled or config.processing.ocr_on_fail,
     )
     text_cleaner = TextCleaner()
-    hybrid_config = build_hybrid_config(
-        enabled=config.processing.opendataloader_hybrid_enabled,
-        backend=config.processing.opendataloader_hybrid_backend,
-        client_mode=config.processing.opendataloader_hybrid_client_mode,
-        server_url=config.processing.opendataloader_hybrid_url,
-        timeout_ms=config.processing.opendataloader_hybrid_timeout_ms,
-        autostart=config.processing.opendataloader_hybrid_autostart,
-        host=config.processing.opendataloader_hybrid_host,
-        port=config.processing.opendataloader_hybrid_port,
-        startup_timeout_seconds=(
-            config.processing.opendataloader_hybrid_startup_timeout_seconds
-        ),
-        force_ocr=config.processing.opendataloader_hybrid_force_ocr,
-        ocr_lang=config.processing.opendataloader_hybrid_ocr_lang,
-        enrich_formula=config.processing.opendataloader_hybrid_enrich_formula,
-        enrich_picture_description=(
-            config.processing.opendataloader_hybrid_enrich_picture_description
-        ),
-        picture_description_prompt=(
-            config.processing.opendataloader_hybrid_picture_description_prompt
-        ),
-        device=config.processing.opendataloader_hybrid_device,
-    )
+    hybrid_config = build_hybrid_config_from_processing(config.processing)
     cascade = ExtractionCascade(
         pdf_extractor=pdf_extractor,
         enable_arxiv=config.processing.arxiv_enabled,
@@ -155,9 +132,7 @@ def make_text_getter(config: Config):
         enable_marker=config.processing.marker_enabled,
         opendataloader_mode=config.processing.opendataloader_mode,
         opendataloader_hybrid=hybrid_config,
-        opendataloader_hybrid_fallback=(
-            config.processing.opendataloader_hybrid_fallback
-        ),
+        opendataloader_hybrid_fallback=(config.processing.opendataloader_hybrid_fallback),
     )
 
     def text_getter(paper):
@@ -218,8 +193,7 @@ def cmd_submit(args, config, logger):
     client = create_client(args.provider, config)
     text_getter = make_text_getter(config)
 
-    print(f"\nCreating batch requests for {len(papers)} papers "
-          f"({len(papers) * 6} API calls)...")
+    print(f"\nCreating batch requests for {len(papers)} papers ({len(papers) * 6} API calls)...")
     requests = client.create_batch_requests(papers, text_getter)
     print(f"Created {len(requests)} requests")
 
@@ -270,8 +244,7 @@ def cmd_wait(args, config, logger):
 
     def progress(status):
         print(
-            f"  {status.completed_requests}/{status.total_requests} "
-            f"({status.status})",
+            f"  {status.completed_requests}/{status.total_requests} ({status.status})",
             flush=True,
         )
 
@@ -281,8 +254,7 @@ def cmd_wait(args, config, logger):
         poll_interval=args.poll_interval,
         progress_callback=progress,
     )
-    print(f"\nComplete: {status.completed_requests} succeeded, "
-          f"{status.failed_requests} failed")
+    print(f"\nComplete: {status.completed_requests} succeeded, {status.failed_requests} failed")
     return 0
 
 
@@ -316,8 +288,7 @@ def cmd_collect(args, config, logger):
                 "batch_id": args.batch_id,
             }
             added += 1
-            print(f"  {result.paper_id}: "
-                  f"{result.extraction.dimension_coverage:.0%} coverage")
+            print(f"  {result.paper_id}: {result.extraction.dimension_coverage:.0%} coverage")
         else:
             failed += 1
             print(f"  {result.paper_id}: FAILED - {result.error}")
@@ -341,8 +312,10 @@ def cmd_pending(args, config, logger):
         print(f"Pending batches ({len(pending)}):")
         for batch_id in pending:
             status = client.get_batch_status(batch_id)
-            print(f"  {batch_id}: {status.status} "
-                  f"({status.completed_requests}/{status.total_requests})")
+            print(
+                f"  {batch_id}: {status.status} "
+                f"({status.completed_requests}/{status.total_requests})"
+            )
     else:
         print("No pending batches.")
     return 0
@@ -353,7 +326,9 @@ def main():
         description="Batch extraction via OpenAI/Anthropic Batch API",
     )
     parser.add_argument(
-        "--provider", default="openai", choices=["openai", "anthropic"],
+        "--provider",
+        default="openai",
+        choices=["openai", "anthropic"],
         help="Batch API provider (default: openai)",
     )
     parser.add_argument("--config", type=Path, default=None)

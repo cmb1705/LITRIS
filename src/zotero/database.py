@@ -75,9 +75,7 @@ class ZoteroDatabase:
             yield conn
         except sqlite3.OperationalError as e:
             if "database is locked" in str(e):
-                logger.error(
-                    "Zotero database is locked. Please close Zotero and try again."
-                )
+                logger.error("Zotero database is locked. Please close Zotero and try again.")
             raise
         finally:
             if conn:
@@ -132,9 +130,7 @@ class ZoteroDatabase:
         params: list[Any] = [*content_types, *SKIP_ITEM_TYPES]
         item_type_clause = ""
         if item_types:
-            item_type_clause = (
-                f" AND it.typeName IN ({', '.join('?' for _ in item_types)})"
-            )
+            item_type_clause = f" AND it.typeName IN ({', '.join('?' for _ in item_types)})"
             params.extend(item_types)
 
         query = f"""
@@ -163,17 +159,19 @@ class ZoteroDatabase:
             cursor = conn.execute(query, tuple(params))
             results = []
             for row in cursor:
-                results.append({
-                    "item_id": row["itemID"],
-                    "key": row["key"],
-                    "date_added": row["dateAdded"],
-                    "date_modified": row["dateModified"],
-                    "item_type": row["typeName"],
-                    "attachment_id": row["attachmentID"],
-                    "attachment_key": row["attachmentKey"],
-                    "attachment_path": row["attachmentPath"],
-                    "attachment_content_type": row["attachmentContentType"],
-                })
+                results.append(
+                    {
+                        "item_id": row["itemID"],
+                        "key": row["key"],
+                        "date_added": row["dateAdded"],
+                        "date_modified": row["dateModified"],
+                        "item_type": row["typeName"],
+                        "attachment_id": row["attachmentID"],
+                        "attachment_key": row["attachmentKey"],
+                        "attachment_path": row["attachmentPath"],
+                        "attachment_content_type": row["attachmentContentType"],
+                    }
+                )
             deduped, skipped = self._dedupe_duplicate_pdf_rows(results)
             if skipped:
                 logger.info(
@@ -294,18 +292,18 @@ class ZoteroDatabase:
                 # Single-field name stored in lastName
                 first_name = ""
 
-            authors.append(Author(
-                first_name=first_name,
-                last_name=last_name,
-                order=row["orderIndex"] + 1,  # Convert to 1-based
-                role=row["creatorType"],
-            ))
+            authors.append(
+                Author(
+                    first_name=first_name,
+                    last_name=last_name,
+                    order=row["orderIndex"] + 1,  # Convert to 1-based
+                    role=row["creatorType"],
+                )
+            )
 
         return authors
 
-    def get_item_collections(
-        self, conn: sqlite3.Connection, item_id: int
-    ) -> list[str]:
+    def get_item_collections(self, conn: sqlite3.Connection, item_id: int) -> list[str]:
         """Get collection names for an item.
 
         Args:
@@ -390,9 +388,7 @@ class ZoteroDatabase:
                 or filename.startswith("/")
                 or filename.startswith("\\")
             ):
-                logger.warning(
-                    f"Potential path traversal detected in attachment path: {filename}"
-                )
+                logger.warning(f"Potential path traversal detected in attachment path: {filename}")
                 return None
 
             file_path = self.storage_path / attachment_key / filename
@@ -425,15 +421,11 @@ class ZoteroDatabase:
         logger.debug(f"Linked attachment not found: {attachment_path}")
         return None
 
-    def resolve_pdf_path(
-        self, attachment_key: str, attachment_path: str | None
-    ) -> Path | None:
+    def resolve_pdf_path(self, attachment_key: str, attachment_path: str | None) -> Path | None:
         """Resolve the full path to a PDF file."""
         return self.resolve_attachment_path(attachment_key, attachment_path)
 
-    def get_paper(
-        self, conn: sqlite3.Connection, item_info: dict[str, Any]
-    ) -> PaperMetadata:
+    def get_paper(self, conn: sqlite3.Connection, item_info: dict[str, Any]) -> PaperMetadata:
         """Assemble complete paper metadata.
 
         Args:
@@ -456,13 +448,9 @@ class ZoteroDatabase:
             item_info["attachment_key"], item_info["attachment_path"]
         )
         attachment_content_type = item_info.get("attachment_content_type")
-        pdf_path = (
-            source_path if attachment_content_type == "application/pdf" else None
-        )
+        pdf_path = source_path if attachment_content_type == "application/pdf" else None
         pdf_attachment_key = (
-            item_info["attachment_key"]
-            if attachment_content_type == "application/pdf"
-            else None
+            item_info["attachment_key"] if attachment_content_type == "application/pdf" else None
         )
 
         # Map Zotero fields to model fields
@@ -478,12 +466,8 @@ class ZoteroDatabase:
             "source_path": source_path,
             "source_attachment_key": item_info["attachment_key"],
             "source_media_type": attachment_content_type,
-            "date_added": datetime.fromisoformat(
-                item_info["date_added"].replace(" ", "T")
-            ),
-            "date_modified": datetime.fromisoformat(
-                item_info["date_modified"].replace(" ", "T")
-            ),
+            "date_added": datetime.fromisoformat(item_info["date_added"].replace(" ", "T")),
+            "date_modified": datetime.fromisoformat(item_info["date_modified"].replace(" ", "T")),
         }
 
         # Map metadata fields

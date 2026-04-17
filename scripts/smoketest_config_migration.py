@@ -67,7 +67,9 @@ def test_migration_detection():
     all_passed = True
 
     # Config without version should default to 1.0.0
-    config_no_version = {"zotero": {"database_path": "/tmp/test.sqlite", "storage_path": "/tmp/storage"}}
+    config_no_version = {
+        "zotero": {"database_path": "/tmp/test.sqlite", "storage_path": "/tmp/storage"}
+    }
     version = get_config_version(config_no_version)
     passed = version == "1.0.0"
     status = "PASS" if passed else "FAIL"
@@ -176,6 +178,7 @@ def test_migration_path():
 
     # Path from current to current should be empty
     from src.config_migration import CURRENT_VERSION
+
     path = get_migration_path(CURRENT_VERSION, CURRENT_VERSION)
     passed = len(path) == 0
     status = "PASS" if passed else "FAIL"
@@ -225,6 +228,7 @@ def test_config_load_with_migration():
 
         # Check that config loaded with current version
         from src.config_migration import CURRENT_VERSION
+
         passed = config.version == CURRENT_VERSION
         status = "PASS" if passed else "FAIL"
         print(f"  Config loaded with current version: {status}")

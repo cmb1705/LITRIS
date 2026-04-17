@@ -72,9 +72,7 @@ def extract_html_attachment(html_path: Path, url: str | None = None) -> WebExtra
 
     normalized = _normalize_text(text)
     if len(normalized.split()) < 50:
-        raise ValueError(
-            f"HTML attachment {html_path} did not yield enough article text"
-        )
+        raise ValueError(f"HTML attachment {html_path} did not yield enough article text")
 
     return WebExtractionResult(text=normalized, method=method, source_path=html_path)
 

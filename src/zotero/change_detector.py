@@ -169,8 +169,7 @@ class ChangeDetector:
             if zotero_modified > indexed.date_modified:
                 modified_items.append(indexed.paper_id)
                 logger.debug(
-                    f"Modified: {key} (indexed: {indexed.date_modified}, "
-                    f"zotero: {zotero_modified})"
+                    f"Modified: {key} (indexed: {indexed.date_modified}, zotero: {zotero_modified})"
                 )
             else:
                 unchanged_items.append(indexed.paper_id)

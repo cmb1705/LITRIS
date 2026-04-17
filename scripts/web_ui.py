@@ -420,9 +420,7 @@ def load_filter_options(engine: SearchEngine) -> dict[str, object]:
     """
     if "filter_options" not in st.session_state:
         profile_engine = (
-            engine.primary_engine
-            if isinstance(engine, FederatedSearchEngine)
-            else engine
+            engine.primary_engine if isinstance(engine, FederatedSearchEngine) else engine
         )
         chunk_type_groups = {"Non-dimension": list(NON_DIMENSION_CHUNK_TYPES)}
         chunk_types = list(CHUNK_TYPES)
@@ -551,11 +549,7 @@ def execute_metadata_search(
             if any(c in (paper.get("collections", []) or []) for c in collections)
         ]
     if item_types and item_type_filter is None:
-        results = [
-            paper
-            for paper in results
-            if paper.get("item_type") in item_types
-        ]
+        results = [paper for paper in results if paper.get("item_type") in item_types]
 
     return metadata_results_to_enriched(results[:top_k], match_label)
 
@@ -729,7 +723,9 @@ def highlight_query_terms(text: str, query: str) -> str:
         if match.start() > last_end:
             parts.append(escape(text[last_end : match.start()]))
         # Add highlighted match
-        parts.append(f'<mark style="background:#ffe066;padding:0 2px;">{escape(match.group())}</mark>')
+        parts.append(
+            f'<mark style="background:#ffe066;padding:0 2px;">{escape(match.group())}</mark>'
+        )
         last_end = match.end()
     # Add remaining text
     if last_end < len(text):
@@ -961,19 +957,21 @@ def results_to_csv(results: list[EnrichedResult]) -> str:
 
     for i, result in enumerate(results, 1):
         paper = result.paper_data or {}
-        writer.writerow({
-            "rank": i,
-            "score": round(result.score, 4),
-            "paper_id": sanitize_csv_field(result.paper_id),
-            "title": sanitize_csv_field(result.title),
-            "authors": sanitize_csv_field(result.authors),
-            "year": result.year or "",
-            "journal": sanitize_csv_field(paper.get("journal", "")),
-            "item_type": sanitize_csv_field(result.item_type),
-            "chunk_type": sanitize_csv_field(result.chunk_type),
-            "collections": sanitize_csv_field("; ".join(result.collections)),
-            "doi": sanitize_csv_field(paper.get("doi", "")),
-        })
+        writer.writerow(
+            {
+                "rank": i,
+                "score": round(result.score, 4),
+                "paper_id": sanitize_csv_field(result.paper_id),
+                "title": sanitize_csv_field(result.title),
+                "authors": sanitize_csv_field(result.authors),
+                "year": result.year or "",
+                "journal": sanitize_csv_field(paper.get("journal", "")),
+                "item_type": sanitize_csv_field(result.item_type),
+                "chunk_type": sanitize_csv_field(result.chunk_type),
+                "collections": sanitize_csv_field("; ".join(result.collections)),
+                "doi": sanitize_csv_field(paper.get("doi", "")),
+            }
+        )
 
     return buffer.getvalue()
 
@@ -1014,7 +1012,11 @@ def results_to_bibtex(results: list[EnrichedResult]) -> str:
                     continue
                 formatted_authors.append(name)
                 if author_part == "Unknown":
-                    author_part = (last or first or full).replace(",", " ").split()[-1] if (last or first or full) else "Unknown"
+                    author_part = (
+                        (last or first or full).replace(",", " ").split()[-1]
+                        if (last or first or full)
+                        else "Unknown"
+                    )
             if formatted_authors:
                 authors_value = " and ".join(formatted_authors)
         if author_part == "Unknown" and authors_value:
@@ -1029,10 +1031,10 @@ def results_to_bibtex(results: list[EnrichedResult]) -> str:
         cite_key = "".join(c for c in cite_key if c.isalnum())
 
         lines = [f"@{bibtex_type}{{{cite_key},"]
-        lines.append(f'  title = {{{escape_bibtex(result.title)}}},')
+        lines.append(f"  title = {{{escape_bibtex(result.title)}}},")
 
         if authors_value:
-            lines.append(f'  author = {{{escape_bibtex(authors_value)}}},')
+            lines.append(f"  author = {{{escape_bibtex(authors_value)}}},")
         if result.year:
             lines.append(f"  year = {{{result.year}}},")
         if journal := paper.get("journal"):
@@ -1080,7 +1082,9 @@ def build_similarity_network(
     G = nx.Graph()
 
     # Add center node
-    center_label = center_paper.title[:40] + "..." if len(center_paper.title) > 40 else center_paper.title
+    center_label = (
+        center_paper.title[:40] + "..." if len(center_paper.title) > 40 else center_paper.title
+    )
     center_year = f" ({center_paper.year})" if center_paper.year else ""
     G.add_node(
         center_paper.paper_id,
@@ -1163,10 +1167,7 @@ def render_similarity_network(
         dark_mode: If True, use dark theme colors.
     """
     if not PYVIS_AVAILABLE:
-        st.warning(
-            "Network visualization requires pyvis. "
-            "Install with: pip install pyvis networkx"
-        )
+        st.warning("Network visualization requires pyvis. Install with: pip install pyvis networkx")
         return
 
     with st.spinner("Building similarity network..."):
@@ -1286,9 +1287,7 @@ def render_index_summary(engine: SearchEngine, full_view: bool = False) -> None:
     if generated_at:
         st.caption(f"Summary: {generated_at}")
     if summary.get("vector_store"):
-        st.caption(
-            f"Chunks: {summary['vector_store'].get('total_chunks', 0)}"
-        )
+        st.caption(f"Chunks: {summary['vector_store'].get('total_chunks', 0)}")
 
     # Top collections preview
     by_collection = summary.get("papers_by_collection", {})
@@ -1345,14 +1344,22 @@ def render_build_controls(config_path: str | None = None) -> None:
                         )
                         if result.returncode == 0:
                             st.success("Index built successfully!")
-                            st.code(result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout)
+                            st.code(
+                                result.stdout[-2000:]
+                                if len(result.stdout) > 2000
+                                else result.stdout
+                            )
                             # Clear caches
                             st.cache_resource.clear()
                             st.session_state.pop("filter_options", None)
                             st.session_state.pop("summary", None)
                         else:
                             st.error("Build failed.")
-                            st.code(result.stderr[-2000:] if len(result.stderr) > 2000 else result.stderr)
+                            st.code(
+                                result.stderr[-2000:]
+                                if len(result.stderr) > 2000
+                                else result.stderr
+                            )
                     except subprocess.TimeoutExpired:
                         st.error(f"Build timed out after {timeout_hours} hour(s).")
                     except Exception as e:
@@ -1362,7 +1369,9 @@ def render_build_controls(config_path: str | None = None) -> None:
                 st.session_state.pop("confirm_build", None)
 
         if st.session_state.get("confirm_rebuild"):
-            st.error("This will DELETE and rebuild the entire index. All existing data will be lost!")
+            st.error(
+                "This will DELETE and rebuild the entire index. All existing data will be lost!"
+            )
             if st.button("Confirm Rebuild (Destructive)"):
                 with st.spinner("Rebuilding index... This may take a while."):
                     try:
@@ -1383,13 +1392,21 @@ def render_build_controls(config_path: str | None = None) -> None:
                         )
                         if result.returncode == 0:
                             st.success("Index rebuilt successfully!")
-                            st.code(result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout)
+                            st.code(
+                                result.stdout[-2000:]
+                                if len(result.stdout) > 2000
+                                else result.stdout
+                            )
                             st.cache_resource.clear()
                             st.session_state.pop("filter_options", None)
                             st.session_state.pop("summary", None)
                         else:
                             st.error("Rebuild failed.")
-                            st.code(result.stderr[-2000:] if len(result.stderr) > 2000 else result.stderr)
+                            st.code(
+                                result.stderr[-2000:]
+                                if len(result.stderr) > 2000
+                                else result.stderr
+                            )
                     except subprocess.TimeoutExpired:
                         st.error(f"Rebuild timed out after {timeout_hours} hour(s).")
                     except Exception as e:
@@ -1479,9 +1496,7 @@ def render_active_filters(
 def render_citation_network_tab(index_dir: Path) -> None:
     """Render the Citation Network tab with interactive graph visualization."""
     st.subheader("Citation Network")
-    st.caption(
-        "Visualize citation relationships between papers in your corpus."
-    )
+    st.caption("Visualize citation relationships between papers in your corpus.")
 
     # Configuration
     with st.expander("Graph Settings", expanded=False):
@@ -1527,12 +1542,18 @@ def render_citation_network_tab(index_dir: Path) -> None:
         year_cols = st.columns(2)
         with year_cols[0]:
             year_min = st.number_input(
-                "Year from", min_value=1900, max_value=2030, value=1900,
+                "Year from",
+                min_value=1900,
+                max_value=2030,
+                value=1900,
                 key="cite_year_min",
             )
         with year_cols[1]:
             year_max = st.number_input(
-                "Year to", min_value=1900, max_value=2030, value=2030,
+                "Year to",
+                min_value=1900,
+                max_value=2030,
+                value=2030,
                 key="cite_year_max",
             )
 
@@ -1646,8 +1667,7 @@ def render_citation_network_tab(index_dir: Path) -> None:
         )
     else:
         st.warning(
-            "Interactive visualization requires pyvis. "
-            "Install with: `pip install pyvis networkx`"
+            "Interactive visualization requires pyvis. Install with: `pip install pyvis networkx`"
         )
 
     # Edge details table
@@ -1740,9 +1760,7 @@ def render_research_questions_tab(index_dir: Path) -> None:
     parameters, and displays generated research questions.
     """
     st.subheader("Research Question Generator")
-    st.caption(
-        "Identify gaps in your literature corpus and generate targeted research questions."
-    )
+    st.caption("Identify gaps in your literature corpus and generate targeted research questions.")
 
     # Gap analysis configuration
     with st.expander("Gap Analysis Settings", expanded=False):
@@ -1797,8 +1815,7 @@ def render_research_questions_tab(index_dir: Path) -> None:
     # Display gap summary
     corpus = report.get("corpus", {})
     st.markdown(
-        f"**Corpus:** {corpus.get('papers', 0)} papers, "
-        f"{corpus.get('extractions', 0)} extractions"
+        f"**Corpus:** {corpus.get('papers', 0)} papers, {corpus.get('extractions', 0)} extractions"
     )
 
     gap_cols = st.columns(4)
@@ -1883,9 +1900,7 @@ def render_research_questions_tab(index_dir: Path) -> None:
 
     btn_cols = st.columns(2)
     with btn_cols[0]:
-        generate_clicked = st.button(
-            "Generate Questions", type="primary", key="rq_generate"
-        )
+        generate_clicked = st.button("Generate Questions", type="primary", key="rq_generate")
     with btn_cols[1]:
         dry_run_clicked = st.button("Preview Prompts", key="rq_dry_run")
 
@@ -1918,11 +1933,7 @@ def render_research_questions_tab(index_dir: Path) -> None:
             st.markdown(f"**{len(prompts)} prompts** would be sent to the LLM:")
             for i, p in enumerate(prompts, 1):
                 gap = p["gap"]
-                label = (
-                    gap.get("label")
-                    or gap.get("direction")
-                    or "year gap"
-                )
+                label = gap.get("label") or gap.get("direction") or "year gap"
                 with st.expander(f"Prompt {i}: {escape(str(p['type']))} - {escape(str(label))}"):
                     st.code(p["prompt"][:2000], language="text")
 
@@ -1930,15 +1941,10 @@ def render_research_questions_tab(index_dir: Path) -> None:
         if not prompts:
             st.warning("No gaps found to generate questions for.")
         else:
-            with st.spinner(
-                f"Generating questions via {rq_provider} "
-                f"({len(prompts)} prompts)..."
-            ):
+            with st.spinner(f"Generating questions via {rq_provider} ({len(prompts)} prompts)..."):
                 try:
                     llm_caller = _create_rq_llm_caller(rq_provider)
-                    result = generate_questions_from_prompts(
-                        prompts, llm_caller, rq_config
-                    )
+                    result = generate_questions_from_prompts(prompts, llm_caller, rq_config)
                     st.session_state["rq_result"] = result
                 except ImportError as e:
                     st.error(
@@ -1985,9 +1991,7 @@ def render_research_questions_tab(index_dir: Path) -> None:
                     st.markdown(f"*{escape(str(q.rationale))}*")
                 if q.methodology_hints:
                     st.markdown(
-                        "Methodology: " + ", ".join(
-                            escape(str(h)) for h in q.methodology_hints
-                        )
+                        "Methodology: " + ", ".join(escape(str(h)) for h in q.methodology_hints)
                     )
                 st.markdown("---")
 
@@ -2127,7 +2131,9 @@ def main() -> None:
                 )
 
                 selected_groups: list[str] = []
-                for idx, (group_label, group_chunk_types) in enumerate(chunk_type_groups.items(), start=1):
+                for idx, (group_label, group_chunk_types) in enumerate(
+                    chunk_type_groups.items(), start=1
+                ):
                     st.caption(group_label)
                     selected_groups.extend(
                         st.multiselect(
@@ -2146,9 +2152,7 @@ def main() -> None:
         sort_label = st.selectbox(
             "Sort results",
             options=list(SORT_OPTIONS.keys()),
-            index=list(SORT_OPTIONS.keys()).index(
-                st.session_state.get("sort_label", "Relevance")
-            ),
+            index=list(SORT_OPTIONS.keys()).index(st.session_state.get("sort_label", "Relevance")),
             key="sort_label",
         )
         sort_key = SORT_OPTIONS.get(sort_label, "relevance")
@@ -2378,9 +2382,7 @@ def main() -> None:
                     st.session_state["metadata_author"] = author_text
                     st.session_state["selected_ids"] = set()  # Clear selection on new search
                     st.session_state["results_page"] = 0  # Reset to first page
-                    st.session_state["selected_paper_id"] = (
-                        results[0].paper_id if results else None
-                    )
+                    st.session_state["selected_paper_id"] = results[0].paper_id if results else None
                     st.session_state.pop("similar_results", None)
                     st.session_state.pop("pdf_export_bytes", None)
                     st.session_state.pop("pdf_export_name", None)
@@ -2423,9 +2425,7 @@ def main() -> None:
                     st.session_state["query_history"] = history[:10]
                     st.session_state["selected_ids"] = set()  # Clear selection on new search
                     st.session_state["results_page"] = 0  # Reset to first page
-                    st.session_state["selected_paper_id"] = (
-                        results[0].paper_id if results else None
-                    )
+                    st.session_state["selected_paper_id"] = results[0].paper_id if results else None
                     # Clear similar results when new search is run
                     st.session_state.pop("similar_results", None)
                     st.session_state.pop("pdf_export_bytes", None)
@@ -2585,7 +2585,9 @@ def main() -> None:
 
             # Determine which results to export
             selected_ids = st.session_state["selected_ids"]
-            export_results = [r for r in results if r.paper_id in selected_ids] if selected_ids else results
+            export_results = (
+                [r for r in results if r.paper_id in selected_ids] if selected_ids else results
+            )
             export_label = f" ({len(export_results)} selected)" if selected_ids else ""
 
             # Export options
@@ -2627,9 +2629,7 @@ def main() -> None:
 
             with export_cols[1]:
                 # Direct download button
-                query_slug = sanitize_filename_slug(
-                    st.session_state.get("last_query", "search")
-                )
+                query_slug = sanitize_filename_slug(st.session_state.get("last_query", "search"))
                 date_str = datetime.now().strftime("%Y-%m-%d")
 
                 if export_format == "csv":
@@ -2651,7 +2651,9 @@ def main() -> None:
                         use_container_width=True,
                     )
                 elif export_format == "pdf":
-                    if st.button(f"Prepare PDF{export_label}", use_container_width=True, key="prepare_pdf"):
+                    if st.button(
+                        f"Prepare PDF{export_label}", use_container_width=True, key="prepare_pdf"
+                    ):
                         temp_path = save_export(
                             results=export_results,
                             query=st.session_state.get("last_query", "search"),
@@ -2680,7 +2682,9 @@ def main() -> None:
                         output_format=cast(OutputFormat, export_format),
                         include_extraction=include_extraction,
                     )
-                    ext = {"markdown": "md", "json": "json", "brief": "txt"}.get(export_format, "txt")
+                    ext = {"markdown": "md", "json": "json", "brief": "txt"}.get(
+                        export_format, "txt"
+                    )
                     st.download_button(
                         f"Download {export_format.upper()}",
                         data=content,
@@ -2713,9 +2717,13 @@ def main() -> None:
                         st.session_state["results_page"] = current_page - 1
                         st.rerun()
                 with pg_cols[1]:
-                    st.caption(f"Page {current_page + 1} of {total_pages} ({start_idx + 1}-{end_idx} of {total_results})")
+                    st.caption(
+                        f"Page {current_page + 1} of {total_pages} ({start_idx + 1}-{end_idx} of {total_results})"
+                    )
                 with pg_cols[2]:
-                    if st.button("Next", disabled=current_page >= total_pages - 1, use_container_width=True):
+                    if st.button(
+                        "Next", disabled=current_page >= total_pages - 1, use_container_width=True
+                    ):
                         st.session_state["results_page"] = current_page + 1
                         st.rerun()
 
@@ -2757,15 +2765,27 @@ def main() -> None:
                 if is_truncated:
                     with st.expander("Show full matched text", expanded=False):
                         # Limit expansion to 1000 chars for very long chunks
-                        full_display = matched_full[:1000] + "..." if len(matched_full) > 1000 else matched_full
+                        full_display = (
+                            matched_full[:1000] + "..."
+                            if len(matched_full) > 1000
+                            else matched_full
+                        )
                         if last_query and not st.session_state.get("metadata_only", False):
-                            st.markdown(highlight_query_terms(full_display, last_query), unsafe_allow_html=True)
+                            st.markdown(
+                                highlight_query_terms(full_display, last_query),
+                                unsafe_allow_html=True,
+                            )
                         else:
                             st.text(full_display)
                 button_cols = st.columns([0.15, 0.35, 0.5])
                 with button_cols[0]:
                     is_selected = result.paper_id in st.session_state["selected_ids"]
-                    if st.checkbox("", value=is_selected, key=f"sel_{result.paper_id}_{idx}", label_visibility="collapsed"):
+                    if st.checkbox(
+                        "",
+                        value=is_selected,
+                        key=f"sel_{result.paper_id}_{idx}",
+                        label_visibility="collapsed",
+                    ):
                         st.session_state["selected_ids"].add(result.paper_id)
                     else:
                         st.session_state["selected_ids"].discard(result.paper_id)
@@ -2779,13 +2799,21 @@ def main() -> None:
                 # Quick filter buttons
                 filter_cols = st.columns([0.25, 0.25, 0.5])
                 with filter_cols[0]:
-                    if result.year and st.button(f"Year: {result.year}", key=f"qf_year_{result.paper_id}_{idx}", type="secondary"):
+                    if result.year and st.button(
+                        f"Year: {result.year}",
+                        key=f"qf_year_{result.paper_id}_{idx}",
+                        type="secondary",
+                    ):
                         st.session_state["filter_use_year"] = True
                         st.session_state["filter_year_range"] = (result.year, result.year)
                         st.session_state["trigger_search"] = True
                         st.rerun()
                 with filter_cols[1]:
-                    if result.item_type and st.button(f"Type: {result.item_type[:12]}", key=f"qf_type_{result.paper_id}_{idx}", type="secondary"):
+                    if result.item_type and st.button(
+                        f"Type: {result.item_type[:12]}",
+                        key=f"qf_type_{result.paper_id}_{idx}",
+                        type="secondary",
+                    ):
                         current_types = list(st.session_state.get("filter_item_types", []))
                         if result.item_type not in current_types:
                             current_types.append(result.item_type)
@@ -2796,7 +2824,11 @@ def main() -> None:
                     if result.collections:
                         first_coll = result.collections[0]
                         coll_label = first_coll[:15] + "..." if len(first_coll) > 15 else first_coll
-                        if st.button(f"Coll: {coll_label}", key=f"qf_coll_{result.paper_id}_{idx}", type="secondary"):
+                        if st.button(
+                            f"Coll: {coll_label}",
+                            key=f"qf_coll_{result.paper_id}_{idx}",
+                            type="secondary",
+                        ):
                             current_colls = list(st.session_state.get("filter_collections", []))
                             if first_coll not in current_colls:
                                 current_colls.append(first_coll)

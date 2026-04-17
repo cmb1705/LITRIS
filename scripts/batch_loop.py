@@ -29,7 +29,9 @@ def main():
     parser.add_argument("--provider", default="openai", choices=["openai", "anthropic"])
     parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--max-batches", type=int, default=None, help="Stop after N batches")
-    parser.add_argument("--pause", type=int, default=30, help="Seconds between submit and first poll")
+    parser.add_argument(
+        "--pause", type=int, default=30, help="Seconds between submit and first poll"
+    )
     args = parser.parse_args()
 
     setup_logging(level="INFO")
@@ -53,9 +55,9 @@ def main():
         client = be.create_client(args.provider, config)
         text_getter = be.make_text_getter(config)
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Batch {batch_count + 1}: submitting {len(papers)} papers...")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         requests = client.create_batch_requests(papers, text_getter)
         if not requests:
@@ -66,9 +68,16 @@ def main():
             batch_id = client.submit_batch(requests)
         except Exception as exc:
             error_str = str(exc).lower()
-            if any(p in error_str for p in (
-                "billing", "hard_limit", "insufficient", "payment", "spending",
-            )):
+            if any(
+                p in error_str
+                for p in (
+                    "billing",
+                    "hard_limit",
+                    "insufficient",
+                    "payment",
+                    "spending",
+                )
+            ):
                 print(f"\nBilling limit reached: {exc}")
                 print(f"Batches completed: {batch_count}")
                 print(f"Papers collected: {total_collected}")
@@ -83,8 +92,7 @@ def main():
         while True:
             status = client.get_batch_status(batch_id)
             print(
-                f"  {status.completed_requests}/{status.total_requests} "
-                f"({status.status})",
+                f"  {status.completed_requests}/{status.total_requests} ({status.status})",
                 flush=True,
             )
 
@@ -97,6 +105,7 @@ def main():
                     from openai import OpenAI
 
                     from src.utils.secrets import get_openai_api_key
+
                     oc = OpenAI(api_key=get_openai_api_key())
                     b = oc.batches.retrieve(batch_id)
                     print(f"Error: {b.errors}")
@@ -175,7 +184,7 @@ def main():
         print(f"\nBatch {batch_count} complete: {added} papers collected")
         print(f"Running total: {total_collected} new + {len(extractions)} total extractions")
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Loop complete: {batch_count} batches, {total_collected} papers extracted")
     print("\nGenerate embeddings: python scripts/build_index.py --skip-extraction")
 

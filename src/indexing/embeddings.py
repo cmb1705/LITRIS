@@ -60,6 +60,7 @@ def get_dimension_group_map(profile_id: str | None = None) -> dict[str, str]:
                 mapping[dimension.legacy_chunk_type] = section.id
     return mapping
 
+
 _DIM_CHUNK_TYPES = get_dimension_chunk_types()
 CHUNK_TYPES: list[str] = get_chunk_types()
 DIMENSION_GROUPS: dict[str, str] = get_dimension_group_map()
@@ -326,8 +327,9 @@ class EmbeddingGenerator:
         if not q21_prose:
             return 0
         import re
+
         # Match patterns like "4/5", "rated 4", "score: 4", "rating of 4"
-        m = re.search(r'(\d)\s*/\s*5|(?:rat(?:ed?|ing)|score)[:\s]+(\d)', q21_prose.lower())
+        m = re.search(r"(\d)\s*/\s*5|(?:rat(?:ed?|ing)|score)[:\s]+(\d)", q21_prose.lower())
         if m:
             return int(m.group(1) or m.group(2))
         # Keyword heuristic
@@ -577,9 +579,7 @@ class EmbeddingGenerator:
             )
 
         within_budget = [
-            result
-            for result in successes
-            if result.duration_seconds <= OLLAMA_AUTO_TARGET_SECONDS
+            result for result in successes if result.duration_seconds <= OLLAMA_AUTO_TARGET_SECONDS
         ]
         if within_budget:
             return max(within_budget, key=lambda result: result.batch_size)
@@ -719,10 +719,9 @@ class EmbeddingGenerator:
             midpoint,
             len(texts) - midpoint,
         )
-        return (
-            self._ollama_embed_with_fallback(texts[:midpoint])
-            + self._ollama_embed_with_fallback(texts[midpoint:])
-        )
+        return self._ollama_embed_with_fallback(
+            texts[:midpoint]
+        ) + self._ollama_embed_with_fallback(texts[midpoint:])
 
     def process_papers(
         self,

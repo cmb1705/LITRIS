@@ -110,7 +110,9 @@ class TestCompanionTier:
         )
 
         cascade = ExtractionCascade(
-            pdf_extractor, enable_arxiv=False, enable_marker=False,
+            pdf_extractor,
+            enable_arxiv=False,
+            enable_marker=False,
         )
         result = cascade.extract_text(pdf)
         assert result.method == "pymupdf"

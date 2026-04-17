@@ -197,9 +197,7 @@ class TestFederatedSearchEngine:
         config = FederatedSearchConfig(enabled=False)
 
         with patch("src.query.federated.SearchEngine") as MockEngine:
-            MockEngine.return_value.search.return_value = [
-                _mock_result("p1", "Primary", 0.9)
-            ]
+            MockEngine.return_value.search.return_value = [_mock_result("p1", "Primary", 0.9)]
 
             engine = FederatedSearchEngine(
                 primary_index_dir=Path("/test/primary"),
@@ -438,8 +436,7 @@ class TestMergeStrategies:
 
         with patch("src.query.federated.SearchEngine") as MockEngine:
             MockEngine.return_value.search.return_value = [
-                _mock_result(f"p{i}", f"Paper {i}", 0.9 - i * 0.1)
-                for i in range(10)
+                _mock_result(f"p{i}", f"Paper {i}", 0.9 - i * 0.1) for i in range(10)
             ]
 
             engine = FederatedSearchEngine(
@@ -475,13 +472,12 @@ class TestCLISelection:
         from unittest.mock import patch as mock_patch
 
         # Need to import after patching argv
-        with mock_patch.object(
-            sys, "argv", ["query_index.py", "-q", "test", "--federated"]
-        ):
+        with mock_patch.object(sys, "argv", ["query_index.py", "-q", "test", "--federated"]):
             # Import dynamically to get fresh parse_args
             import importlib
 
             import scripts.query_index as qi
+
             importlib.reload(qi)
             args = qi.parse_args()
             assert args.federated is True
@@ -500,6 +496,7 @@ class TestCLISelection:
             import importlib
 
             import scripts.query_index as qi
+
             importlib.reload(qi)
             args = qi.parse_args()
             assert args.indexes == ["Lab1", "Lab2"]
@@ -517,6 +514,7 @@ class TestCLISelection:
             import importlib
 
             import scripts.query_index as qi
+
             importlib.reload(qi)
             args = qi.parse_args()
             assert args.merge_strategy == "rerank"
@@ -530,6 +528,7 @@ class TestCLISelection:
             import importlib
 
             import scripts.query_index as qi
+
             importlib.reload(qi)
             args = qi.parse_args()
             assert args.list_indexes is True

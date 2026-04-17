@@ -52,6 +52,71 @@ def parse_embedding_batch_size_setting(value: Any) -> int | str:
     raise ValueError("embedding batch size must be a positive integer or 'auto'")
 
 
+DEFAULT_OPENDATALOADER_HYBRID_PYTHON = (
+    r"C:\Users\cmb17\AppData\Local\Programs\Python\Python310\python.exe"
+)
+
+
+class ManagedHybridServerConfig(BaseModel):
+    """A fixed OpenDataLoader hybrid backend endpoint."""
+
+    url: str
+    force_ocr: bool = False
+    enrich_formula: bool = False
+    enrich_picture_description: bool = False
+
+    @field_validator("url")
+    @classmethod
+    def normalize_url(cls, v: str) -> str:
+        """Normalize configured URLs so callers can compare reliably."""
+        url = v.strip()
+        if not url:
+            raise ValueError("managed hybrid server url cannot be empty")
+        if "://" not in url:
+            url = f"http://{url}"
+        return url.rstrip("/")
+
+
+def default_opendataloader_hybrid_servers() -> dict[str, ManagedHybridServerConfig]:
+    """Return the managed localhost hybrid pool defaults."""
+    return {
+        "base": ManagedHybridServerConfig(url="http://127.0.0.1:5002"),
+        "ocr": ManagedHybridServerConfig(
+            url="http://127.0.0.1:5003",
+            force_ocr=True,
+        ),
+        "formula": ManagedHybridServerConfig(
+            url="http://127.0.0.1:5004",
+            enrich_formula=True,
+        ),
+        "picture": ManagedHybridServerConfig(
+            url="http://127.0.0.1:5005",
+            enrich_picture_description=True,
+        ),
+        "ocr_formula": ManagedHybridServerConfig(
+            url="http://127.0.0.1:5006",
+            force_ocr=True,
+            enrich_formula=True,
+        ),
+        "ocr_picture": ManagedHybridServerConfig(
+            url="http://127.0.0.1:5007",
+            force_ocr=True,
+            enrich_picture_description=True,
+        ),
+        "formula_picture": ManagedHybridServerConfig(
+            url="http://127.0.0.1:5008",
+            enrich_formula=True,
+            enrich_picture_description=True,
+        ),
+        "ocr_formula_picture": ManagedHybridServerConfig(
+            url="http://127.0.0.1:5009",
+            force_ocr=True,
+            enrich_formula=True,
+            enrich_picture_description=True,
+        ),
+    }
+
+
 class ZoteroConfig(BaseModel):
     """Zotero-related configuration."""
 
@@ -116,7 +181,9 @@ class ExtractionConfig(BaseModel):
     use_cache: bool = True
     parallel_workers: int = 1
     reasoning_effort: str | None = None  # For OpenAI GPT-5.x: none/low/medium/high/xhigh
-    effort: str | None = None  # Claude CLI effort level: low/medium/high (controls extended thinking)
+    effort: str | None = (
+        None  # Claude CLI effort level: low/medium/high (controls extended thinking)
+    )
     model_overrides: ModelOverrides | None = None  # Per-item-type model selection
     providers: dict[str, ProviderSettings] = Field(default_factory=dict)
 
@@ -403,7 +470,11 @@ class ProcessingConfig(BaseModel):
     opendataloader_hybrid_auto_picture_intents: bool = False
     opendataloader_hybrid_enrich_picture_description: bool = False
     opendataloader_hybrid_picture_description_prompt: str | None = None
-    opendataloader_hybrid_device: str = "auto"
+    opendataloader_hybrid_device: str = "cuda"
+    opendataloader_hybrid_python_executable: str = DEFAULT_OPENDATALOADER_HYBRID_PYTHON
+    opendataloader_hybrid_servers: dict[str, ManagedHybridServerConfig] = Field(
+        default_factory=default_opendataloader_hybrid_servers
+    )
     marker_enabled: bool = True
     classification: ClassificationConfig = Field(default_factory=ClassificationConfig)
 
@@ -416,10 +487,19 @@ class FederatedIndexConfig(BaseModel):
     models and schema versions.
     """
 
-    path: Path = Field(description="Path to index directory (must contain papers.json, semantic_analyses.json, chroma/)")
+    path: Path = Field(
+        description="Path to index directory (must contain papers.json, semantic_analyses.json, chroma/)"
+    )
     label: str = Field(description="Display name for this index in search results")
-    enabled: bool = Field(default=True, description="Whether to include this index in federated searches")
-    weight: float = Field(default=1.0, ge=0.0, le=2.0, description="Relevance weight for results from this index (0.0-2.0)")
+    enabled: bool = Field(
+        default=True, description="Whether to include this index in federated searches"
+    )
+    weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=2.0,
+        description="Relevance weight for results from this index (0.0-2.0)",
+    )
 
 
 class FederatedSearchConfig(BaseModel):
@@ -451,22 +531,24 @@ class FederatedSearchConfig(BaseModel):
               enabled: false
     """
 
-    enabled: bool = Field(default=False, description="Enable federated search across multiple indexes")
-    indexes: list[FederatedIndexConfig] = Field(default_factory=list, description="List of additional indexes to search")
+    enabled: bool = Field(
+        default=False, description="Enable federated search across multiple indexes"
+    )
+    indexes: list[FederatedIndexConfig] = Field(
+        default_factory=list, description="List of additional indexes to search"
+    )
     merge_strategy: str = Field(
         default="interleave",
-        description="How to merge results: 'interleave' (round-robin by score), 'concat' (primary first), 'rerank' (combined scoring)"
+        description="How to merge results: 'interleave' (round-robin by score), 'concat' (primary first), 'rerank' (combined scoring)",
     )
     dedup_threshold: float = Field(
         default=0.95,
         ge=0.0,
         le=1.0,
-        description="Similarity threshold for deduplication (0.95 = near-identical papers)"
+        description="Similarity threshold for deduplication (0.95 = near-identical papers)",
     )
     max_results_per_index: int = Field(
-        default=50,
-        ge=1,
-        description="Maximum results to retrieve from each index before merging"
+        default=50, ge=1, description="Maximum results to retrieve from each index before merging"
     )
 
 

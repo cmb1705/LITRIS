@@ -465,7 +465,7 @@ class ClaudeCliExecutor:
                 last_error = e
                 if attempt < max_retries:
                     self._raise_if_pause_requested("before CLI prompt retry backoff")
-                    delay = retry_delay * (2 ** attempt)
+                    delay = retry_delay * (2**attempt)
                     logger.warning(
                         f"Transient error (attempt {attempt + 1}/{max_retries + 1}): {e}. "
                         f"Retrying in {delay:.1f}s..."
@@ -549,7 +549,8 @@ class ClaudeCliExecutor:
             # to avoid massive overhead and resource contention when running
             # many extraction subprocesses in sequence
             "--strict-mcp-config",
-            "--tools", "",
+            "--tools",
+            "",
             "--disable-slash-commands",
             "--no-session-persistence",
         ]
@@ -575,9 +576,7 @@ class ClaudeCliExecutor:
 
             # Check for rate limit
             if self._is_rate_limited(result.stdout, result.stderr):
-                reset_time = self._extract_reset_time(
-                    (result.stdout or "") + (result.stderr or "")
-                )
+                reset_time = self._extract_reset_time((result.stdout or "") + (result.stderr or ""))
                 raise RateLimitError(
                     (
                         "Rate limit hit during extraction. "
@@ -679,7 +678,7 @@ class ClaudeCliExecutor:
                 last_error = e
                 if attempt < max_retries:
                     self._raise_if_pause_requested("before CLI extraction retry backoff")
-                    delay = retry_delay * (2 ** attempt)  # Exponential backoff
+                    delay = retry_delay * (2**attempt)  # Exponential backoff
                     logger.warning(
                         f"Transient error (attempt {attempt + 1}/{max_retries + 1}): {e}. "
                         f"Retrying in {delay:.1f}s..."
@@ -732,7 +731,8 @@ class ClaudeCliExecutor:
                 self.output_format,
                 # Disable plugins, MCP servers, tools, and session persistence
                 "--strict-mcp-config",
-                "--tools", "",
+                "--tools",
+                "",
                 "--disable-slash-commands",
                 "--no-session-persistence",
             ]
@@ -759,9 +759,7 @@ class ClaudeCliExecutor:
 
             # Check for rate limit
             if self._is_rate_limited(result.stdout, result.stderr):
-                reset_time = self._extract_reset_time(
-                    (result.stdout or "") + (result.stderr or "")
-                )
+                reset_time = self._extract_reset_time((result.stdout or "") + (result.stderr or ""))
                 raise RateLimitError(
                     (
                         "Rate limit hit during extraction. "
@@ -978,8 +976,7 @@ class ClaudeCliExecutor:
             return extracted
 
         logger.debug(
-            "CLI response could not be parsed as JSON. "
-            "Raw output (first 500 chars): %s",
+            "CLI response could not be parsed as JSON. Raw output (first 500 chars): %s",
             output[:500],
         )
         raise ParseError(

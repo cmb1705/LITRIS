@@ -95,7 +95,6 @@ def test_author_parsing():
     print("Testing Author Parsing")
     print("=" * 60)
 
-
     with tempfile.TemporaryDirectory() as tmpdir:
         bib_file = Path(tmpdir) / "test.bib"
         bib_file.write_text("@article{test, title={Test}}", encoding="utf-8")
@@ -106,7 +105,10 @@ def test_author_parsing():
             ("Smith, John", [("John", "Smith")]),
             ("John Smith", [("John", "Smith")]),
             ("Smith, John and Doe, Jane", [("John", "Smith"), ("Jane", "Doe")]),
-            ("Smith, John and Doe, Jane and Brown, Bob", [("John", "Smith"), ("Jane", "Doe"), ("Bob", "Brown")]),
+            (
+                "Smith, John and Doe, Jane and Brown, Bob",
+                [("John", "Smith"), ("Jane", "Doe"), ("Bob", "Brown")],
+            ),
             ("van der Berg, Jan", [("Jan", "van der Berg")]),
         ]
 
@@ -116,7 +118,7 @@ def test_author_parsing():
             result = [(a.first_name, a.last_name) for a in authors]
             passed = result == expected
             status = "PASS" if passed else "FAIL"
-            print(f"  \"{author_string}\": {status}")
+            print(f'  "{author_string}": {status}')
             if not passed:
                 print(f"    Expected: {expected}")
                 print(f"    Got: {result}")
@@ -130,7 +132,6 @@ def test_entry_type_mapping():
     print("\n" + "=" * 60)
     print("Testing Entry Type Mapping")
     print("=" * 60)
-
 
     with tempfile.TemporaryDirectory() as tmpdir:
         bib_file = Path(tmpdir) / "references.bib"
@@ -168,7 +169,6 @@ def test_metadata_extraction():
     print("\n" + "=" * 60)
     print("Testing Metadata Extraction")
     print("=" * 60)
-
 
     with tempfile.TemporaryDirectory() as tmpdir:
         bib_file = Path(tmpdir) / "references.bib"
@@ -223,7 +223,6 @@ def test_pdf_discovery():
     print("Testing PDF Discovery")
     print("=" * 60)
 
-
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
 
@@ -250,7 +249,9 @@ def test_pdf_discovery():
 
         brown = adapter.get_paper_by_key("brown2019book")
         brown_no_pdf = brown.pdf_path is None
-        print(f"  brown2019book PDF: {'Not found (expected)' if brown_no_pdf else 'Found (unexpected)'}")
+        print(
+            f"  brown2019book PDF: {'Not found (expected)' if brown_no_pdf else 'Found (unexpected)'}"
+        )
 
         return smith_has_pdf and brown_no_pdf
 
@@ -260,7 +261,6 @@ def test_factory():
     print("\n" + "=" * 60)
     print("Testing Factory Integration")
     print("=" * 60)
-
 
     providers = get_available_providers()
     print(f"  Available providers: {providers}")
@@ -289,7 +289,6 @@ def test_filter_papers():
     print("\n" + "=" * 60)
     print("Testing Paper Filtering")
     print("=" * 60)
-
 
     with tempfile.TemporaryDirectory() as tmpdir:
         bib_file = Path(tmpdir) / "references.bib"

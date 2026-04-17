@@ -156,7 +156,9 @@ def backup_database(db_path: Path, backup_dir: Path) -> Path:
 
 def get_existing_keys(conn: sqlite3.Connection) -> set[str]:
     """Return existing Zotero keys to avoid collisions."""
-    return {row[0] for row in conn.execute("SELECT key FROM items UNION SELECT key FROM collections")}
+    return {
+        row[0] for row in conn.execute("SELECT key FROM items UNION SELECT key FROM collections")
+    }
 
 
 def get_collection_id(conn: sqlite3.Connection, name: str) -> int:
@@ -265,7 +267,9 @@ def move_item_between_collections(
     )
 
 
-def fetch_collection_records(conn: sqlite3.Connection, collection_id: int) -> list[CollectionRecord]:
+def fetch_collection_records(
+    conn: sqlite3.Connection, collection_id: int
+) -> list[CollectionRecord]:
     """Load collection items and lightweight metadata."""
     query = """
     SELECT
@@ -391,12 +395,14 @@ def identify_duplicate_groups(records: Iterable[CollectionRecord]) -> list[dict]
                 if not (has_pdf and has_pdfless):
                     continue
             ordered = sorted(members, key=record_score, reverse=True)
-            groups.append({
-                "source": source,
-                "group_key": group_key,
-                "keeper": ordered[0],
-                "duplicates": ordered[1:],
-            })
+            groups.append(
+                {
+                    "source": source,
+                    "group_key": group_key,
+                    "keeper": ordered[0],
+                    "duplicates": ordered[1:],
+                }
+            )
     return groups
 
 
@@ -504,7 +510,10 @@ def main() -> int:
         for group in duplicate_groups:
             keeper: CollectionRecord = group["keeper"]
             for duplicate in group["duplicates"]:
-                if duplicate.item_id in off_object_ids or duplicate.item_id in archived_duplicate_ids:
+                if (
+                    duplicate.item_id in off_object_ids
+                    or duplicate.item_id in archived_duplicate_ids
+                ):
                     continue
                 move_item_between_collections(
                     conn,
@@ -519,16 +528,16 @@ def main() -> int:
                     ARCHIVED_DUPLICATE_TAG,
                     dry_run=args.dry_run,
                 )
-                moved_to_duplicates.append({
-                    "duplicate": asdict(duplicate),
-                    "keeper": asdict(keeper),
-                    "group_key": group["group_key"],
-                    "source": group["source"],
-                })
-                archived_duplicate_ids.add(duplicate.item_id)
-                tagged_items.append(
-                    {"item_id": duplicate.item_id, "tag": ARCHIVED_DUPLICATE_TAG}
+                moved_to_duplicates.append(
+                    {
+                        "duplicate": asdict(duplicate),
+                        "keeper": asdict(keeper),
+                        "group_key": group["group_key"],
+                        "source": group["source"],
+                    }
                 )
+                archived_duplicate_ids.add(duplicate.item_id)
+                tagged_items.append({"item_id": duplicate.item_id, "tag": ARCHIVED_DUPLICATE_TAG})
 
         # Mark known title-collision / attribution-risk records explicitly.
         for record in records:
@@ -552,9 +561,7 @@ def main() -> int:
                     NEEDS_PARENT_SPLIT_TAG,
                     dry_run=args.dry_run,
                 ):
-                    tagged_items.append(
-                        {"item_id": record.item_id, "tag": NEEDS_PARENT_SPLIT_TAG}
-                    )
+                    tagged_items.append({"item_id": record.item_id, "tag": NEEDS_PARENT_SPLIT_TAG})
 
         if not args.dry_run:
             conn.commit()

@@ -11,6 +11,7 @@ sys.path.insert(0, str(project_root))
 STREAMLIT_AVAILABLE = False
 try:
     import streamlit
+
     STREAMLIT_AVAILABLE = True
 except ImportError:
     pass
@@ -31,6 +32,7 @@ def test_imports() -> bool:
 
     try:
         from src.query.search import EnrichedResult, SearchEngine
+
         print("  SearchEngine: OK")
     except ImportError as e:
         print(f"  SearchEngine: FAIL ({e})")
@@ -43,6 +45,7 @@ def test_imports() -> bool:
             format_summary,
             save_results,
         )
+
         print("  retrieval functions: OK")
     except ImportError as e:
         print(f"  retrieval functions: FAIL ({e})")
@@ -50,6 +53,7 @@ def test_imports() -> bool:
 
     try:
         from src.indexing.embeddings import CHUNK_TYPES
+
         print("  CHUNK_TYPES: OK")
     except ImportError as e:
         print(f"  CHUNK_TYPES: FAIL ({e})")
@@ -78,6 +82,7 @@ def test_helper_functions() -> bool:
             results_to_csv,
             sanitize_csv_field,
         )
+
         print("  imports: OK")
     except ImportError as e:
         print(f"  imports: FAIL ({e})")
@@ -188,6 +193,7 @@ def test_ui_layout_functions() -> bool:
             resolve_detail_markdown,
             save_export,
         )
+
         print("  All UI functions defined: OK")
         print(f"  PYVIS_AVAILABLE: {PYVIS_AVAILABLE}")
         return True

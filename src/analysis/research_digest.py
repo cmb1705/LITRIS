@@ -101,10 +101,7 @@ def find_new_papers(
     else:
         papers = []
 
-    new_papers = [
-        p for p in papers
-        if p.get("paper_id") and p["paper_id"] not in processed
-    ]
+    new_papers = [p for p in papers if p.get("paper_id") and p["paper_id"] not in processed]
 
     return new_papers
 
@@ -177,9 +174,7 @@ def generate_digest(
     new_papers = find_new_papers(index_dir, state_path, _state=state)
 
     # Sort by year (newest first), limit to max_papers
-    new_papers.sort(
-        key=lambda p: p.get("publication_year") or 0, reverse=True
-    )
+    new_papers.sort(key=lambda p: p.get("publication_year") or 0, reverse=True)
     selected = new_papers[: config.max_papers]
 
     # Load extractions

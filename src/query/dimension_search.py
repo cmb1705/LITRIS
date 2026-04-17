@@ -20,7 +20,9 @@ if TYPE_CHECKING:
 
 
 def _get_registry(engine: SearchEngine | None = None):
-    if engine is not None and isinstance(getattr(engine, "dimension_registry", None), DimensionRegistry):
+    if engine is not None and isinstance(
+        getattr(engine, "dimension_registry", None), DimensionRegistry
+    ):
         return engine.dimension_registry
     return get_default_dimension_registry()
 
@@ -98,10 +100,7 @@ def search_group(
             f"Invalid group '{group}'. Valid groups: {', '.join(registry.get_group_names())}"
         )
 
-    chunk_types = [
-        definition.chunk_type
-        for definition in registry.get_section_dimensions(group)
-    ]
+    chunk_types = [definition.chunk_type for definition in registry.get_section_dimensions(group)]
 
     return engine.search(
         query=query,

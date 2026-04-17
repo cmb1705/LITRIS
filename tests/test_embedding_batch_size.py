@@ -192,7 +192,9 @@ def test_run_embedding_generation_uses_resolved_batch_size(
 
     monkeypatch.setattr("src.indexing.pipeline.EmbeddingGenerator", DummyEmbeddingGenerator)
     monkeypatch.setattr("src.indexing.pipeline.VectorStore", DummyVectorStore)
-    monkeypatch.setattr("src.indexing.pipeline._normalize_extractions", lambda extractions: {"P1": object()})
+    monkeypatch.setattr(
+        "src.indexing.pipeline._normalize_extractions", lambda extractions: {"P1": object()}
+    )
 
     run_metadata: dict[str, object] = {}
     added = run_embedding_generation(

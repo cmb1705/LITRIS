@@ -27,24 +27,28 @@ def check_dependencies():
 
     try:
         import anthropic
+
         deps["anthropic"] = True
     except ImportError:
         pass
 
     try:
         import ollama
+
         deps["ollama"] = True
     except ImportError:
         pass
 
     try:
         import llama_cpp
+
         deps["llama_cpp"] = True
     except ImportError:
         pass
 
     try:
         import pydantic
+
         deps["pydantic"] = True
     except ImportError:
         pass
@@ -116,8 +120,7 @@ def test_ollama_client_standalone(deps):
         import importlib.util
 
         spec = importlib.util.spec_from_file_location(
-            "ollama_client",
-            project_root / "src" / "analysis" / "ollama_client.py"
+            "ollama_client", project_root / "src" / "analysis" / "ollama_client.py"
         )
 
         # This will still fail if base_llm can't be imported, but we try

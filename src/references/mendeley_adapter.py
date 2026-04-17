@@ -68,9 +68,7 @@ class MendeleyReferenceDB(BaseReferenceDB):
 
         self._tables = self._load_tables()
         self._tables_by_lower = {name.lower(): name for name in self._tables}
-        self._table_columns = {
-            table: self._load_columns(table) for table in self._tables
-        }
+        self._table_columns = {table: self._load_columns(table) for table in self._tables}
 
         self._documents_table = self._find_table(self._DOCUMENT_TABLE_CANDIDATES)
         if not self._documents_table:
@@ -132,9 +130,7 @@ class MendeleyReferenceDB(BaseReferenceDB):
         Returns:
             Number of documents in the database.
         """
-        cursor = self._conn.execute(
-            f"SELECT COUNT(*) AS count FROM {self._documents_table}"
-        )
+        cursor = self._conn.execute(f"SELECT COUNT(*) AS count FROM {self._documents_table}")
         row = cursor.fetchone()
         return int(row["count"]) if row else 0
 
@@ -170,9 +166,7 @@ class MendeleyReferenceDB(BaseReferenceDB):
 
     def _load_tables(self) -> list[str]:
         """Load available tables from the SQLite database."""
-        cursor = self._conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        )
+        cursor = self._conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         return [row[0] for row in cursor.fetchall()]
 
     def _load_columns(self, table_name: str) -> dict[str, str]:
@@ -281,7 +275,11 @@ class MendeleyReferenceDB(BaseReferenceDB):
                 return cache[folder_id]
             name, parent_id = folders.get(folder_id, ("", None))
             if parent_id and parent_id in folders:
-                path = f"{build_path(parent_id, cache)}/{name}" if name else build_path(parent_id, cache)
+                path = (
+                    f"{build_path(parent_id, cache)}/{name}"
+                    if name
+                    else build_path(parent_id, cache)
+                )
             else:
                 path = name
             cache[folder_id] = path

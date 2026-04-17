@@ -16,12 +16,14 @@ def create_test_pdf(path: Path, title: str, author: str) -> None:
         import pymupdf
 
         doc = pymupdf.open()
-        doc.set_metadata({
-            "title": title,
-            "author": author,
-            "subject": "Test abstract for smoketest",
-            "keywords": "test, smoketest, pdf",
-        })
+        doc.set_metadata(
+            {
+                "title": title,
+                "author": author,
+                "subject": "Test abstract for smoketest",
+                "keywords": "test, smoketest, pdf",
+            }
+        )
         page = doc.new_page()
         page.insert_text((72, 72), f"Title: {title}\nAuthor: {author}")
         doc.save(path)
@@ -44,10 +46,22 @@ def test_filename_parsing():
         adapter = PDFFolderReferenceDB(Path(tmpdir))
 
         test_cases = [
-            ("Smith - 2020 - Machine Learning.pdf", {"authors": "Smith", "year": "2020", "title": "Machine Learning"}),
-            ("Smith_2020_Machine_Learning.pdf", {"authors": "Smith", "year": "2020", "title": "Machine Learning"}),
-            ("2020_Smith_Machine_Learning.pdf", {"authors": "Smith", "year": "2020", "title": "Machine Learning"}),
-            ("2020 - Smith - Machine Learning.pdf", {"authors": "Smith", "year": "2020", "title": "Machine Learning"}),
+            (
+                "Smith - 2020 - Machine Learning.pdf",
+                {"authors": "Smith", "year": "2020", "title": "Machine Learning"},
+            ),
+            (
+                "Smith_2020_Machine_Learning.pdf",
+                {"authors": "Smith", "year": "2020", "title": "Machine Learning"},
+            ),
+            (
+                "2020_Smith_Machine_Learning.pdf",
+                {"authors": "Smith", "year": "2020", "title": "Machine Learning"},
+            ),
+            (
+                "2020 - Smith - Machine Learning.pdf",
+                {"authors": "Smith", "year": "2020", "title": "Machine Learning"},
+            ),
             ("Just A Title.pdf", {"authors": None, "year": None, "title": "Just A Title"}),
         ]
 
@@ -91,7 +105,7 @@ def test_author_parsing():
             result = [(a.first_name, a.last_name) for a in authors]
             passed = result == expected
             status = "PASS" if passed else "FAIL"
-            print(f"  \"{author_string}\": {status}")
+            print(f'  "{author_string}": {status}')
             if not passed:
                 print(f"    Expected: {expected}")
                 print(f"    Got: {result}")
@@ -147,7 +161,9 @@ def test_pdf_folder_scan():
 
         # Test metadata extraction
         for paper in papers:
-            print(f"    - {paper.title} by {', '.join(a.full_name for a in paper.authors) or 'Unknown'}")
+            print(
+                f"    - {paper.title} by {', '.join(a.full_name for a in paper.authors) or 'Unknown'}"
+            )
             if paper.collections:
                 print(f"      Collection: {paper.collections[0]}")
 

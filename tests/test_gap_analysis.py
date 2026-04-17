@@ -82,7 +82,9 @@ def test_gap_analysis_outputs_expected_sections():
     assert "topic b" in topic_labels
 
     method_labels = {item["label"] for item in report["methodologies_underrepresented"]}
-    assert any(label.startswith("paradigm:") or label.startswith("methods:") for label in method_labels)
+    assert any(
+        label.startswith("paradigm:") or label.startswith("methods:") for label in method_labels
+    )
 
     year_gaps = report["year_gaps"]["missing_ranges"]
     assert year_gaps
@@ -143,41 +145,31 @@ class TestCalculateGapConfidence:
 
     def test_zero_corpus_returns_zero(self):
         """corpus_size=0 short-circuits to 0.0."""
-        result = _calculate_gap_confidence(
-            count=0, threshold=5, evidence_count=3, corpus_size=0
-        )
+        result = _calculate_gap_confidence(count=0, threshold=5, evidence_count=3, corpus_size=0)
         assert result == 0.0
 
     def test_zero_threshold_returns_zero(self):
         """threshold=0 short-circuits to 0.0."""
-        result = _calculate_gap_confidence(
-            count=0, threshold=0, evidence_count=3, corpus_size=100
-        )
+        result = _calculate_gap_confidence(count=0, threshold=0, evidence_count=3, corpus_size=100)
         assert result == 0.0
 
     def test_high_signal_low_count(self):
         """count=0 with high threshold yields maximum signal strength (0.5 weight)."""
-        result = _calculate_gap_confidence(
-            count=0, threshold=10, evidence_count=3, corpus_size=100
-        )
+        result = _calculate_gap_confidence(count=0, threshold=10, evidence_count=3, corpus_size=100)
         # signal_strength = 1.0, evidence_quality = 1.0, corpus_factor = 1.0
         # confidence = 0.5*1.0 + 0.3*1.0 + 0.2*1.0 = 1.0
         assert result == 1.0
 
     def test_count_equals_threshold_zero_signal(self):
         """count==threshold means no underrepresentation signal."""
-        result = _calculate_gap_confidence(
-            count=5, threshold=5, evidence_count=3, corpus_size=100
-        )
+        result = _calculate_gap_confidence(count=5, threshold=5, evidence_count=3, corpus_size=100)
         # signal_strength = 1.0 - 5/5 = 0.0
         # confidence = 0.5*0.0 + 0.3*1.0 + 0.2*1.0 = 0.5
         assert result == 0.5
 
     def test_count_exceeds_threshold(self):
         """count > threshold clamps signal_strength to 0.0 via max()."""
-        result = _calculate_gap_confidence(
-            count=10, threshold=5, evidence_count=3, corpus_size=100
-        )
+        result = _calculate_gap_confidence(count=10, threshold=5, evidence_count=3, corpus_size=100)
         # signal_strength = max(0.0, 1.0 - 10/5) = max(0.0, -1.0) = 0.0
         assert result == 0.5
 
@@ -186,9 +178,7 @@ class TestCalculateGapConfidence:
         # count=2, threshold=4: signal = 1 - 2/4 = 0.5
         # evidence_count=1: quality = 1/3 ~= 0.333
         # corpus_size=25: factor = 25/50 = 0.5
-        result = _calculate_gap_confidence(
-            count=2, threshold=4, evidence_count=1, corpus_size=25
-        )
+        result = _calculate_gap_confidence(count=2, threshold=4, evidence_count=1, corpus_size=25)
         expected = 0.5 * 0.5 + 0.3 * (1 / 3.0) + 0.2 * 0.5
         assert result == round(min(expected, 1.0), 3)
 
@@ -214,12 +204,8 @@ class TestCalculateGapConfidence:
 
     def test_small_corpus_reduces_confidence(self):
         """corpus_size=10 yields lower confidence than corpus_size=100."""
-        small = _calculate_gap_confidence(
-            count=0, threshold=5, evidence_count=3, corpus_size=10
-        )
-        large = _calculate_gap_confidence(
-            count=0, threshold=5, evidence_count=3, corpus_size=100
-        )
+        small = _calculate_gap_confidence(count=0, threshold=5, evidence_count=3, corpus_size=10)
+        large = _calculate_gap_confidence(count=0, threshold=5, evidence_count=3, corpus_size=100)
         assert small < large
 
     def test_confidence_never_exceeds_one(self):
@@ -238,9 +224,7 @@ class TestAnalyzeGapReportEdgeCases:
 
     def test_empty_corpus(self):
         """Zero papers produces empty gap sections."""
-        report = analyze_gap_report(
-            [], {}, GapDetectionConfig(min_count=1, quantile=0.0)
-        )
+        report = analyze_gap_report([], {}, GapDetectionConfig(min_count=1, quantile=0.0))
         assert report["topics_underrepresented"] == []
         assert report["methodologies_underrepresented"] == []
         assert report["future_directions"] == []
@@ -274,9 +258,7 @@ class TestAnalyzeGapReportEdgeCases:
         )
         # p4 should be excluded (only in "other" collection)
         assert report["corpus"]["papers"] == 3
-        topic_labels = {
-            item["label"] for item in report["topics_underrepresented"]
-        }
+        topic_labels = {item["label"] for item in report["topics_underrepresented"]}
         assert "topic c" not in topic_labels
 
     def test_papers_without_years_no_year_gaps(self):
@@ -308,10 +290,7 @@ class TestAnalyzeGapReportEdgeCases:
             }
             for i in range(5)
         ]
-        extractions = {
-            f"p{i}": {"extraction": {"q17_field": f"T{i}"}}
-            for i in range(5)
-        }
+        extractions = {f"p{i}": {"extraction": {"q17_field": f"T{i}"}} for i in range(5)}
         report = analyze_gap_report(
             papers,
             extractions,

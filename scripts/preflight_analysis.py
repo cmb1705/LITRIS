@@ -111,9 +111,7 @@ def load_existing_index_stats(index_dir: Path) -> dict:
         if isinstance(data, dict) and "papers" in data:
             papers = data["papers"]
             stats["paper_count"] = len(papers)
-            stats["papers_with_doi"] = sum(
-                1 for p in papers if normalize_doi(p.get("doi"))
-            )
+            stats["papers_with_doi"] = sum(1 for p in papers if normalize_doi(p.get("doi")))
             stats["last_updated"] = data.get("generated_at")
 
     extractions_file = index_dir / "semantic_analyses.json"
@@ -138,42 +136,46 @@ def export_to_csv(
 
     with open(filepath, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            "paper_id", "title", "authors", "year", "doi", "status", "has_pdf"
-        ])
+        writer.writerow(["paper_id", "title", "authors", "year", "doi", "status", "has_pdf"])
 
         for paper in new_papers:
-            writer.writerow([
-                paper.paper_id,
-                paper.title,
-                paper.author_string,
-                paper.publication_year,
-                paper.doi or "",
-                "new",
-                "yes" if paper.pdf_path else "no",
-            ])
+            writer.writerow(
+                [
+                    paper.paper_id,
+                    paper.title,
+                    paper.author_string,
+                    paper.publication_year,
+                    paper.doi or "",
+                    "new",
+                    "yes" if paper.pdf_path else "no",
+                ]
+            )
 
         for paper in duplicates:
-            writer.writerow([
-                paper.paper_id,
-                paper.title,
-                paper.author_string,
-                paper.publication_year,
-                paper.doi or "",
-                "duplicate",
-                "yes" if paper.pdf_path else "no",
-            ])
+            writer.writerow(
+                [
+                    paper.paper_id,
+                    paper.title,
+                    paper.author_string,
+                    paper.publication_year,
+                    paper.doi or "",
+                    "duplicate",
+                    "yes" if paper.pdf_path else "no",
+                ]
+            )
 
         for paper in without_pdf:
-            writer.writerow([
-                paper.paper_id,
-                paper.title,
-                paper.author_string,
-                paper.publication_year,
-                paper.doi or "",
-                "no_pdf",
-                "no",
-            ])
+            writer.writerow(
+                [
+                    paper.paper_id,
+                    paper.title,
+                    paper.author_string,
+                    paper.publication_year,
+                    paper.doi or "",
+                    "no_pdf",
+                    "no",
+                ]
+            )
 
     print(f"\nExported analysis to: {filepath}")
 

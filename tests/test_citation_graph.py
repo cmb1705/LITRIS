@@ -94,8 +94,19 @@ def test_nodes_have_required_fields():
     papers, extractions = _sample_corpus()
     graph = build_citation_graph(papers, extractions)
 
-    required = {"id", "type", "label", "title", "authors", "year",
-                "collections", "in_library", "doi", "size", "color"}
+    required = {
+        "id",
+        "type",
+        "label",
+        "title",
+        "authors",
+        "year",
+        "collections",
+        "in_library",
+        "doi",
+        "size",
+        "color",
+    }
     for node in graph["nodes"]:
         assert required <= set(node.keys()), f"Missing fields in node {node['id']}"
 
@@ -148,10 +159,7 @@ def test_short_titles_excluded():
     graph = build_citation_graph(papers, extractions)
 
     # p4 "Short Title" should not appear as a target from title matching
-    title_match_targets = {
-        e["target"] for e in graph["edges"]
-        if e["source_type"] == "extraction"
-    }
+    title_match_targets = {e["target"] for e in graph["edges"] if e["source_type"] == "extraction"}
     assert "p4" not in title_match_targets
 
 
@@ -180,7 +188,11 @@ def test_highly_cited_node_color():
     """Nodes with 5+ incoming edges get the highly-cited color."""
     # Create a corpus where one paper is cited by many
     papers = [
-        {"paper_id": f"p{i}", "title": f"Paper number {i} with a long enough title for matching", "publication_year": 2020}
+        {
+            "paper_id": f"p{i}",
+            "title": f"Paper number {i} with a long enough title for matching",
+            "publication_year": 2020,
+        }
         for i in range(8)
     ]
     papers[0]["title"] = "The Foundational Work on Graph Neural Network Architectures"
@@ -392,26 +404,42 @@ def test_syllabus_bundle_detection():
         for i in range(4)
     ]
     extractions = {
-        "paf0": {"extraction": {
-            "paper_id": "paf0", "prompt_version": "2.0.0",
-            "extraction_model": "test-model", "extracted_at": "2026-01-01T00:00:00Z",
-            "q02_thesis": "Network analysis is fundamental.",
-        }},
-        "paf1": {"extraction": {
-            "paper_id": "paf1", "prompt_version": "2.0.0",
-            "extraction_model": "test-model", "extracted_at": "2026-01-01T00:00:00Z",
-            "q02_thesis": "Clustering improves outcomes.",
-        }},
-        "paf2": {"extraction": {
-            "paper_id": "paf2", "prompt_version": "2.0.0",
-            "extraction_model": "test-model", "extracted_at": "2026-01-01T00:00:00Z",
-            "q02_thesis": "Optimization under constraints.",
-        }},
-        "paf3": {"extraction": {
-            "paper_id": "paf3", "prompt_version": "2.0.0",
-            "extraction_model": "test-model", "extracted_at": "2026-01-01T00:00:00Z",
-            "q02_thesis": "Policy analysis frameworks.",
-        }},
+        "paf0": {
+            "extraction": {
+                "paper_id": "paf0",
+                "prompt_version": "2.0.0",
+                "extraction_model": "test-model",
+                "extracted_at": "2026-01-01T00:00:00Z",
+                "q02_thesis": "Network analysis is fundamental.",
+            }
+        },
+        "paf1": {
+            "extraction": {
+                "paper_id": "paf1",
+                "prompt_version": "2.0.0",
+                "extraction_model": "test-model",
+                "extracted_at": "2026-01-01T00:00:00Z",
+                "q02_thesis": "Clustering improves outcomes.",
+            }
+        },
+        "paf2": {
+            "extraction": {
+                "paper_id": "paf2",
+                "prompt_version": "2.0.0",
+                "extraction_model": "test-model",
+                "extracted_at": "2026-01-01T00:00:00Z",
+                "q02_thesis": "Optimization under constraints.",
+            }
+        },
+        "paf3": {
+            "extraction": {
+                "paper_id": "paf3",
+                "prompt_version": "2.0.0",
+                "extraction_model": "test-model",
+                "extracted_at": "2026-01-01T00:00:00Z",
+                "q02_thesis": "Policy analysis frameworks.",
+            }
+        },
     }
     graph = build_citation_graph(papers, extractions)
 
@@ -547,13 +575,8 @@ def test_reference_doi_match():
     papers, extractions = _reference_corpus()
     graph = build_citation_graph(papers, extractions)
 
-    doi_ref_edges = [
-        e for e in graph["edges"]
-        if e["source_type"] == "reference_doi_match"
-    ]
-    assert any(
-        e["source"] == "r1" and e["target"] == "r2" for e in doi_ref_edges
-    )
+    doi_ref_edges = [e for e in graph["edges"] if e["source_type"] == "reference_doi_match"]
+    assert any(e["source"] == "r1" and e["target"] == "r2" for e in doi_ref_edges)
     for e in doi_ref_edges:
         assert e["confidence"] == 1.0
 
@@ -563,13 +586,8 @@ def test_reference_title_match():
     papers, extractions = _reference_corpus()
     graph = build_citation_graph(papers, extractions)
 
-    title_ref_edges = [
-        e for e in graph["edges"]
-        if e["source_type"] == "reference_title_match"
-    ]
-    assert any(
-        e["source"] == "r1" and e["target"] == "r3" for e in title_ref_edges
-    )
+    title_ref_edges = [e for e in graph["edges"] if e["source_type"] == "reference_title_match"]
+    assert any(e["source"] == "r1" and e["target"] == "r3" for e in title_ref_edges)
     for e in title_ref_edges:
         assert e["confidence"] == 0.95
 
@@ -616,10 +634,7 @@ def test_reference_dedup_with_title_match():
     graph = build_citation_graph(papers, extractions)
 
     # r1 -> r2 should appear only once (via DOI match, not also title match)
-    r1_to_r2 = [
-        e for e in graph["edges"]
-        if e["source"] == "r1" and e["target"] == "r2"
-    ]
+    r1_to_r2 = [e for e in graph["edges"] if e["source"] == "r1" and e["target"] == "r2"]
     assert len(r1_to_r2) == 1
     assert r1_to_r2[0]["source_type"] == "reference_doi_match"
 

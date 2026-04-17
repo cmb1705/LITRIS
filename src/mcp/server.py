@@ -56,6 +56,7 @@ mcp = FastMCP(
     "pass (research_core, methodology, context, meta, scholarly, impact).",
 )
 
+
 @lru_cache(maxsize=1)
 def get_adapter() -> LitrisAdapter:
     """Get or create the LITRIS adapter instance.
@@ -131,7 +132,9 @@ async def litris_search(
         )
 
         elapsed = time.time() - start_time
-        logger.info(f"[{request_id}] litris_search returning {results.get('result_count', 0)} results in {elapsed:.3f}s")
+        logger.info(
+            f"[{request_id}] litris_search returning {results.get('result_count', 0)} results in {elapsed:.3f}s"
+        )
         return results
 
     except ValidationError as e:
@@ -142,7 +145,12 @@ async def litris_search(
     except FileNotFoundError as e:
         elapsed = time.time() - start_time
         logger.error(f"[{request_id}] Index not found in {elapsed:.3f}s: {e}")
-        return {"error": "INDEX_NOT_FOUND", "message": "Literature index not found. Run /build to create.", "result_count": 0, "results": []}
+        return {
+            "error": "INDEX_NOT_FOUND",
+            "message": "Literature index not found. Run /build to create.",
+            "result_count": 0,
+            "results": [],
+        }
 
     except Exception as e:
         elapsed = time.time() - start_time
@@ -188,7 +196,9 @@ async def litris_search_rrf(
     """
     request_id = str(uuid.uuid4())[:8]
     start_time = time.time()
-    logger.info(f"[{request_id}] litris_search_rrf called: query='{query[:50]}...' top_k={top_k} variants={n_variants}")
+    logger.info(
+        f"[{request_id}] litris_search_rrf called: query='{query[:50]}...' top_k={top_k} variants={n_variants}"
+    )
 
     try:
         validate_query(query)
@@ -220,7 +230,9 @@ async def litris_search_rrf(
         )
 
         elapsed = time.time() - start_time
-        logger.info(f"[{request_id}] litris_search_rrf returning {results.get('result_count', 0)} results in {elapsed:.3f}s")
+        logger.info(
+            f"[{request_id}] litris_search_rrf returning {results.get('result_count', 0)} results in {elapsed:.3f}s"
+        )
         return results
 
     except ValidationError as e:
@@ -231,7 +243,12 @@ async def litris_search_rrf(
     except FileNotFoundError as e:
         elapsed = time.time() - start_time
         logger.error(f"[{request_id}] Index not found in {elapsed:.3f}s: {e}")
-        return {"error": "INDEX_NOT_FOUND", "message": "Literature index not found. Run /build to create.", "result_count": 0, "results": []}
+        return {
+            "error": "INDEX_NOT_FOUND",
+            "message": "Literature index not found. Run /build to create.",
+            "result_count": 0,
+            "results": [],
+        }
 
     except Exception as e:
         elapsed = time.time() - start_time
@@ -327,7 +344,12 @@ async def litris_search_agentic(
     except FileNotFoundError as e:
         elapsed = time.time() - start_time
         logger.error(f"[{request_id}] Index not found in {elapsed:.3f}s: {e}")
-        return {"error": "INDEX_NOT_FOUND", "message": "Literature index not found. Run /build to create.", "result_count": 0, "results": []}
+        return {
+            "error": "INDEX_NOT_FOUND",
+            "message": "Literature index not found. Run /build to create.",
+            "result_count": 0,
+            "results": [],
+        }
 
     except Exception as e:
         elapsed = time.time() - start_time
@@ -361,10 +383,7 @@ async def litris_deep_review(
     """
     request_id = str(uuid.uuid4())[:8]
     start_time = time.time()
-    logger.info(
-        f"[{request_id}] litris_deep_review called: "
-        f"topic='{topic[:50]}...' top_k={top_k}"
-    )
+    logger.info(f"[{request_id}] litris_deep_review called: topic='{topic[:50]}...' top_k={top_k}")
 
     try:
         validate_query(topic)
@@ -394,7 +413,10 @@ async def litris_deep_review(
     except FileNotFoundError as e:
         elapsed = time.time() - start_time
         logger.error(f"[{request_id}] Index not found in {elapsed:.3f}s: {e}")
-        return {"error": "INDEX_NOT_FOUND", "message": "Literature index not found. Run /build to create."}
+        return {
+            "error": "INDEX_NOT_FOUND",
+            "message": "Literature index not found. Run /build to create.",
+        }
 
     except Exception as e:
         elapsed = time.time() - start_time
@@ -424,21 +446,35 @@ async def litris_get_paper(paper_id: str) -> dict[str, Any]:
 
         elapsed = time.time() - start_time
         if result.get("found"):
-            logger.info(f"[{request_id}] litris_get_paper: found paper '{result.get('paper', {}).get('title', 'Unknown')[:50]}' in {elapsed:.3f}s")
+            logger.info(
+                f"[{request_id}] litris_get_paper: found paper '{result.get('paper', {}).get('title', 'Unknown')[:50]}' in {elapsed:.3f}s"
+            )
         else:
-            logger.warning(f"[{request_id}] litris_get_paper: paper not found: {paper_id} in {elapsed:.3f}s")
+            logger.warning(
+                f"[{request_id}] litris_get_paper: paper not found: {paper_id} in {elapsed:.3f}s"
+            )
 
         return result
 
     except ValidationError as e:
         elapsed = time.time() - start_time
         logger.warning(f"[{request_id}] Validation error in {elapsed:.3f}s: {e}")
-        return {"error": "VALIDATION_ERROR", "message": str(e), "paper_id": paper_id, "found": False}
+        return {
+            "error": "VALIDATION_ERROR",
+            "message": str(e),
+            "paper_id": paper_id,
+            "found": False,
+        }
 
     except FileNotFoundError as e:
         elapsed = time.time() - start_time
         logger.error(f"[{request_id}] Index not found in {elapsed:.3f}s: {e}")
-        return {"error": "INDEX_NOT_FOUND", "message": "Literature index not found. Run /build to create.", "paper_id": paper_id, "found": False}
+        return {
+            "error": "INDEX_NOT_FOUND",
+            "message": "Literature index not found. Run /build to create.",
+            "paper_id": paper_id,
+            "found": False,
+        }
 
     except Exception as e:
         elapsed = time.time() - start_time
@@ -545,23 +581,43 @@ async def litris_similar(paper_id: str, top_k: int = 10) -> dict[str, Any]:
         results = adapter.find_similar(paper_id, top_k)
 
         elapsed = time.time() - start_time
-        logger.info(f"[{request_id}] litris_similar returning {results.get('result_count', 0)} similar papers in {elapsed:.3f}s")
+        logger.info(
+            f"[{request_id}] litris_similar returning {results.get('result_count', 0)} similar papers in {elapsed:.3f}s"
+        )
         return results
 
     except ValidationError as e:
         elapsed = time.time() - start_time
         logger.warning(f"[{request_id}] Validation error in {elapsed:.3f}s: {e}")
-        return {"error": "VALIDATION_ERROR", "message": str(e), "source_paper_id": paper_id, "result_count": 0, "similar_papers": []}
+        return {
+            "error": "VALIDATION_ERROR",
+            "message": str(e),
+            "source_paper_id": paper_id,
+            "result_count": 0,
+            "similar_papers": [],
+        }
 
     except FileNotFoundError as e:
         elapsed = time.time() - start_time
         logger.error(f"[{request_id}] Index not found in {elapsed:.3f}s: {e}")
-        return {"error": "INDEX_NOT_FOUND", "message": "Literature index not found. Run /build to create.", "source_paper_id": paper_id, "result_count": 0, "similar_papers": []}
+        return {
+            "error": "INDEX_NOT_FOUND",
+            "message": "Literature index not found. Run /build to create.",
+            "source_paper_id": paper_id,
+            "result_count": 0,
+            "similar_papers": [],
+        }
 
     except Exception as e:
         elapsed = time.time() - start_time
         logger.error(f"[{request_id}] Similar search failed in {elapsed:.3f}s: {e}")
-        return {"error": "SEARCH_FAILED", "message": str(e), "source_paper_id": paper_id, "result_count": 0, "similar_papers": []}
+        return {
+            "error": "SEARCH_FAILED",
+            "message": str(e),
+            "source_paper_id": paper_id,
+            "result_count": 0,
+            "similar_papers": [],
+        }
 
 
 @mcp.tool()
@@ -597,7 +653,10 @@ async def litris_clusters(
     except FileNotFoundError as e:
         elapsed = time.time() - start_time
         logger.error(f"[{request_id}] Index not found in {elapsed:.3f}s: {e}")
-        return {"error": "INDEX_NOT_FOUND", "message": "Literature index not found. Run /build to create."}
+        return {
+            "error": "INDEX_NOT_FOUND",
+            "message": "Literature index not found. Run /build to create.",
+        }
 
     except ImportError as e:
         elapsed = time.time() - start_time
@@ -626,13 +685,19 @@ async def litris_summary() -> dict[str, Any]:
         summary = adapter.get_summary()
 
         elapsed = time.time() - start_time
-        logger.info(f"[{request_id}] litris_summary: {summary.get('total_papers', 0)} papers indexed in {elapsed:.3f}s")
+        logger.info(
+            f"[{request_id}] litris_summary: {summary.get('total_papers', 0)} papers indexed in {elapsed:.3f}s"
+        )
         return summary
 
     except FileNotFoundError as e:
         elapsed = time.time() - start_time
         logger.error(f"[{request_id}] Index not found in {elapsed:.3f}s: {e}")
-        return {"error": "INDEX_NOT_FOUND", "message": "Literature index not found. Run /build to create.", "total_papers": 0}
+        return {
+            "error": "INDEX_NOT_FOUND",
+            "message": "Literature index not found. Run /build to create.",
+            "total_papers": 0,
+        }
 
     except Exception as e:
         elapsed = time.time() - start_time
@@ -656,13 +721,19 @@ async def litris_collections() -> dict[str, Any]:
         collections = adapter.get_collections()
 
         elapsed = time.time() - start_time
-        logger.info(f"[{request_id}] litris_collections: {len(collections.get('collections', []))} collections in {elapsed:.3f}s")
+        logger.info(
+            f"[{request_id}] litris_collections: {len(collections.get('collections', []))} collections in {elapsed:.3f}s"
+        )
         return collections
 
     except FileNotFoundError as e:
         elapsed = time.time() - start_time
         logger.error(f"[{request_id}] Index not found in {elapsed:.3f}s: {e}")
-        return {"error": "INDEX_NOT_FOUND", "message": "Literature index not found. Run /build to create.", "collections": []}
+        return {
+            "error": "INDEX_NOT_FOUND",
+            "message": "Literature index not found. Run /build to create.",
+            "collections": [],
+        }
 
     except Exception as e:
         elapsed = time.time() - start_time
@@ -780,7 +851,9 @@ async def litris_save_query(
                 logger.warning(f"[{request_id}] PDF generation failed: {e}")
 
         elapsed = time.time() - start_time
-        logger.info(f"[{request_id}] litris_save_query saved {len(saved_files)} files in {elapsed:.3f}s")
+        logger.info(
+            f"[{request_id}] litris_save_query saved {len(saved_files)} files in {elapsed:.3f}s"
+        )
 
         return {
             "success": True,
@@ -831,7 +904,9 @@ async def litris_search_dimension(
     """
     request_id = str(uuid.uuid4())[:8]
     start_time = time.time()
-    logger.info(f"[{request_id}] litris_search_dimension called: query='{query[:50]}...' dimension={dimension}")
+    logger.info(
+        f"[{request_id}] litris_search_dimension called: query='{query[:50]}...' dimension={dimension}"
+    )
 
     try:
         from src.query.dimension_search import search_dimension
@@ -859,20 +934,29 @@ async def litris_search_dimension(
 
         formatted = []
         for i, result in enumerate(results, 1):
-            formatted.append({
-                "rank": i,
-                "score": round(result.score, 4),
-                "paper_id": result.paper_id,
-                "title": result.title,
-                "authors": result.authors,
-                "year": result.year,
-                "chunk_type": result.chunk_type,
-                "matched_text": result.matched_text[:500] if result.matched_text else "",
-            })
+            formatted.append(
+                {
+                    "rank": i,
+                    "score": round(result.score, 4),
+                    "paper_id": result.paper_id,
+                    "title": result.title,
+                    "authors": result.authors,
+                    "year": result.year,
+                    "chunk_type": result.chunk_type,
+                    "matched_text": result.matched_text[:500] if result.matched_text else "",
+                }
+            )
 
         elapsed = time.time() - start_time
-        logger.info(f"[{request_id}] litris_search_dimension returning {len(formatted)} results in {elapsed:.3f}s")
-        return {"query": query, "dimension": dimension, "result_count": len(formatted), "results": formatted}
+        logger.info(
+            f"[{request_id}] litris_search_dimension returning {len(formatted)} results in {elapsed:.3f}s"
+        )
+        return {
+            "query": query,
+            "dimension": dimension,
+            "result_count": len(formatted),
+            "results": formatted,
+        }
 
     except ValueError as e:
         return {"error": "VALIDATION_ERROR", "message": str(e), "result_count": 0, "results": []}
@@ -939,20 +1023,29 @@ async def litris_search_group(
 
         formatted = []
         for i, result in enumerate(results, 1):
-            formatted.append({
-                "rank": i,
-                "score": round(result.score, 4),
-                "paper_id": result.paper_id,
-                "title": result.title,
-                "authors": result.authors,
-                "year": result.year,
-                "chunk_type": result.chunk_type,
-                "matched_text": result.matched_text[:500] if result.matched_text else "",
-            })
+            formatted.append(
+                {
+                    "rank": i,
+                    "score": round(result.score, 4),
+                    "paper_id": result.paper_id,
+                    "title": result.title,
+                    "authors": result.authors,
+                    "year": result.year,
+                    "chunk_type": result.chunk_type,
+                    "matched_text": result.matched_text[:500] if result.matched_text else "",
+                }
+            )
 
         elapsed = time.time() - start_time
-        logger.info(f"[{request_id}] litris_search_group returning {len(formatted)} results in {elapsed:.3f}s")
-        return {"query": query, "group": group, "result_count": len(formatted), "results": formatted}
+        logger.info(
+            f"[{request_id}] litris_search_group returning {len(formatted)} results in {elapsed:.3f}s"
+        )
+        return {
+            "query": query,
+            "group": group,
+            "result_count": len(formatted),
+            "results": formatted,
+        }
 
     except ValueError as e:
         return {"error": "VALIDATION_ERROR", "message": str(e), "result_count": 0, "results": []}

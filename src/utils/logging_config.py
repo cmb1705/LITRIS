@@ -4,9 +4,44 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TextIO
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+
+class _EncodingSafeConsoleStream:
+    """Wrap console writes so logging cannot fail on unencodable characters."""
+
+    def __init__(self, stream: TextIO):
+        self._stream = stream
+
+    @property
+    def encoding(self) -> str | None:
+        """Return the wrapped stream encoding when available."""
+        return getattr(self._stream, "encoding", None)
+
+    def write(self, message: str) -> int:
+        """Write a log message, escaping characters the console cannot encode."""
+        try:
+            return self._stream.write(message)
+        except UnicodeEncodeError:
+            return self._stream.write(self._escape_unencodable(message))
+
+    def flush(self) -> None:
+        """Flush the wrapped stream."""
+        self._stream.flush()
+
+    def __getattr__(self, name: str) -> object:
+        """Delegate unknown attributes to the wrapped stream."""
+        return getattr(self._stream, name)
+
+    def _escape_unencodable(self, message: str) -> str:
+        """Return a console-safe representation of the log message."""
+        encoding = self.encoding or "utf-8"
+        try:
+            return message.encode(encoding, errors="backslashreplace").decode(encoding)
+        except LookupError:
+            return message.encode("utf-8", errors="backslashreplace").decode("utf-8")
 
 
 def setup_logging(
@@ -57,7 +92,7 @@ def setup_logging(
 
     # Console handler
     if console:
-        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler = logging.StreamHandler(_EncodingSafeConsoleStream(sys.stdout))
         console_handler.setLevel(getattr(logging, level))
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)

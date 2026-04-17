@@ -143,8 +143,16 @@ class TestValidateChunkTypes:
         """All valid chunk types pass."""
         valid_types = [
             "abstract",
-            "dim_q01", "dim_q02", "dim_q03", "dim_q04", "dim_q05",
-            "dim_q06", "dim_q07", "dim_q08", "dim_q09", "dim_q10",
+            "dim_q01",
+            "dim_q02",
+            "dim_q03",
+            "dim_q04",
+            "dim_q05",
+            "dim_q06",
+            "dim_q07",
+            "dim_q08",
+            "dim_q09",
+            "dim_q10",
             "raptor_overview",
             "raptor_core",
         ]

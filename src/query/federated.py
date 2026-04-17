@@ -153,7 +153,9 @@ class FederatedSearchEngine:
                     embedding_model=self.embedding_model,
                     **self._embedding_kwargs,
                 )
-                logger.info(f"Loaded federated index: {idx_config.label} (weight={idx_config.weight})")
+                logger.info(
+                    f"Loaded federated index: {idx_config.label} (weight={idx_config.weight})"
+                )
                 return idx_config.label, engine, idx_config.weight
             except Exception as e:
                 logger.error(f"Failed to load federated index {idx_config.label}: {e}")
@@ -574,12 +576,14 @@ class FederatedSearchEngine:
         }
 
         for idx_config in self.config.indexes:
-            info["indexes"].append({
-                "label": idx_config.label,
-                "path": str(idx_config.path),
-                "enabled": idx_config.enabled,
-                "weight": idx_config.weight,
-                "loaded": idx_config.label in self.federated_engines,
-            })
+            info["indexes"].append(
+                {
+                    "label": idx_config.label,
+                    "path": str(idx_config.path),
+                    "enabled": idx_config.enabled,
+                    "weight": idx_config.weight,
+                    "loaded": idx_config.label in self.federated_engines,
+                }
+            )
 
         return info

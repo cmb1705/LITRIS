@@ -251,7 +251,7 @@ class TestParseLLMResponse:
 
     def test_parses_valid_json(self):
         """Parses well-formed JSON response."""
-        response = '''
+        response = """
         {
             "questions": [
                 {
@@ -261,7 +261,7 @@ class TestParseLLMResponse:
                 }
             ]
         }
-        '''
+        """
         questions = parse_llm_response(response, "topic", "network resilience")
 
         assert len(questions) == 1
@@ -272,7 +272,7 @@ class TestParseLLMResponse:
 
     def test_handles_markdown_wrapped_json(self):
         """Handles JSON wrapped in markdown code blocks."""
-        response = '''Here is the output:
+        response = """Here is the output:
         ```json
         {
             "questions": [
@@ -280,7 +280,7 @@ class TestParseLLMResponse:
             ]
         }
         ```
-        '''
+        """
         questions = parse_llm_response(response, "topic", "test")
 
         assert len(questions) == 1
@@ -288,14 +288,14 @@ class TestParseLLMResponse:
 
     def test_filters_non_questions(self):
         """Filters entries that don't end with question mark."""
-        response = '''
+        response = """
         {
             "questions": [
                 {"question": "Valid question?", "style": "exploratory"},
                 {"question": "Not a question", "style": "exploratory"}
             ]
         }
-        '''
+        """
         questions = parse_llm_response(response, "topic", "test")
 
         assert len(questions) == 1
@@ -422,14 +422,14 @@ class TestGenerateQuestionsFromPrompts:
         ]
 
         def mock_llm(prompt):
-            return '''
+            return """
             {
                 "questions": [
                     {"question": "How does topology affect resilience?", "style": "causal"},
                     {"question": "What factors influence network stability?", "style": "exploratory"}
                 ]
             }
-            '''
+            """
 
         config = ResearchQuestionConfig()
         result = generate_questions_from_prompts(prompts, mock_llm, config)

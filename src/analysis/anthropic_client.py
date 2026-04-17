@@ -203,9 +203,7 @@ class AnthropicLLMClient(BaseLLMClient):
             duration = time.time() - start_time
             confidence = getattr(extraction, "extraction_confidence", None)
             conf_str = f", confidence: {confidence:.2f}" if confidence else ""
-            logger.info(
-                f"Extracted paper {paper_id} in {duration:.1f}s{conf_str}"
-            )
+            logger.info(f"Extracted paper {paper_id} in {duration:.1f}s{conf_str}")
 
             return ExtractionResult(
                 paper_id=paper_id,
@@ -356,9 +354,7 @@ class AnthropicLLMClient(BaseLLMClient):
             return len(prompt) - len(PAPER_TEXT_STDIN_PLACEHOLDER) + len(text)
         return len(prompt) + len("\n\nPAPER TEXT:\n") + len(text)
 
-    def _parse_response(
-        self, response_text: str
-    ) -> SemanticAnalysis:
+    def _parse_response(self, response_text: str) -> SemanticAnalysis:
         """Parse JSON response into SemanticAnalysis.
 
         Detects q-field keys (from 6-pass pipeline) and returns SemanticAnalysis.
@@ -392,7 +388,9 @@ class AnthropicLLMClient(BaseLLMClient):
             # The caller (section_extractor._extract_6_pass) builds the final
             # SemanticAnalysis from merged answers; these placeholders are
             # only used by _extract_pass_answers via getattr.
-            profile_id = data.get("profile_id") or get_default_dimension_registry().active_profile_id
+            profile_id = (
+                data.get("profile_id") or get_default_dimension_registry().active_profile_id
+            )
             normalized_data = normalize_dimension_input_values(data, profile_id=profile_id)
             return SemanticAnalysis(
                 paper_id=normalized_data.get("paper_id", "pending"),
@@ -403,30 +401,27 @@ class AnthropicLLMClient(BaseLLMClient):
                 extraction_model=normalized_data.get("extraction_model", self.model),
                 extracted_at=normalized_data.get("extracted_at", ""),
                 dimensions=normalize_dimension_payload(normalized_data, profile_id=profile_id),
-                **{
-                    k: v
-                    for k, v in normalized_data.items()
-                    if k not in EXTRACTION_METADATA_KEYS
-                },
+                **{k: v for k, v in normalized_data.items() if k not in EXTRACTION_METADATA_KEYS},
             )
 
         # Legacy single-pass: handle nested models
         if "methodology" in data and isinstance(data["methodology"], dict):
             from src.analysis.schemas import Methodology
+
             data["methodology"] = Methodology(**data["methodology"])
 
         if "key_findings" in data and isinstance(data["key_findings"], list):
             from src.analysis.schemas import KeyFinding
+
             data["key_findings"] = [
-                KeyFinding(**f) if isinstance(f, dict) else f
-                for f in data["key_findings"]
+                KeyFinding(**f) if isinstance(f, dict) else f for f in data["key_findings"]
             ]
 
         if "key_claims" in data and isinstance(data["key_claims"], list):
             from src.analysis.schemas import KeyClaim
+
             data["key_claims"] = [
-                KeyClaim(**c) if isinstance(c, dict) else c
-                for c in data["key_claims"]
+                KeyClaim(**c) if isinstance(c, dict) else c for c in data["key_claims"]
             ]
 
         profile_id = data.get("profile_id") or get_default_dimension_registry().active_profile_id

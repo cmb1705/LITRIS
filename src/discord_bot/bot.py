@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 # PaginationView must be guarded because discord.ui.View is the base class
 # and discord.py may not be installed.
 if HAS_DISCORD:
+
     class PaginationView(discord.ui.View):
         """Button-based pagination for search results."""
 
@@ -45,9 +46,7 @@ if HAS_DISCORD:
             self.results = results
             self.query = query
             self.page = 0
-            self.total_pages = (
-                (len(results) + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE
-            )
+            self.total_pages = (len(results) + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE
             self._update_buttons()
 
         def _update_buttons(self) -> None:
@@ -61,9 +60,7 @@ if HAS_DISCORD:
             end = start + RESULTS_PER_PAGE
             page_results = self.results[start:end]
 
-            embed_dicts = format_search_page(
-                page_results, self.query, self.page, len(self.results)
-            )
+            embed_dicts = format_search_page(page_results, self.query, self.page, len(self.results))
             return [discord.Embed.from_dict(d) for d in embed_dicts]
 
         @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary)
@@ -73,9 +70,7 @@ if HAS_DISCORD:
             """Go to previous page."""
             self.page = max(0, self.page - 1)
             self._update_buttons()
-            await interaction.response.edit_message(
-                embeds=self._get_page_embeds(), view=self
-            )
+            await interaction.response.edit_message(embeds=self._get_page_embeds(), view=self)
 
         @discord.ui.button(label="Next", style=discord.ButtonStyle.primary)
         async def next_button(
@@ -84,9 +79,7 @@ if HAS_DISCORD:
             """Go to next page."""
             self.page = min(self.total_pages - 1, self.page + 1)
             self._update_buttons()
-            await interaction.response.edit_message(
-                embeds=self._get_page_embeds(), view=self
-            )
+            await interaction.response.edit_message(embeds=self._get_page_embeds(), view=self)
 
 
 def create_bot(adapter: LitrisAdapter | None = None) -> discord.Client:
@@ -100,8 +93,7 @@ def create_bot(adapter: LitrisAdapter | None = None) -> discord.Client:
     """
     if not HAS_DISCORD:
         raise ImportError(
-            "discord.py is required for the Discord bot. "
-            "Install with: pip install discord.py>=2.3"
+            "discord.py is required for the Discord bot. Install with: pip install discord.py>=2.3"
         )
 
     if adapter is None:
@@ -145,9 +137,7 @@ def create_bot(adapter: LitrisAdapter | None = None) -> discord.Client:
 
             result_list = results.get("results", [])
             if not result_list:
-                await interaction.followup.send(
-                    f"No results found for: **{query}**"
-                )
+                await interaction.followup.send(f"No results found for: **{query}**")
                 return
 
             if len(result_list) > RESULTS_PER_PAGE:
@@ -155,9 +145,7 @@ def create_bot(adapter: LitrisAdapter | None = None) -> discord.Client:
                 embeds = view._get_page_embeds()
                 await interaction.followup.send(embeds=embeds, view=view)
             else:
-                embed_dicts = format_search_page(
-                    result_list, query, 0, len(result_list)
-                )
+                embed_dicts = format_search_page(result_list, query, 0, len(result_list))
                 embeds = [discord.Embed.from_dict(d) for d in embed_dicts]
                 await interaction.followup.send(embeds=embeds)
 
@@ -178,9 +166,7 @@ def create_bot(adapter: LitrisAdapter | None = None) -> discord.Client:
             result = adapter.get_paper(paper_id)
 
             if not result.get("found"):
-                await interaction.followup.send(
-                    f"Paper not found: **{paper_id}**"
-                )
+                await interaction.followup.send(f"Paper not found: **{paper_id}**")
                 return
 
             embed_dict = format_paper_embed(result)
@@ -208,9 +194,7 @@ def create_bot(adapter: LitrisAdapter | None = None) -> discord.Client:
             results = adapter.find_similar(paper_id, top_k=top_k)
 
             if not results.get("result_count"):
-                await interaction.followup.send(
-                    f"No similar papers found for: **{paper_id}**"
-                )
+                await interaction.followup.send(f"No similar papers found for: **{paper_id}**")
                 return
 
             source_title = results.get("source_title", paper_id)
@@ -219,20 +203,20 @@ def create_bot(adapter: LitrisAdapter | None = None) -> discord.Client:
             # Reformat for search page display
             formatted = []
             for s in similar:
-                formatted.append({
-                    "title": s.get("title", "Unknown"),
-                    "authors": s.get("authors", ""),
-                    "year": s.get("year"),
-                    "score": s.get("score", 0),
-                    "paper_id": s.get("paper_id", ""),
-                    "matched_text": "",
-                    "extraction": s.get("extraction", {}),
-                })
+                formatted.append(
+                    {
+                        "title": s.get("title", "Unknown"),
+                        "authors": s.get("authors", ""),
+                        "year": s.get("year"),
+                        "score": s.get("score", 0),
+                        "paper_id": s.get("paper_id", ""),
+                        "matched_text": "",
+                        "extraction": s.get("extraction", {}),
+                    }
+                )
 
             if len(formatted) > RESULTS_PER_PAGE:
-                view = PaginationView(
-                    formatted, f"Similar to: {source_title}"
-                )
+                view = PaginationView(formatted, f"Similar to: {source_title}")
                 embeds = view._get_page_embeds()
                 await interaction.followup.send(embeds=embeds, view=view)
             else:
@@ -278,9 +262,7 @@ def run_bot(token: str | None = None) -> None:
         token: Discord bot token. If None, reads from DISCORD_BOT_TOKEN env var.
     """
     if not HAS_DISCORD:
-        raise ImportError(
-            "discord.py is required. Install with: pip install discord.py>=2.3"
-        )
+        raise ImportError("discord.py is required. Install with: pip install discord.py>=2.3")
 
     if token is None:
         token = os.environ.get("DISCORD_BOT_TOKEN")

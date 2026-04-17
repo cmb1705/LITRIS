@@ -157,16 +157,8 @@ def _resolve_llm_runtime(
 
     provider = getattr(args, "provider", None) or config.extraction.provider
     provider_settings = config.extraction.get_provider_settings(provider)
-    mode = (
-        getattr(args, "mode", None)
-        or provider_settings.mode
-        or config.extraction.mode
-    )
-    model = (
-        getattr(args, "model", None)
-        or provider_settings.model
-        or config.extraction.model
-    )
+    mode = getattr(args, "mode", None) or provider_settings.mode or config.extraction.mode
+    model = getattr(args, "model", None) or provider_settings.model or config.extraction.model
     return provider, mode, model
 
 
@@ -211,18 +203,31 @@ def _call_raw_llm_prompt(
 def _sample_suggestion_ids(
     papers: dict[str, dict],
     extractions: dict[str, dict],
+    fulltext_manifest: dict[str, dict],
     similarity_pairs: dict[str, list[dict]],
     sample_size: int,
     requested_ids: list[str] | None = None,
 ) -> list[str]:
     """Choose high-signal papers for dimension suggestion analysis."""
 
-    if requested_ids:
-        return [paper_id for paper_id in requested_ids if paper_id in papers and paper_id in extractions]
+    def _has_evidence(
+        paper_id: str,
+        paper: dict[str, Any],
+        extraction_record: dict[str, Any],
+    ) -> bool:
+        if extraction_record:
+            return True
+        if paper_id in fulltext_manifest:
+            return True
+        return bool(str(paper.get("abstract") or "").strip())
 
-    scored: list[tuple[float, float, float, str]] = []
-    for paper_id, record in extractions.items():
-        if paper_id not in papers:
+    if requested_ids:
+        return [paper_id for paper_id in requested_ids if paper_id in papers]
+
+    scored: list[tuple[float, float, float, float, float, float, float, str]] = []
+    for paper_id, paper in papers.items():
+        record = extractions.get(paper_id, {})
+        if not _has_evidence(paper_id, paper, record):
             continue
         extraction = record.get("extraction", record) if isinstance(record, dict) else {}
         dims = get_dimension_map(record)
@@ -239,7 +244,22 @@ def _sample_suggestion_ids(
         )
         coverage = float(extraction.get("dimension_coverage", 0.0) or 0.0)
         neighbor_score = float(len(similarity_pairs.get(paper_id, [])))
-        scored.append((bridge_score, coverage, neighbor_score, paper_id))
+        has_extraction = 1.0 if record else 0.0
+        has_fulltext = 1.0 if paper_id in fulltext_manifest else 0.0
+        fulltext_words = float(fulltext_manifest.get(paper_id, {}).get("word_count", 0) or 0.0)
+        abstract_words = float(len(str(paper.get("abstract") or "").split()))
+        scored.append(
+            (
+                bridge_score,
+                coverage,
+                has_extraction,
+                has_fulltext,
+                fulltext_words,
+                abstract_words,
+                neighbor_score,
+                paper_id,
+            )
+        )
 
     if not scored:
         return []
@@ -248,23 +268,53 @@ def _sample_suggestion_ids(
     return ordered[:sample_size]
 
 
+def _load_suggestion_snapshots(
+    store: StructuredStore,
+    paper_ids: list[str],
+    similarity_pairs: dict[str, list[dict]],
+    neighbor_count: int,
+) -> dict[str, dict]:
+    """Load full-text snapshots for sampled papers and nearby neighbors."""
+
+    relevant_ids = set(paper_ids)
+    for paper_id in paper_ids:
+        for neighbor in similarity_pairs.get(paper_id, [])[:neighbor_count]:
+            neighbor_id = str(neighbor.get("similar_paper_id") or "").strip()
+            if neighbor_id:
+                relevant_ids.add(neighbor_id)
+
+    snapshots: dict[str, dict] = {}
+    for paper_id in sorted(relevant_ids):
+        snapshot = store.load_text_snapshot(paper_id)
+        if snapshot is not None:
+            snapshots[paper_id] = snapshot
+    return snapshots
+
+
 def _build_paper_briefs(
     paper_ids: list[str],
     papers: dict[str, dict],
     extractions: dict[str, dict],
+    fulltext_snapshots: dict[str, dict] | None = None,
 ) -> list[dict[str, Any]]:
     """Build compact paper summaries for suggestion prompts and outputs."""
 
+    snapshot_map = fulltext_snapshots or {}
     briefs: list[dict[str, Any]] = []
     for paper_id in paper_ids:
         paper = papers.get(paper_id, {})
         dims = get_dimension_map(extractions.get(paper_id, {}))
+        snapshot = snapshot_map.get(paper_id, {})
         briefs.append(
             {
                 "paper_id": paper_id,
                 "title": paper.get("title", "Unknown"),
                 "year": paper.get("publication_year"),
                 "abstract": _truncate_text(paper.get("abstract"), max_chars=700),
+                "evidence_excerpt": _truncate_text(
+                    str(snapshot.get("text") or paper.get("abstract") or ""),
+                    max_chars=900,
+                ),
                 "signals": {
                     key: _truncate_text(dims.get(key))
                     for key in [
@@ -288,36 +338,52 @@ def _build_similarity_context(
     paper_ids: list[str],
     papers: dict[str, dict],
     extractions: dict[str, dict],
+    fulltext_snapshots: dict[str, dict] | None,
     similarity_pairs: dict[str, list[dict]],
     neighbor_count: int,
     max_pairs: int,
 ) -> list[dict[str, Any]]:
     """Build vectorstore-derived bridge examples from similarity neighbors."""
 
+    snapshot_map = fulltext_snapshots or {}
     contexts: list[dict[str, Any]] = []
     for paper_id in paper_ids:
         source_paper = papers.get(paper_id, {})
         source_dims = get_dimension_map(extractions.get(paper_id, {}))
         source_field = source_dims.get("field")
         source_bridge = source_dims.get("disciplines_bridged") or source_dims.get("stp_cas_linkage")
+        source_snapshot = snapshot_map.get(paper_id, {})
         for neighbor in similarity_pairs.get(paper_id, [])[:neighbor_count]:
             neighbor_id = neighbor.get("similar_paper_id")
             if not neighbor_id or neighbor_id not in papers:
                 continue
             neighbor_dims = get_dimension_map(extractions.get(neighbor_id, {}))
             neighbor_field = neighbor_dims.get("field")
+            neighbor_snapshot = snapshot_map.get(neighbor_id, {})
             contexts.append(
                 {
                     "source_paper_id": paper_id,
                     "source_title": source_paper.get("title", "Unknown"),
                     "source_field": source_field,
                     "source_bridge_signal": _truncate_text(source_bridge, max_chars=220),
+                    "source_evidence_excerpt": _truncate_text(
+                        str(source_snapshot.get("text") or source_paper.get("abstract") or ""),
+                        max_chars=220,
+                    ),
                     "neighbor_paper_id": neighbor_id,
                     "neighbor_title": papers[neighbor_id].get("title", "Unknown"),
                     "neighbor_field": neighbor_field,
                     "neighbor_bridge_signal": _truncate_text(
                         neighbor_dims.get("disciplines_bridged")
                         or neighbor_dims.get("stp_cas_linkage"),
+                        max_chars=220,
+                    ),
+                    "neighbor_evidence_excerpt": _truncate_text(
+                        str(
+                            neighbor_snapshot.get("text")
+                            or papers[neighbor_id].get("abstract")
+                            or ""
+                        ),
                         max_chars=220,
                     ),
                     "similarity_score": neighbor.get("similarity_score"),
@@ -406,7 +472,9 @@ def _normalize_example_papers(
     for candidate in candidates:
         if isinstance(candidate, dict):
             paper_id = str(candidate.get("paper_id") or "").strip()
-            title = str(candidate.get("title") or papers.get(paper_id, {}).get("title") or "Unknown")
+            title = str(
+                candidate.get("title") or papers.get(paper_id, {}).get("title") or "Unknown"
+            )
         else:
             paper_id = str(candidate).strip()
             title = str(papers.get(paper_id, {}).get("title") or "Unknown")
@@ -848,10 +916,7 @@ def _checkpoint_matches_request(
         "refresh_text",
         "fulltext_only",
     ]
-    return all(
-        state_metadata.get(key) == request_metadata.get(key)
-        for key in comparable_keys
-    )
+    return all(state_metadata.get(key) == request_metadata.get(key) for key in comparable_keys)
 
 
 def _section_dimension_ids(
@@ -925,12 +990,8 @@ def _extraction_manifest_info(
     payload = {
         "schema_version": EXTRACTION_SCHEMA_VERSION,
         "provider": provider,
-        "mode": getattr(args, "mode", None)
-        or provider_settings.mode
-        or config.extraction.mode,
-        "model": getattr(args, "model", None)
-        or provider_settings.model
-        or config.extraction.model,
+        "mode": getattr(args, "mode", None) or provider_settings.mode or config.extraction.mode,
+        "model": getattr(args, "model", None) or provider_settings.model or config.extraction.model,
         "summary_model": getattr(args, "summary_model", None),
         "methodology_model": getattr(args, "methodology_model", None),
         "profile_id": profile.profile_id,
@@ -1069,6 +1130,7 @@ def suggest_dimensions(args: argparse.Namespace, config: Config) -> int:
     store = StructuredStore(args.index_dir)
     papers = store.load_papers()
     extractions = store.load_extractions()
+    fulltext_manifest = store.load_fulltext_manifest()
     profile = DimensionProfile(**store.load_dimension_profile())
     similarity_pairs = store.load_similarity_pairs()
 
@@ -1078,9 +1140,16 @@ def suggest_dimensions(args: argparse.Namespace, config: Config) -> int:
     sampled_ids = _sample_suggestion_ids(
         papers=papers,
         extractions=extractions,
+        fulltext_manifest=fulltext_manifest,
         similarity_pairs=similarity_pairs,
         sample_size=sample_size,
         requested_ids=args.paper,
+    )
+    suggestion_snapshots = _load_suggestion_snapshots(
+        store=store,
+        paper_ids=sampled_ids,
+        similarity_pairs=similarity_pairs,
+        neighbor_count=neighbor_count,
     )
     existing_ids = set(profile.dimension_map)
     section_ids = {section.id for section in profile.sections}
@@ -1094,12 +1163,16 @@ def suggest_dimensions(args: argparse.Namespace, config: Config) -> int:
         for paper_id in sampled_ids:
             extraction_record = extractions.get(paper_id, {})
             paper = papers.get(paper_id, {})
+            snapshot = suggestion_snapshots.get(paper_id, {})
             search_text = " ".join(
                 part
                 for part in [
                     paper.get("title", ""),
                     paper.get("abstract", ""),
-                    " ".join(value for value in get_dimension_map(extraction_record).values() if value),
+                    snapshot.get("text", ""),
+                    " ".join(
+                        value for value in get_dimension_map(extraction_record).values() if value
+                    ),
                 ]
                 if part
             ).lower()
@@ -1139,18 +1212,20 @@ def suggest_dimensions(args: argparse.Namespace, config: Config) -> int:
         "mode": None,
         "model": None,
     }
-    if (
-        config.dimensions.suggestion_use_llm
-        and not args.heuristic_only
-        and sampled_ids
-    ):
+    if config.dimensions.suggestion_use_llm and not args.heuristic_only and sampled_ids:
         provider, mode, model = _resolve_llm_runtime(args, config)
         suggestion_runtime = {"provider": provider, "mode": mode, "model": model}
-        paper_briefs = _build_paper_briefs(sampled_ids[: min(len(sampled_ids), 8)], papers, extractions)
+        paper_briefs = _build_paper_briefs(
+            sampled_ids[: min(len(sampled_ids), 8)],
+            papers,
+            extractions,
+            suggestion_snapshots,
+        )
         similarity_context = _build_similarity_context(
             paper_ids=sampled_ids[: min(len(sampled_ids), 8)],
             papers=papers,
             extractions=extractions,
+            fulltext_snapshots=suggestion_snapshots,
             similarity_pairs=similarity_pairs,
             neighbor_count=neighbor_count,
             max_pairs=max_proposals * 2,

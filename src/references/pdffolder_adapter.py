@@ -34,13 +34,17 @@ class PDFFolderReferenceDB(BaseReferenceDB):
     # Pattern: Year_Author_Title.pdf
     FILENAME_PATTERNS = [
         # Author(s) - Year - Title
-        re.compile(r"^(?P<authors>[^-]+)\s*-\s*(?P<year>\d{4})\s*-\s*(?P<title>.+)\.pdf$", re.IGNORECASE),
+        re.compile(
+            r"^(?P<authors>[^-]+)\s*-\s*(?P<year>\d{4})\s*-\s*(?P<title>.+)\.pdf$", re.IGNORECASE
+        ),
         # Author_Year_Title
         re.compile(r"^(?P<authors>[^_]+)_(?P<year>\d{4})_(?P<title>.+)\.pdf$", re.IGNORECASE),
         # Year_Author_Title
         re.compile(r"^(?P<year>\d{4})_(?P<authors>[^_]+)_(?P<title>.+)\.pdf$", re.IGNORECASE),
         # Year - Author - Title
-        re.compile(r"^(?P<year>\d{4})\s*-\s*(?P<authors>[^-]+)\s*-\s*(?P<title>.+)\.pdf$", re.IGNORECASE),
+        re.compile(
+            r"^(?P<year>\d{4})\s*-\s*(?P<authors>[^-]+)\s*-\s*(?P<title>.+)\.pdf$", re.IGNORECASE
+        ),
         # Just title (fallback)
         re.compile(r"^(?P<title>.+)\.pdf$", re.IGNORECASE),
     ]
@@ -224,12 +228,14 @@ class PDFFolderReferenceDB(BaseReferenceDB):
                 else:
                     last_name = part
 
-            authors.append(Author(
-                first_name=first_name,
-                last_name=last_name,
-                order=i + 1,
-                role="author",
-            ))
+            authors.append(
+                Author(
+                    first_name=first_name,
+                    last_name=last_name,
+                    order=i + 1,
+                    role="author",
+                )
+            )
 
         return authors
 
@@ -283,7 +289,11 @@ class PDFFolderReferenceDB(BaseReferenceDB):
         year = self._parse_year(year_string)
 
         # Generate stable ID from file path
-        relative_path = pdf_path.relative_to(self.folder_path) if pdf_path.is_relative_to(self.folder_path) else pdf_path
+        relative_path = (
+            pdf_path.relative_to(self.folder_path)
+            if pdf_path.is_relative_to(self.folder_path)
+            else pdf_path
+        )
         id_source = str(relative_path)
         stable_hash = hashlib.sha256(id_source.encode()).hexdigest()[:8]
 

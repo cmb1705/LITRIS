@@ -40,7 +40,9 @@ def _find_tesseract() -> str | None:
             # Scoop
             os.path.expandvars(r"%USERPROFILE%\scoop\apps\tesseract\current\tesseract.exe"),
             # winget typical location
-            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\tesseract-ocr.tesseract_*\tesseract.exe"),
+            os.path.expandvars(
+                r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\tesseract-ocr.tesseract_*\tesseract.exe"
+            ),
         ]
 
     elif sys.platform == "darwin":
@@ -75,6 +77,7 @@ def _find_tesseract() -> str | None:
         # Handle glob patterns (for version-specific paths)
         if "*" in path:
             import glob
+
             matches = glob.glob(path)
             for match in matches:
                 if os.path.isfile(match) and os.access(match, os.X_OK):
@@ -137,6 +140,7 @@ def _find_poppler() -> str | None:
         pdftoppm = os.path.join(path, "pdftoppm.exe" if sys.platform == "win32" else "pdftoppm")
         if "*" in path:
             import glob
+
             matches = glob.glob(path)
             for match in matches:
                 candidate = os.path.join(
@@ -287,9 +291,7 @@ class OCRHandler:
 
         # If very few words per page, likely scanned
         if words_per_page < self.MIN_WORDS_PER_PAGE:
-            logger.debug(
-                f"Low text density ({words_per_page:.1f} words/page), OCR recommended"
-            )
+            logger.debug(f"Low text density ({words_per_page:.1f} words/page), OCR recommended")
             return True
 
         # Check for pages with no text (could indicate mixed document)
@@ -297,9 +299,7 @@ class OCRHandler:
         text_page_ratio = pages_with_text / page_count if page_count > 0 else 0
 
         if text_page_ratio < self.MIN_TEXT_PAGE_RATIO:
-            logger.debug(
-                f"Low text page ratio ({text_page_ratio:.1%}), OCR recommended"
-            )
+            logger.debug(f"Low text page ratio ({text_page_ratio:.1%}), OCR recommended")
             return True
 
         return False
@@ -318,8 +318,7 @@ class OCRHandler:
         """
         if not self.is_available():
             raise OCRError(
-                "OCR dependencies not available. "
-                "Install Tesseract and ensure it's in PATH."
+                "OCR dependencies not available. Install Tesseract and ensure it's in PATH."
             )
 
         if not pdf_path.exists():
@@ -342,9 +341,7 @@ class OCRHandler:
                 image.close()
 
             extracted_text = "\n\n".join(pages)
-            logger.info(
-                f"OCR complete: {len(pages)} pages extracted from {pdf_path.name}"
-            )
+            logger.info(f"OCR complete: {len(pages)} pages extracted from {pdf_path.name}")
 
             return OCRResult(
                 text=extracted_text,
@@ -478,7 +475,5 @@ def get_ocr_handler(**kwargs) -> OCRHandler | None:
     if OCRHandler.is_available():
         return OCRHandler(**kwargs)
 
-    logger.warning(
-        "OCR not available. Install Tesseract and add to PATH for OCR support."
-    )
+    logger.warning("OCR not available. Install Tesseract and add to PATH for OCR support.")
     return None

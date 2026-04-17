@@ -100,9 +100,7 @@ TYPE_PROFILES: dict[DocumentType, TypeProfile] = {
             "q04_evidence",
             "q22_contribution",
         ),
-        recommended_extraction_fields=(
-            "q03_key_claims",
-        ),
+        recommended_extraction_fields=("q03_key_claims",),
         min_confidence_threshold=0.4,
         extraction_prompt_key="report",
         description="Government reports, white papers, technical reports",
@@ -112,18 +110,14 @@ TYPE_PROFILES: dict[DocumentType, TypeProfile] = {
             "q17_field",
             "q22_contribution",
         ),
-        recommended_extraction_fields=(
-            "q02_thesis",
-        ),
+        recommended_extraction_fields=("q02_thesis",),
         min_confidence_threshold=0.3,
         extraction_prompt_key="generic",
         description="Handbooks, encyclopedias, standards, datasets",
     ),
     DocumentType.NON_ACADEMIC: TypeProfile(
         required_extraction_fields=(),
-        recommended_extraction_fields=(
-            "keywords",
-        ),
+        recommended_extraction_fields=("keywords",),
         min_confidence_threshold=0.0,
         extraction_prompt_key="generic",
         description="Presentations, forms, cheat sheets, web content",
@@ -202,12 +196,8 @@ def get_recommended_fields(doc_type: str | None) -> list[str]:
         List of recommended field names.
     """
     if doc_type is None:
-        return list(
-            TYPE_PROFILES[DocumentType.RESEARCH_PAPER].recommended_extraction_fields
-        )
+        return list(TYPE_PROFILES[DocumentType.RESEARCH_PAPER].recommended_extraction_fields)
     try:
         return list(TYPE_PROFILES[DocumentType(doc_type)].recommended_extraction_fields)
     except ValueError:
-        return list(
-            TYPE_PROFILES[DocumentType.RESEARCH_PAPER].recommended_extraction_fields
-        )
+        return list(TYPE_PROFILES[DocumentType.RESEARCH_PAPER].recommended_extraction_fields)

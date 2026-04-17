@@ -28,7 +28,7 @@ from src.analysis.llm_council import (
 from src.analysis.schemas import SemanticAnalysis
 from src.analysis.section_extractor import SectionExtractor
 from src.config import Config
-from src.extraction.opendataloader_extractor import build_hybrid_config
+from src.extraction.opendataloader_extractor import build_hybrid_config_from_processing
 from src.zotero.database import ZoteroDatabase
 from src.zotero.models import PaperMetadata
 
@@ -42,29 +42,7 @@ def create_extractor(
     reasoning_effort: str | None = None,
 ) -> SectionExtractor:
     """Create a SectionExtractor with highest reasoning settings."""
-    hybrid_config = build_hybrid_config(
-        enabled=config.processing.opendataloader_hybrid_enabled,
-        backend=config.processing.opendataloader_hybrid_backend,
-        client_mode=config.processing.opendataloader_hybrid_client_mode,
-        server_url=config.processing.opendataloader_hybrid_url,
-        timeout_ms=config.processing.opendataloader_hybrid_timeout_ms,
-        autostart=config.processing.opendataloader_hybrid_autostart,
-        host=config.processing.opendataloader_hybrid_host,
-        port=config.processing.opendataloader_hybrid_port,
-        startup_timeout_seconds=(
-            config.processing.opendataloader_hybrid_startup_timeout_seconds
-        ),
-        force_ocr=config.processing.opendataloader_hybrid_force_ocr,
-        ocr_lang=config.processing.opendataloader_hybrid_ocr_lang,
-        enrich_formula=config.processing.opendataloader_hybrid_enrich_formula,
-        enrich_picture_description=(
-            config.processing.opendataloader_hybrid_enrich_picture_description
-        ),
-        picture_description_prompt=(
-            config.processing.opendataloader_hybrid_picture_description_prompt
-        ),
-        device=config.processing.opendataloader_hybrid_device,
-    )
+    hybrid_config = build_hybrid_config_from_processing(config.processing)
     return SectionExtractor(
         cache_dir=Path(config.storage.cache_path),
         provider=provider,
@@ -80,9 +58,7 @@ def create_extractor(
         opendataloader_enabled=config.processing.opendataloader_enabled,
         opendataloader_mode=config.processing.opendataloader_mode,
         opendataloader_hybrid_config=hybrid_config,
-        opendataloader_hybrid_fallback=(
-            config.processing.opendataloader_hybrid_fallback
-        ),
+        opendataloader_hybrid_fallback=(config.processing.opendataloader_hybrid_fallback),
         marker_enabled=config.processing.marker_enabled,
         use_cache=False,  # Always fresh for comparison
         effort=effort,
@@ -113,7 +89,7 @@ def run_individual_extraction(
 
         print(
             f"    Model: {result.model_used}  Duration: {duration:.1f}s  "
-            f"Coverage: {filled}/{total} ({filled/total:.0%})",
+            f"Coverage: {filled}/{total} ({filled / total:.0%})",
             flush=True,
         )
 
@@ -124,9 +100,7 @@ def run_individual_extraction(
             "dimension_coverage": filled / total if total > 0 else 0.0,
             "filled_count": filled,
             "dimensions": dimensions,
-            "full_extraction": (
-                extraction.model_dump() if result.success and extraction else None
-            ),
+            "full_extraction": (extraction.model_dump() if result.success and extraction else None),
             "error": result.error,
         }
     except Exception as e:
@@ -154,10 +128,16 @@ def run_council_extraction(
     council_config = CouncilConfig(
         providers=[
             ProviderConfig(
-                name="anthropic", weight=1.2, timeout=600, mode=mode,
+                name="anthropic",
+                weight=1.2,
+                timeout=600,
+                mode=mode,
             ),
             ProviderConfig(
-                name="openai", weight=1.0, timeout=600, mode=mode,
+                name="openai",
+                weight=1.0,
+                timeout=600,
+                mode=mode,
             ),
         ],
         min_responses=2,
@@ -195,9 +175,7 @@ def run_council_extraction(
         }
 
     # Build author string
-    authors = ", ".join(
-        f"{a.last_name}, {a.first_name}" for a in (paper.authors or [])
-    )
+    authors = ", ".join(f"{a.last_name}, {a.first_name}" for a in (paper.authors or []))
 
     result: CouncilResult = council.extract(
         paper_id=paper.zotero_key,
@@ -226,7 +204,7 @@ def run_council_extraction(
             "error": resp.error,
             "dimensions": dims,
         }
-        status = f"{filled}/40 ({filled/40:.0%})" if resp.success else f"FAILED: {resp.error}"
+        status = f"{filled}/40 ({filled / 40:.0%})" if resp.success else f"FAILED: {resp.error}"
         print(f"    {resp.provider}: {resp.duration_seconds:.1f}s - {status}", flush=True)
 
     # Consensus dimensions
@@ -238,7 +216,7 @@ def run_council_extraction(
         consensus_filled = sum(1 for v in consensus_dims.values() if v is not None)
 
     print(
-        f"    Consensus: {consensus_filled}/40 ({consensus_filled/40:.0%})  "
+        f"    Consensus: {consensus_filled}/40 ({consensus_filled / 40:.0%})  "
         f"Confidence: {result.consensus_confidence:.2f}  "
         f"Total: {duration:.1f}s",
         flush=True,
@@ -344,7 +322,11 @@ def print_paper_comparison(
 
     # Core dimension text comparison
     core = ["q01_research_question", "q02_thesis", "q07_methods"]
-    labels = {"q01_research_question": "Research Question", "q02_thesis": "Thesis", "q07_methods": "Methods"}
+    labels = {
+        "q01_research_question": "Research Question",
+        "q02_thesis": "Thesis",
+        "q07_methods": "Methods",
+    }
 
     print("\n  Core Dimension Comparison:")
     print("  " + "-" * 70)
@@ -359,12 +341,14 @@ def print_paper_comparison(
             val = data.get("dimensions", {}).get(field_name, "(null)")
             if val:
                 import textwrap
+
                 val = textwrap.shorten(val, width=150, placeholder="...")
             print(f"    {prov_name} CLI: {val}")
 
         c_val = consensus_dims.get(field_name, "(null)")
         if c_val:
             import textwrap
+
             c_val = textwrap.shorten(c_val, width=150, placeholder="...")
         print(f"    CONSENSUS:     {c_val}")
 
@@ -377,7 +361,8 @@ def print_paper_comparison(
             for k, v in individual.items()
         },
         "council": {
-            k: v for k, v in council.items()
+            k: v
+            for k, v in council.items()
             if k not in ("consensus_dimensions", "provider_results", "full_consensus")
         },
         "council_providers": {
@@ -430,12 +415,14 @@ def print_batch_summary(all_results: list[dict]) -> None:
         coverages = [
             r["council_providers"][prov]["coverage"]
             for r in all_results
-            if prov in r.get("council_providers", {}) and r["council_providers"][prov].get("success")
+            if prov in r.get("council_providers", {})
+            and r["council_providers"][prov].get("success")
         ]
         times = [
             r["council_providers"][prov]["duration_seconds"]
             for r in all_results
-            if prov in r.get("council_providers", {}) and r["council_providers"][prov].get("success")
+            if prov in r.get("council_providers", {})
+            and r["council_providers"][prov].get("success")
         ]
         if coverages:
             avg_cov = sum(coverages) / len(coverages)
@@ -443,13 +430,19 @@ def print_batch_summary(all_results: list[dict]) -> None:
             print(f"  {prov + ' (Council)':<23} {avg_cov:<15.1%} {avg_time:<12.1f}s")
 
     # Council consensus
-    c_coverages = [r["council"]["consensus_coverage"] for r in all_results if r["council"].get("success")]
+    c_coverages = [
+        r["council"]["consensus_coverage"] for r in all_results if r["council"].get("success")
+    ]
     c_times = [r["council"]["duration_seconds"] for r in all_results if r["council"].get("success")]
-    c_confs = [r["council"]["consensus_confidence"] for r in all_results if r["council"].get("success")]
+    c_confs = [
+        r["council"]["consensus_confidence"] for r in all_results if r["council"].get("success")
+    ]
 
     if c_coverages:
-        print(f"  {'CONSENSUS':<23} {sum(c_coverages)/len(c_coverages):<15.1%} {sum(c_times)/len(c_times):<12.1f}s")
-        print(f"\n  Avg consensus confidence: {sum(c_confs)/len(c_confs):.2f}")
+        print(
+            f"  {'CONSENSUS':<23} {sum(c_coverages) / len(c_coverages):<15.1%} {sum(c_times) / len(c_times):<12.1f}s"
+        )
+        print(f"\n  Avg consensus confidence: {sum(c_confs) / len(c_confs):.2f}")
 
     # Per-paper table
     print(f"\n{'Paper':<35} {'Type':<15} {'A CLI':<7} {'O CLI':<7} {'Council':<8} {'Conf':<6}")
@@ -473,19 +466,24 @@ def main():
     group.add_argument("--batch", type=int, help="Number of random papers")
 
     parser.add_argument(
-        "--diverse", action="store_true",
+        "--diverse",
+        action="store_true",
         help="Select diverse document types (with --batch)",
     )
     parser.add_argument(
-        "--save", action="store_true",
+        "--save",
+        action="store_true",
         help="Save full extractions to data/comparison/council/",
     )
     parser.add_argument(
-        "--mode", choices=["cli", "api"], default="cli",
+        "--mode",
+        choices=["cli", "api"],
+        default="cli",
         help="Extraction mode for council providers (default: cli)",
     )
     parser.add_argument(
-        "--strategy", choices=["longest", "quality_weighted", "union"],
+        "--strategy",
+        choices=["longest", "quality_weighted", "union"],
         default="quality_weighted",
         help="Aggregation strategy for council consensus (default: quality_weighted)",
     )
@@ -503,6 +501,7 @@ def main():
 
         if args.diverse:
             import random
+
             by_type: dict[str, list] = {}
             for p in with_pdfs:
                 by_type.setdefault(p.item_type, []).append(p)
@@ -515,9 +514,10 @@ def main():
             # Fill remaining with random
             while len(selected) < args.batch:
                 selected.append(random.choice(with_pdfs))
-            keys = [p.zotero_key for p in selected[:args.batch]]
+            keys = [p.zotero_key for p in selected[: args.batch]]
         else:
             import random
+
             selected = random.sample(with_pdfs, min(args.batch, len(with_pdfs)))
             keys = [p.zotero_key for p in selected]
 
@@ -525,10 +525,16 @@ def main():
 
     # Create individual extractors with highest reasoning
     anthropic_extractor = create_extractor(
-        config, "anthropic", mode=args.mode, effort="high",
+        config,
+        "anthropic",
+        mode=args.mode,
+        effort="high",
     )
     openai_extractor = create_extractor(
-        config, "openai", mode=args.mode, reasoning_effort="xhigh",
+        config,
+        "openai",
+        mode=args.mode,
+        reasoning_effort="xhigh",
     )
 
     all_results = []
@@ -556,8 +562,11 @@ def main():
 
         # Phase 3: Compare and print
         summary = print_paper_comparison(
-            paper, individual, council,
-            paper_num=i, total=len(keys),
+            paper,
+            individual,
+            council,
+            paper_num=i,
+            total=len(keys),
         )
         all_results.append(summary)
 
@@ -571,13 +580,17 @@ def main():
                 if data.get("full_extraction"):
                     path = output_dir / f"{key}_{prov_name}_cli.json"
                     with open(path, "w", encoding="utf-8") as f:
-                        json.dump(data["full_extraction"], f, indent=2, ensure_ascii=False, default=str)
+                        json.dump(
+                            data["full_extraction"], f, indent=2, ensure_ascii=False, default=str
+                        )
 
             # Save council consensus
             if council.get("full_consensus"):
                 path = output_dir / f"{key}_council_consensus.json"
                 with open(path, "w", encoding="utf-8") as f:
-                    json.dump(council["full_consensus"], f, indent=2, ensure_ascii=False, default=str)
+                    json.dump(
+                        council["full_consensus"], f, indent=2, ensure_ascii=False, default=str
+                    )
 
     # Batch summary
     if len(all_results) > 1:

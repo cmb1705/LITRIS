@@ -19,6 +19,7 @@ from src.analysis.semantic_prompts import build_pass_user_prompt
 
 # --- Helper ---
 
+
 def _make_analysis(**overrides) -> SemanticAnalysis:
     """Create a SemanticAnalysis with required fields and optional overrides."""
     defaults = {
@@ -211,6 +212,7 @@ class TestSectionExtractorConfig:
     def test_section_extractor_passes_ocr_config(self, tmp_path, monkeypatch):
         """Ensure OCR settings are forwarded to PDFExtractor."""
         from src.analysis import section_extractor as se_module
+
         captured = {}
 
         class DummyPDFExtractor:
@@ -286,32 +288,34 @@ class TestLLMClientMocked:
     @pytest.fixture
     def mock_response_json(self):
         """Sample valid JSON response for legacy PaperExtraction fields."""
-        return json.dumps({
-            "thesis_statement": "Test thesis",
-            "research_questions": ["RQ1"],
-            "theoretical_framework": "Test framework",
-            "methodology": {
-                "approach": "quantitative",
-                "design": "survey",
-                "data_sources": ["database"],
-                "analysis_methods": ["regression"],
-            },
-            "key_findings": [
-                {
-                    "finding": "Finding 1",
-                    "evidence_type": "empirical",
-                    "significance": "high",
-                }
-            ],
-            "key_claims": [],
-            "conclusions": "Test conclusions",
-            "limitations": ["Limitation 1"],
-            "future_directions": ["Future 1"],
-            "contribution_summary": "Test contribution",
-            "discipline_tags": ["test"],
-            "extraction_confidence": 0.85,
-            "extraction_notes": None,
-        })
+        return json.dumps(
+            {
+                "thesis_statement": "Test thesis",
+                "research_questions": ["RQ1"],
+                "theoretical_framework": "Test framework",
+                "methodology": {
+                    "approach": "quantitative",
+                    "design": "survey",
+                    "data_sources": ["database"],
+                    "analysis_methods": ["regression"],
+                },
+                "key_findings": [
+                    {
+                        "finding": "Finding 1",
+                        "evidence_type": "empirical",
+                        "significance": "high",
+                    }
+                ],
+                "key_claims": [],
+                "conclusions": "Test conclusions",
+                "limitations": ["Limitation 1"],
+                "future_directions": ["Future 1"],
+                "contribution_summary": "Test contribution",
+                "discipline_tags": ["test"],
+                "extraction_confidence": 0.85,
+                "extraction_notes": None,
+            }
+        )
 
     def test_parse_response(self, mock_response_json):
         """Legacy payloads should be adapted into SemanticAnalysis."""
@@ -348,16 +352,18 @@ class TestLLMClientMocked:
         """Structured q-field dicts should be flattened into strings."""
         from src.analysis.llm_client import LLMClient
 
-        payload = json.dumps({
-            "q32_deployment_gap": {
-                "exists": True,
-                "description": "Formal plans miss local practice.",
-            },
-            "q33_infrastructure_contribution": {
-                "type": "conceptual_framework",
-                "description": "Provides a lens for legibility.",
-            },
-        })
+        payload = json.dumps(
+            {
+                "q32_deployment_gap": {
+                    "exists": True,
+                    "description": "Formal plans miss local practice.",
+                },
+                "q33_infrastructure_contribution": {
+                    "type": "conceptual_framework",
+                    "description": "Provides a lens for legibility.",
+                },
+            }
+        )
 
         with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
             client = LLMClient(mode="api")

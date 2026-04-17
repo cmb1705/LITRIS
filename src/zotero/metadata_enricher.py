@@ -174,6 +174,7 @@ class MetadataEnricher:
         Returns:
             Similarity score 0.0 to 1.0.
         """
+
         # Normalize titles
         def normalize(t: str) -> str:
             t = t.lower()
@@ -295,7 +296,9 @@ class MetadataEnricher:
             for item in items:
                 item_title = ""
                 if item.get("title"):
-                    item_title = item["title"][0] if isinstance(item["title"], list) else item["title"]
+                    item_title = (
+                        item["title"][0] if isinstance(item["title"], list) else item["title"]
+                    )
 
                 if not item_title:
                     continue
@@ -326,13 +329,19 @@ class MetadataEnricher:
             # Prefer year-matched result if it's reasonably close in score
             # This prevents matching wrong paper with same title from different year
             if best_year_match and best_year_score >= self.title_match_threshold - 0.1:
-                logger.info(f"Found Crossref match for '{clean_title[:50]}...' (score: {best_year_score:.2f}, year-matched)")
+                logger.info(
+                    f"Found Crossref match for '{clean_title[:50]}...' (score: {best_year_score:.2f}, year-matched)"
+                )
                 return best_year_match
             elif best_match and best_score >= self.title_match_threshold:
-                logger.info(f"Found Crossref match for '{clean_title[:50]}...' (score: {best_score:.2f})")
+                logger.info(
+                    f"Found Crossref match for '{clean_title[:50]}...' (score: {best_score:.2f})"
+                )
                 return best_match
             else:
-                logger.debug(f"No Crossref match for '{clean_title[:50]}...' (best score: {best_score:.2f})")
+                logger.debug(
+                    f"No Crossref match for '{clean_title[:50]}...' (best score: {best_score:.2f})"
+                )
                 return None
 
         except Exception as e:
@@ -421,13 +430,19 @@ class MetadataEnricher:
 
             # Prefer year-matched result if it's reasonably close in score
             if best_year_match and best_year_score >= self.title_match_threshold - 0.1:
-                logger.info(f"Found OpenAlex match for '{clean_title[:50]}...' (score: {best_year_score:.2f}, year-matched)")
+                logger.info(
+                    f"Found OpenAlex match for '{clean_title[:50]}...' (score: {best_year_score:.2f}, year-matched)"
+                )
                 return self._parse_openalex_work(best_year_match)
             elif best_match and best_score >= self.title_match_threshold:
-                logger.info(f"Found OpenAlex match for '{clean_title[:50]}...' (score: {best_score:.2f})")
+                logger.info(
+                    f"Found OpenAlex match for '{clean_title[:50]}...' (score: {best_score:.2f})"
+                )
                 return self._parse_openalex_work(best_match)
             else:
-                logger.debug(f"No OpenAlex match for '{clean_title[:50]}...' (best score: {best_score:.2f})")
+                logger.debug(
+                    f"No OpenAlex match for '{clean_title[:50]}...' (best score: {best_score:.2f})"
+                )
                 return None
 
         except Exception as e:
@@ -459,9 +474,7 @@ class MetadataEnricher:
 
         # Publication year
         if work.get("publication_year"):
-            result["published-print"] = {
-                "date-parts": [[work["publication_year"]]]
-            }
+            result["published-print"] = {"date-parts": [[work["publication_year"]]]}
 
         # Authors
         for authorship in work.get("authorships", []):
@@ -469,10 +482,12 @@ class MetadataEnricher:
             if author_info.get("display_name"):
                 name_parts = author_info["display_name"].rsplit(" ", 1)
                 if len(name_parts) == 2:
-                    result["author"].append({
-                        "given": name_parts[0],
-                        "family": name_parts[1],
-                    })
+                    result["author"].append(
+                        {
+                            "given": name_parts[0],
+                            "family": name_parts[1],
+                        }
+                    )
                 else:
                     result["author"].append({"family": author_info["display_name"]})
 
@@ -579,13 +594,19 @@ class MetadataEnricher:
 
             # Prefer year-matched result if it's reasonably close in score
             if best_year_match and best_year_score >= self.title_match_threshold - 0.1:
-                logger.info(f"Found Semantic Scholar match for '{clean_title[:50]}...' (score: {best_year_score:.2f}, year-matched)")
+                logger.info(
+                    f"Found Semantic Scholar match for '{clean_title[:50]}...' (score: {best_year_score:.2f}, year-matched)"
+                )
                 return self._parse_semantic_scholar_paper(best_year_match)
             elif best_match and best_score >= self.title_match_threshold:
-                logger.info(f"Found Semantic Scholar match for '{clean_title[:50]}...' (score: {best_score:.2f})")
+                logger.info(
+                    f"Found Semantic Scholar match for '{clean_title[:50]}...' (score: {best_score:.2f})"
+                )
                 return self._parse_semantic_scholar_paper(best_match)
             else:
-                logger.debug(f"No Semantic Scholar match for '{clean_title[:50]}...' (best score: {best_score:.2f})")
+                logger.debug(
+                    f"No Semantic Scholar match for '{clean_title[:50]}...' (best score: {best_score:.2f})"
+                )
                 return None
 
         except Exception as e:
@@ -622,19 +643,19 @@ class MetadataEnricher:
 
         # Publication year
         if paper.get("year"):
-            result["published-print"] = {
-                "date-parts": [[paper["year"]]]
-            }
+            result["published-print"] = {"date-parts": [[paper["year"]]]}
 
         # Authors
         for author in paper.get("authors", []):
             if author.get("name"):
                 name_parts = author["name"].rsplit(" ", 1)
                 if len(name_parts) == 2:
-                    result["author"].append({
-                        "given": name_parts[0],
-                        "family": name_parts[1],
-                    })
+                    result["author"].append(
+                        {
+                            "given": name_parts[0],
+                            "family": name_parts[1],
+                        }
+                    )
                 else:
                     result["author"].append({"family": author["name"]})
 

@@ -211,8 +211,6 @@ def rebuild_raptor_cache_from_store(
 def prune_raptor_cache(index_dir: Path, valid_paper_ids: set[str]) -> None:
     """Remove deleted papers from RAPTOR cache."""
     cached = load_raptor_cache(index_dir)
-    pruned = {
-        paper_id: value for paper_id, value in cached.items() if paper_id in valid_paper_ids
-    }
+    pruned = {paper_id: value for paper_id, value in cached.items() if paper_id in valid_paper_ids}
     if pruned != cached:
         save_raptor_cache(index_dir, pruned, mode="template")

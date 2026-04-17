@@ -121,6 +121,7 @@ class QueryResult:
 # Quality scoring
 # ---------------------------------------------------------------------------
 
+
 def _compute_quality_score(text: str) -> float:
     """Score text quality for aggregation weighting.
 
@@ -139,7 +140,7 @@ def _compute_quality_score(text: str) -> float:
     score = 0.0
 
     # Sentence count (split on sentence-ending punctuation)
-    sentences = [s.strip() for s in re.split(r'[.!?]+', text) if s.strip()]
+    sentences = [s.strip() for s in re.split(r"[.!?]+", text) if s.strip()]
     n_sentences = len(sentences)
     if 2 <= n_sentences <= 5:
         score += 0.3
@@ -149,11 +150,11 @@ def _compute_quality_score(text: str) -> float:
         score += 0.2  # Slightly less ideal but still rich
 
     # Named entities / numbers (simple heuristic: capitalized multi-word or numbers)
-    numbers = re.findall(r'\b\d+(?:\.\d+)?%?\b', text)
+    numbers = re.findall(r"\b\d+(?:\.\d+)?%?\b", text)
     score += min(len(numbers) * 0.05, 0.2)
 
     # Citation patterns: (Author, Year) or (Author Year) or (Author et al., Year)
-    citations = re.findall(r'\([A-Z][a-z]+(?:\s+et\s+al\.?)?,?\s*\d{4}\)', text)
+    citations = re.findall(r"\([A-Z][a-z]+(?:\s+et\s+al\.?)?,?\s*\d{4}\)", text)
     score += min(len(citations) * 0.1, 0.3)
 
     # Short text penalty
@@ -216,7 +217,7 @@ def strategy_union_merge(pairs: list[tuple[str | None, float]]) -> str | None:
     # Extract all sentences with their provider weight
     all_sentences: list[tuple[str, float]] = []
     for text, weight in weighted_pairs:
-        sents = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+        sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
         for s in sents:
             all_sentences.append((s, weight))
 
@@ -310,7 +311,8 @@ def aggregate_analyses(
         logger.warning(
             "Weights length (%d) does not match analyses length (%d); "
             "padding with 1.0 or truncating",
-            len(effective_weights), len(analyses),
+            len(effective_weights),
+            len(analyses),
         )
         if len(effective_weights) < len(analyses):
             effective_weights = list(effective_weights) + [1.0] * (
@@ -335,9 +337,9 @@ def aggregate_analyses(
         strategy_fn = STRATEGY_REGISTRY.get(strategy_name)
         if strategy_fn is None:
             logger.warning(
-                "Unknown aggregation strategy '%s' for field '%s'; "
-                "falling back to 'longest'",
-                strategy_name, field_name,
+                "Unknown aggregation strategy '%s' for field '%s'; falling back to 'longest'",
+                strategy_name,
+                field_name,
             )
             strategy_fn = strategy_longest
         pairs = [
@@ -411,21 +413,14 @@ def calculate_consensus_confidence(
     # Coverage spread: how consistent are providers on which fields are filled
     if len(analyses) >= 2:
         dimension_ids = registry.get_dimension_ids(profile_id=profile_id)
-        fill_counts = [
-            sum(1 for f in dimension_ids if get_dimension_value(a, f))
-            for a in analyses
-        ]
+        fill_counts = [sum(1 for f in dimension_ids if get_dimension_value(a, f)) for a in analyses]
         max_fill = max(fill_counts)
         min_fill = min(fill_counts)
         total_dimensions = max(len(dimension_ids), 1)
         spread = 1 - (max_fill - min_fill) / total_dimensions if max_fill > 0 else 0.5
         agreement_scores.append(spread)
 
-    avg_agreement = (
-        sum(agreement_scores) / len(agreement_scores)
-        if agreement_scores
-        else 0.5
-    )
+    avg_agreement = sum(agreement_scores) / len(agreement_scores) if agreement_scores else 0.5
 
     # Combine response rate and agreement
     confidence = 0.6 * response_rate + 0.4 * avg_agreement
@@ -573,8 +568,7 @@ class LLMCouncil:
 
                 if not result.success or not result.extraction:
                     errors.append(
-                        f"pass {pass_num} ({pass_label}): "
-                        f"{result.error or 'Unknown error'}"
+                        f"pass {pass_num} ({pass_label}): {result.error or 'Unknown error'}"
                     )
                     continue
 
@@ -769,17 +763,13 @@ class LLMCouncil:
                     total_duration_seconds=total_duration,
                     total_cost=total_cost,
                     errors=errors
-                    + [
-                        f"Only {len(successful)} responses, need {self.config.min_responses}"
-                    ],
+                    + [f"Only {len(successful)} responses, need {self.config.min_responses}"],
                 )
         else:
             # Build consensus via mechanical aggregation
             analyses = [r.extraction for r in successful if r.extraction]
             provider_weights = [
-                next(
-                    (p.weight for p in enabled_providers if p.name == r.provider), 1.0
-                )
+                next((p.weight for p in enabled_providers if p.name == r.provider), 1.0)
                 for r in successful
             ]
             consensus = aggregate_analyses(
@@ -791,10 +781,7 @@ class LLMCouncil:
             confidence = calculate_consensus_confidence(analyses, self.config)
 
             # Optional synthesis round
-            if (
-                self.config.synthesis.enabled
-                and len(successful) >= 2
-            ):
+            if self.config.synthesis.enabled and len(successful) >= 2:
                 synthesis_result = self._run_synthesis_round(successful)
                 if synthesis_result is not None:
                     consensus = synthesis_result
@@ -816,7 +803,8 @@ class LLMCouncil:
     # ------------------------------------------------------------------
 
     def _build_synthesis_prompt(
-        self, responses: list[ProviderResponse],
+        self,
+        responses: list[ProviderResponse],
     ) -> str:
         """Build a prompt for the synthesis judge.
 
@@ -853,7 +841,8 @@ class LLMCouncil:
         )
 
     def _run_synthesis_round(
-        self, responses: list[ProviderResponse],
+        self,
+        responses: list[ProviderResponse],
     ) -> SemanticAnalysis | None:
         """Run synthesis round with a judge LLM.
 
@@ -868,7 +857,8 @@ class LLMCouncil:
 
         # Check for valid extractions before creating judge client
         base = next(
-            (r.extraction for r in responses if r.extraction), None,
+            (r.extraction for r in responses if r.extraction),
+            None,
         )
         if base is None:
             logger.warning("Synthesis skipped: no valid extractions to merge")
@@ -1007,7 +997,9 @@ class LLMCouncil:
             except Exception as exc:
                 logger.error(
                     "Gap-fill pass %d failed for provider %s: %s",
-                    pass_num, gap_provider.name, exc,
+                    pass_num,
+                    gap_provider.name,
+                    exc,
                 )
 
         if not gap_answers:
@@ -1027,11 +1019,7 @@ class LLMCouncil:
 
         # Merge: original + gap-fill via council aggregation
         original_weight = next(
-            (
-                p.weight
-                for p in self.config.providers
-                if p.name == analysis.extraction_model
-            ),
+            (p.weight for p in self.config.providers if p.name == analysis.extraction_model),
             1.0,
         )
         gap_weight = gap_provider.weight
@@ -1051,9 +1039,7 @@ class LLMCouncil:
 
         # Count how many previously-None fields are now filled
         gaps_filled = sum(
-            1
-            for field_name in gap_answers
-            if get_dimension_value(merged, field_name) is not None
+            1 for field_name in gap_answers if get_dimension_value(merged, field_name) is not None
         )
 
         return merged, gaps_filled
@@ -1094,19 +1080,23 @@ class LLMCouncil:
             try:
                 client = self._get_client(provider)
                 result = client.raw_query(prompt)
-                query_responses.append(QueryResponse(
-                    provider=provider.name,
-                    response=result[0],
-                    success=result[1],
-                    error=result[2],
-                ))
+                query_responses.append(
+                    QueryResponse(
+                        provider=provider.name,
+                        response=result[0],
+                        success=result[1],
+                        error=result[2],
+                    )
+                )
             except Exception as exc:
-                query_responses.append(QueryResponse(
-                    provider=provider.name,
-                    response=None,
-                    success=False,
-                    error=str(exc),
-                ))
+                query_responses.append(
+                    QueryResponse(
+                        provider=provider.name,
+                        response=None,
+                        success=False,
+                        error=str(exc),
+                    )
+                )
 
         successful = [r for r in query_responses if r.success and r.response]
 

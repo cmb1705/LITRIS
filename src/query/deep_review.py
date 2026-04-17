@@ -148,10 +148,7 @@ class DeepReviewResult:
 
         sources = "\n\n---\n\n## Source Papers\n\n"
         for p in self.paper_readings:
-            sources += (
-                f"- **{p.title}** ({p.authors}, {p.year or 'n.d.'})"
-                f" [ID: {p.paper_id}]\n"
-            )
+            sources += f"- **{p.title}** ({p.authors}, {p.year or 'n.d.'}) [ID: {p.paper_id}]\n"
 
         return header + self.review_text + qa_section + sources
 
@@ -184,31 +181,33 @@ def read_papers(
             if "extraction" in extraction:
                 extraction = extraction["extraction"]
 
-        readings.append(PaperReading(
-            paper_id=result.paper_id,
-            title=result.title,
-            authors=result.authors,
-            year=result.year,
-            thesis=get_dimension_value(extraction, "thesis") or "",
-            methodology=get_dimension_value(extraction, "methods") or "",
-            key_findings=[
-                claim for claim in [
-                    get_dimension_value(extraction, "key_claims") or "",
-                    get_dimension_value(extraction, "evidence") or "",
-                ] if claim
-            ],
-            conclusions=get_dimension_value(extraction, "implications") or "",
-            limitations=[
-                lim
-                for lim in [get_dimension_value(extraction, "limitations") or ""]
-                if lim
-            ],
-            disciplines=[
-                discipline
-                for discipline in [get_dimension_value(extraction, "field") or ""]
-                if discipline
-            ],
-        ))
+        readings.append(
+            PaperReading(
+                paper_id=result.paper_id,
+                title=result.title,
+                authors=result.authors,
+                year=result.year,
+                thesis=get_dimension_value(extraction, "thesis") or "",
+                methodology=get_dimension_value(extraction, "methods") or "",
+                key_findings=[
+                    claim
+                    for claim in [
+                        get_dimension_value(extraction, "key_claims") or "",
+                        get_dimension_value(extraction, "evidence") or "",
+                    ]
+                    if claim
+                ],
+                conclusions=get_dimension_value(extraction, "implications") or "",
+                limitations=[
+                    lim for lim in [get_dimension_value(extraction, "limitations") or ""] if lim
+                ],
+                disciplines=[
+                    discipline
+                    for discipline in [get_dimension_value(extraction, "field") or ""]
+                    if discipline
+                ],
+            )
+        )
 
     logger.info(f"Read {len(readings)} papers for synthesis")
     return readings
@@ -277,8 +276,7 @@ def verify_citations(
     from src.analysis.llm_factory import create_llm_client
 
     papers_reference = "\n".join(
-        f"- [{r.paper_id}] {r.authors} ({r.year or 'n.d.'}): "
-        f"{r.title}. Thesis: {r.thesis[:150]}"
+        f"- [{r.paper_id}] {r.authors} ({r.year or 'n.d.'}): {r.title}. Thesis: {r.thesis[:150]}"
         for r in readings
     )
 
@@ -395,9 +393,7 @@ def deep_review(
     qa_result = None
     if verify:
         logger.info("Phase 4: QA Verification")
-        qa_result = verify_citations(
-            review_text, readings, provider=provider, model=model
-        )
+        qa_result = verify_citations(review_text, readings, provider=provider, model=model)
 
     result = DeepReviewResult(
         topic=topic,

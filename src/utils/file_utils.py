@@ -81,9 +81,7 @@ def safe_write_json(path: Path, data: Any, indent: int = 2) -> bool:
     try:
         ensure_directory(path.parent)
         # Atomic write: write to temp file then rename to prevent corruption
-        fd, tmp_path = tempfile.mkstemp(
-            dir=path.parent, suffix=".tmp", prefix=".write_"
-        )
+        fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp", prefix=".write_")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=indent, ensure_ascii=False, default=str)

@@ -97,11 +97,11 @@ class OllamaLLMClient(BaseLLMClient):
             # Lazy import to avoid requiring ollama if not used
             try:
                 import ollama
+
                 self.client = ollama.Client(host=self.host)
             except ImportError as e:
                 raise ImportError(
-                    "Ollama package not installed. "
-                    "Install with: pip install ollama"
+                    "Ollama package not installed. Install with: pip install ollama"
                 ) from e
 
     @property
@@ -282,7 +282,9 @@ class OllamaLLMClient(BaseLLMClient):
         data = json.loads(text)
 
         if is_dimension_payload(data):
-            profile_id = data.get("profile_id") or get_default_dimension_registry().active_profile_id
+            profile_id = (
+                data.get("profile_id") or get_default_dimension_registry().active_profile_id
+            )
             normalized_data = normalize_dimension_input_values(data, profile_id=profile_id)
             return SemanticAnalysis(
                 paper_id=normalized_data.get("paper_id", "pending"),
@@ -293,32 +295,29 @@ class OllamaLLMClient(BaseLLMClient):
                 extraction_model=normalized_data.get("extraction_model", self.model),
                 extracted_at=normalized_data.get("extracted_at", ""),
                 dimensions=normalize_dimension_payload(normalized_data, profile_id=profile_id),
-                **{
-                    k: v
-                    for k, v in normalized_data.items()
-                    if k not in EXTRACTION_METADATA_KEYS
-                },
+                **{k: v for k, v in normalized_data.items() if k not in EXTRACTION_METADATA_KEYS},
             )
 
         # Handle legacy single-pass nested fields before adapting them.
         if "methodology" in data and isinstance(data["methodology"], dict):
             from src.analysis.schemas import Methodology
+
             data["methodology"] = Methodology(**data["methodology"])
 
         # Handle nested key_findings
         if "key_findings" in data and isinstance(data["key_findings"], list):
             from src.analysis.schemas import KeyFinding
+
             data["key_findings"] = [
-                KeyFinding(**f) if isinstance(f, dict) else f
-                for f in data["key_findings"]
+                KeyFinding(**f) if isinstance(f, dict) else f for f in data["key_findings"]
             ]
 
         # Handle nested key_claims
         if "key_claims" in data and isinstance(data["key_claims"], list):
             from src.analysis.schemas import KeyClaim
+
             data["key_claims"] = [
-                KeyClaim(**c) if isinstance(c, dict) else c
-                for c in data["key_claims"]
+                KeyClaim(**c) if isinstance(c, dict) else c for c in data["key_claims"]
             ]
 
         profile_id = data.get("profile_id") or get_default_dimension_registry().active_profile_id

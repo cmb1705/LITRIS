@@ -269,11 +269,7 @@ class CliSectionExtractor:
         now = datetime.now()
 
         dimension_payload = (
-            {
-                key: value
-                for key, value in response.items()
-                if key not in EXTRACTION_METADATA_KEYS
-            }
+            {key: value for key, value in response.items() if key not in EXTRACTION_METADATA_KEYS}
             if is_dimension_payload(response)
             else {
                 key: value

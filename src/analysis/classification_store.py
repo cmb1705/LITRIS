@@ -170,9 +170,7 @@ class ClassificationStore:
             "schema_version": index.schema_version,
             "classified_at": index.classified_at,
             "stats": index.stats,
-            "papers": {
-                pid: asdict(rec) for pid, rec in index.papers.items()
-            },
+            "papers": {pid: asdict(rec) for pid, rec in index.papers.items()},
         }
 
         self.index_dir.mkdir(parents=True, exist_ok=True)
@@ -245,14 +243,10 @@ class ClassificationStore:
         Returns:
             Set of paper IDs where extractable is True.
         """
-        return {
-            pid for pid, rec in index.papers.items() if rec.extractable
-        }
+        return {pid for pid, rec in index.papers.items() if rec.extractable}
 
     @staticmethod
-    def get_paper(
-        index: ClassificationIndex, paper_id: str
-    ) -> ClassificationRecord | None:
+    def get_paper(index: ClassificationIndex, paper_id: str) -> ClassificationRecord | None:
         """Look up a single paper's classification.
 
         Args:

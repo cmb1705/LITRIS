@@ -14,8 +14,10 @@ from src.analysis.similarity_graph import (
 )
 
 
-def _make_mock_vector_store(paper_embeddings: dict[str, list[list[float]]],
-                             paper_documents: dict[str, list[str]] | None = None):
+def _make_mock_vector_store(
+    paper_embeddings: dict[str, list[list[float]]],
+    paper_documents: dict[str, list[str]] | None = None,
+):
     """Create a mock VectorStore with controlled embeddings.
 
     Args:

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Warn when marking tasks as complete without verification."""
+
 import os
 import re
 import sys

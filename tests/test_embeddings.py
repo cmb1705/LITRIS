@@ -64,6 +64,7 @@ class TestEmbeddingGenerator:
     def sample_paper(self):
         """Create sample paper metadata."""
         from datetime import datetime
+
         return PaperMetadata(
             zotero_key="ABC123",
             zotero_item_id=12345,
@@ -173,19 +174,17 @@ class TestEmbeddingGenerator:
         """Test embedding generation."""
         import numpy as np
 
-        mock_model.return_value.encode.return_value = np.array([
-            [0.1] * 384,
-            [0.2] * 384,
-        ])
+        mock_model.return_value.encode.return_value = np.array(
+            [
+                [0.1] * 384,
+                [0.2] * 384,
+            ]
+        )
 
         gen = EmbeddingGenerator()
         chunks = [
-            EmbeddingChunk(
-                paper_id="p1", chunk_id="c1", chunk_type="abstract", text="Text 1"
-            ),
-            EmbeddingChunk(
-                paper_id="p1", chunk_id="c2", chunk_type="dim_q02", text="Text 2"
-            ),
+            EmbeddingChunk(paper_id="p1", chunk_id="c1", chunk_type="abstract", text="Text 1"),
+            EmbeddingChunk(paper_id="p1", chunk_id="c2", chunk_type="dim_q02", text="Text 2"),
         ]
 
         result = gen.generate_embeddings(chunks, show_progress=False)
@@ -201,9 +200,7 @@ class TestEmbeddingGenerator:
 
         gen = EmbeddingGenerator(document_prefix="passage: ")
         chunks = [
-            EmbeddingChunk(
-                paper_id="p1", chunk_id="c1", chunk_type="abstract", text="Test text"
-            ),
+            EmbeddingChunk(paper_id="p1", chunk_id="c1", chunk_type="abstract", text="Test text"),
         ]
 
         gen.generate_embeddings(chunks, show_progress=False)
@@ -240,11 +237,13 @@ class TestEmbeddingGenerator:
         """Test batch text embedding."""
         import numpy as np
 
-        mock_model.return_value.encode.return_value = np.array([
-            [0.1] * 384,
-            [0.2] * 384,
-            [0.3] * 384,
-        ])
+        mock_model.return_value.encode.return_value = np.array(
+            [
+                [0.1] * 384,
+                [0.2] * 384,
+                [0.3] * 384,
+            ]
+        )
 
         gen = EmbeddingGenerator()
         embeddings = gen.embed_batch(["Text 1", "Text 2", "Text 3"])
@@ -268,9 +267,7 @@ class TestEmbeddingGeneratorOllama:
         with patch("src.indexing.embeddings._OllamaClient") as mock:
             client = MagicMock()
             # Probe call returns 4096-dim embedding
-            client.embed.return_value = {
-                "embeddings": [[0.1] * 4096]
-            }
+            client.embed.return_value = {"embeddings": [[0.1] * 4096]}
             mock.return_value = client
             yield mock, client
 
@@ -327,9 +324,7 @@ class TestEmbeddingGeneratorOllama:
         _, mock_client = mock_ollama
 
         # Return multiple embeddings for batch call
-        mock_client.embed.return_value = {
-            "embeddings": [[0.1] * 4096, [0.2] * 4096, [0.3] * 4096]
-        }
+        mock_client.embed.return_value = {"embeddings": [[0.1] * 4096, [0.2] * 4096, [0.3] * 4096]}
 
         gen = EmbeddingGenerator(
             model_name="qwen3-embedding:8b",
@@ -345,9 +340,7 @@ class TestEmbeddingGeneratorOllama:
         """Test chunk embedding via Ollama backend."""
         _, mock_client = mock_ollama
 
-        mock_client.embed.return_value = {
-            "embeddings": [[0.1] * 4096, [0.2] * 4096]
-        }
+        mock_client.embed.return_value = {"embeddings": [[0.1] * 4096, [0.2] * 4096]}
 
         gen = EmbeddingGenerator(
             model_name="qwen3-embedding:8b",
@@ -355,12 +348,8 @@ class TestEmbeddingGeneratorOllama:
         )
 
         chunks = [
-            EmbeddingChunk(
-                paper_id="p1", chunk_id="c1", chunk_type="abstract", text="Text 1"
-            ),
-            EmbeddingChunk(
-                paper_id="p1", chunk_id="c2", chunk_type="dim_q02", text="Text 2"
-            ),
+            EmbeddingChunk(paper_id="p1", chunk_id="c1", chunk_type="abstract", text="Text 1"),
+            EmbeddingChunk(paper_id="p1", chunk_id="c2", chunk_type="dim_q02", text="Text 2"),
         ]
 
         result = gen.generate_embeddings(chunks, show_progress=False)

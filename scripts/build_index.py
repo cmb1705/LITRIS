@@ -185,7 +185,8 @@ def parse_args():
         help="Reset checkpoint to start fresh",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Enable verbose logging",
     )
@@ -261,8 +262,7 @@ def parse_args():
         "--gap-fill-threshold",
         type=float,
         default=0.85,
-        help="Coverage threshold below which current-run gap-filling runs "
-        "(default: 0.85 = 85%%).",
+        help="Coverage threshold below which current-run gap-filling runs (default: 0.85 = 85%%).",
     )
     parser.add_argument(
         "--gap-fill-provider",
@@ -295,9 +295,7 @@ def _print_classification_report(index: ClassificationIndex) -> None:
         return
 
     print("\nClassification summary:")
-    for doc_type, count in sorted(
-        stats.get("by_type", {}).items(), key=lambda x: -x[1]
-    ):
+    for doc_type, count in sorted(stats.get("by_type", {}).items(), key=lambda x: -x[1]):
         pct = count / total * 100
         print(f"  {doc_type:<22} {count:>5} ({pct:.0f}%)")
 
@@ -566,7 +564,8 @@ def _run_gap_fill(
 
     logger.info(
         "Gap-fill: %d papers below %.0f%% coverage, running secondary provider",
-        len(low_coverage), threshold * 100,
+        len(low_coverage),
+        threshold * 100,
     )
 
     # Determine secondary provider
@@ -591,7 +590,10 @@ def _run_gap_fill(
     for idx, (paper, extraction, result) in enumerate(low_coverage, 1):
         logger.info(
             "Gap-fill %d/%d: %s (coverage: %.0f%%)",
-            idx, len(low_coverage), paper.paper_id, extraction.dimension_coverage * 100,
+            idx,
+            len(low_coverage),
+            paper.paper_id,
+            extraction.dimension_coverage * 100,
         )
 
         # Get paper text
@@ -611,9 +613,7 @@ def _run_gap_fill(
             logger.warning("Gap-fill: text extraction failed for %s: %s", paper.paper_id, exc)
             continue
 
-        authors = ", ".join(
-            f"{a.last_name}, {a.first_name}" for a in (paper.authors or [])
-        )
+        authors = ", ".join(f"{a.last_name}, {a.first_name}" for a in (paper.authors or []))
 
         try:
             merged, gaps_filled = council.fill_gaps(
@@ -625,7 +625,10 @@ def _run_gap_fill(
                 item_type=paper.item_type,
                 text=text[:100000],
                 gap_provider=ProviderConfig(
-                    name=secondary, weight=1.0, timeout=600, mode=mode,
+                    name=secondary,
+                    weight=1.0,
+                    timeout=600,
+                    mode=mode,
                 ),
             )
 
@@ -633,7 +636,8 @@ def _run_gap_fill(
                 filled_total += gaps_filled
                 logger.info(
                     "Gap-fill: %s filled %d dimensions (%.0f%% -> %.0f%%)",
-                    paper.paper_id, gaps_filled,
+                    paper.paper_id,
+                    gaps_filled,
                     extraction.dimension_coverage * 100,
                     merged.dimension_coverage * 100,
                 )
@@ -650,7 +654,9 @@ def _run_gap_fill(
                     "gap_filled_count": gaps_filled,
                 }
             else:
-                logger.info("Gap-fill: %s -- secondary provider found no new content", paper.paper_id)
+                logger.info(
+                    "Gap-fill: %s -- secondary provider found no new content", paper.paper_id
+                )
 
         except Exception as exc:
             logger.error("Gap-fill failed for %s: %s", paper.paper_id, exc)
@@ -671,7 +677,9 @@ def _run_gap_fill(
             },
         )
 
-    logger.info("Gap-fill complete: %d dimensions filled across %d papers", filled_total, len(low_coverage))
+    logger.info(
+        "Gap-fill complete: %d dimensions filled across %d papers", filled_total, len(low_coverage)
+    )
 
 
 def write_skipped_report(
@@ -694,17 +702,19 @@ def write_skipped_report(
         if not any(result.error.startswith(prefix) for prefix in skip_prefixes):
             continue
         paper = paper_dicts.get(result.paper_id, {})
-        skipped_items.append({
-            "paper_id": result.paper_id,
-            "title": paper.get("title"),
-            "zotero_key": paper.get("zotero_key"),
-            "item_type": paper.get("item_type"),
-            "publication_year": paper.get("publication_year"),
-            "pdf_path": paper.get("pdf_path"),
-            "reason": result.error,
-            "model": result.model_used,
-            "timestamp": result.timestamp.isoformat(),
-        })
+        skipped_items.append(
+            {
+                "paper_id": result.paper_id,
+                "title": paper.get("title"),
+                "zotero_key": paper.get("zotero_key"),
+                "item_type": paper.get("item_type"),
+                "publication_year": paper.get("publication_year"),
+                "pdf_path": paper.get("pdf_path"),
+                "reason": result.error,
+                "model": result.model_used,
+                "timestamp": result.timestamp.isoformat(),
+            }
+        )
 
     if not skipped_items:
         return None, None
@@ -714,11 +724,14 @@ def write_skipped_report(
     json_path = output_dir / f"skipped_items_{timestamp}.json"
     csv_path = output_dir / f"skipped_items_{timestamp}.csv"
 
-    safe_write_json(json_path, {
-        "generated_at": datetime.now().isoformat(),
-        "count": len(skipped_items),
-        "items": skipped_items,
-    })
+    safe_write_json(
+        json_path,
+        {
+            "generated_at": datetime.now().isoformat(),
+            "count": len(skipped_items),
+            "items": skipped_items,
+        },
+    )
 
     import csv
 
@@ -741,8 +754,7 @@ def write_skipped_report(
         writer.writerows(skipped_items)
 
     logger.info(
-        f"Skipped items report: {len(skipped_items)} entries "
-        f"({json_path.name}, {csv_path.name})"
+        f"Skipped items report: {len(skipped_items)} entries ({json_path.name}, {csv_path.name})"
     )
 
     return json_path, csv_path
@@ -1021,10 +1033,12 @@ def compute_similarity_pairs(
             sim_score = float(scores[idx])
             if sim_score <= 0:
                 break
-            similar_list.append({
-                "similar_paper_id": paper_ids[idx],
-                "similarity_score": round(sim_score, 4),
-            })
+            similar_list.append(
+                {
+                    "similar_paper_id": paper_ids[idx],
+                    "similarity_score": round(sim_score, 4),
+                }
+            )
 
         if similar_list:
             pairs[source_id] = similar_list
@@ -1042,8 +1056,7 @@ def compute_similarity_pairs(
     total_pairs = sum(len(v) for v in pairs.values())
     if logger:
         logger.info(
-            f"Computed {total_pairs} similarity pairs "
-            f"for {len(pairs)} papers (top {top_n} each)"
+            f"Computed {total_pairs} similarity pairs for {len(pairs)} papers (top {top_n} each)"
         )
     return total_pairs
 

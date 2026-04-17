@@ -88,7 +88,9 @@ class VectorStore:
             settings=Settings(anonymized_telemetry=False),
         )
         self.collection = self._get_or_create_collection()
-        logger.info(f"Collection '{collection_name}' ready with {self.collection.count()} documents")
+        logger.info(
+            f"Collection '{collection_name}' ready with {self.collection.count()} documents"
+        )
 
     def close(self) -> None:
         """Release the underlying SQLite connection so the directory can be moved/deleted."""
@@ -130,9 +132,7 @@ class VectorStore:
         # Filter out chunks without embeddings
         valid_chunks = [c for c in chunks if c.embedding]
         if len(valid_chunks) < len(chunks):
-            logger.warning(
-                f"Skipping {len(chunks) - len(valid_chunks)} chunks without embeddings"
-            )
+            logger.warning(f"Skipping {len(chunks) - len(valid_chunks)} chunks without embeddings")
 
         if not valid_chunks:
             return 0
@@ -145,7 +145,9 @@ class VectorStore:
             existing_count = self.collection.count()
             if existing_count > 0:
                 # ChromaDB will error if dimensions mismatch, but log for clarity
-                logger.debug(f"Adding embeddings with dimension {dim} to collection with {existing_count} existing chunks")
+                logger.debug(
+                    f"Adding embeddings with dimension {dim} to collection with {existing_count} existing chunks"
+                )
             else:
                 logger.info(f"Initializing collection with embedding dimension {dim}")
 

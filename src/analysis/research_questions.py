@@ -330,9 +330,7 @@ def build_future_direction_prompt(gap: dict, config: ResearchQuestionConfig) -> 
     )
 
 
-def build_year_gap_prompt(
-    year_gaps: dict, config: ResearchQuestionConfig
-) -> str | None:
+def build_year_gap_prompt(year_gaps: dict, config: ResearchQuestionConfig) -> str | None:
     """Build prompt for generating questions from temporal gaps.
 
     Args:
@@ -385,34 +383,42 @@ def build_prompts_from_gap_report(
     prompts = []
 
     for gap in report.get("topics_underrepresented", []):
-        prompts.append({
-            "type": "topic",
-            "gap": gap,
-            "prompt": build_topic_gap_prompt(gap, config),
-        })
+        prompts.append(
+            {
+                "type": "topic",
+                "gap": gap,
+                "prompt": build_topic_gap_prompt(gap, config),
+            }
+        )
 
     for gap in report.get("methodologies_underrepresented", []):
-        prompts.append({
-            "type": "methodology",
-            "gap": gap,
-            "prompt": build_methodology_gap_prompt(gap, config),
-        })
+        prompts.append(
+            {
+                "type": "methodology",
+                "gap": gap,
+                "prompt": build_methodology_gap_prompt(gap, config),
+            }
+        )
 
     for gap in report.get("future_directions", []):
-        prompts.append({
-            "type": "future_direction",
-            "gap": gap,
-            "prompt": build_future_direction_prompt(gap, config),
-        })
+        prompts.append(
+            {
+                "type": "future_direction",
+                "gap": gap,
+                "prompt": build_future_direction_prompt(gap, config),
+            }
+        )
 
     year_gaps = report.get("year_gaps", {})
     year_prompt = build_year_gap_prompt(year_gaps, config)
     if year_prompt:
-        prompts.append({
-            "type": "year_gap",
-            "gap": year_gaps,
-            "prompt": year_prompt,
-        })
+        prompts.append(
+            {
+                "type": "year_gap",
+                "gap": year_gaps,
+                "prompt": year_prompt,
+            }
+        )
 
     return prompts
 
@@ -618,8 +624,7 @@ def rank_questions(
     # Compute combined score
     for q in questions:
         q.combined_score = (
-            relevance_weight * q.relevance_score
-            + diversity_weight * q.diversity_score
+            relevance_weight * q.relevance_score + diversity_weight * q.diversity_score
         )
 
     # Sort by combined score
@@ -709,18 +714,22 @@ def format_questions_markdown(result: GenerationResult) -> str:
     ]
 
     if result.generation_errors:
-        lines.extend([
-            "## Errors",
-            "",
-        ])
+        lines.extend(
+            [
+                "## Errors",
+                "",
+            ]
+        )
         for err in result.generation_errors:
             lines.append(f"- {err}")
         lines.append("")
 
-    lines.extend([
-        "## Ranked Questions",
-        "",
-    ])
+    lines.extend(
+        [
+            "## Ranked Questions",
+            "",
+        ]
+    )
 
     for i, q in enumerate(result.questions, 1):
         lines.append(f"### {i}. {q.question}")

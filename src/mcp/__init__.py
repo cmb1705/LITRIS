@@ -13,15 +13,18 @@ Tools:
     litris_collections: List collections
 """
 
+
 def create_server():
     """Create and return the MCP server instance (lazy import)."""
     from src.mcp.server import create_server as _create
+
     return _create()
 
 
 def run_server():
     """Run the MCP server (lazy import)."""
     from src.mcp.server import run_server as _run
+
     _run()
 
 

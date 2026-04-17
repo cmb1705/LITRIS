@@ -95,17 +95,15 @@ def _get_dimension_spec(
         return active, core
 
     active = [
-        (dimension.id, dimension.legacy_field_name)
-        for dimension in profile.enabled_dimensions
+        (dimension.id, dimension.legacy_field_name) for dimension in profile.enabled_dimensions
     ]
-    core = [
-        (dimension.id, dimension.legacy_field_name)
-        for dimension in profile.core_dimensions
-    ]
+    core = [(dimension.id, dimension.legacy_field_name) for dimension in profile.core_dimensions]
     return active, core
 
 
-def _dimension_value(analysis: SemanticAnalysis, dimension_id: str, legacy_field: str | None) -> str | None:
+def _dimension_value(
+    analysis: SemanticAnalysis, dimension_id: str, legacy_field: str | None
+) -> str | None:
     value = None
     get_dimension = getattr(type(analysis), "get_dimension", None)
     if callable(get_dimension):

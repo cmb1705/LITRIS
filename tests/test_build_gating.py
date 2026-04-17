@@ -49,7 +49,9 @@ class TestGatingFilter:
         index = ClassificationIndex()
         index.papers["p1"] = _make_record(extractable=True)
         index.papers["p2"] = _make_record(
-            doc_type="non_academic", extractable=False, word_count=100,
+            doc_type="non_academic",
+            extractable=False,
+            word_count=100,
         )
         store.save(index)
 
@@ -61,7 +63,8 @@ class TestGatingFilter:
         index = ClassificationIndex()
         index.papers["p1"] = _make_record(extractable=True)
         index.papers["p2"] = _make_record(
-            doc_type="non_academic", extractable=False,
+            doc_type="non_academic",
+            extractable=False,
         )
         store.save(index)
 
@@ -99,21 +102,19 @@ class TestSkipReport:
         index = ClassificationIndex()
         index.papers["p1"] = _make_record(extractable=True)
         index.papers["p2"] = _make_record(
-            doc_type="non_academic", extractable=False,
+            doc_type="non_academic",
+            extractable=False,
         )
         index.papers["p3"] = _make_record(
-            doc_type="research_paper", extractable=False, word_count=100,
+            doc_type="research_paper",
+            extractable=False,
+            word_count=100,
         )
 
-        skipped = {
-            pid: rec for pid, rec in index.papers.items()
-            if not rec.extractable
-        }
+        skipped = {pid: rec for pid, rec in index.papers.items() if not rec.extractable}
         assert len(skipped) == 2
 
-        non_academic = sum(
-            1 for r in skipped.values() if r.document_type == "non_academic"
-        )
+        non_academic = sum(1 for r in skipped.values() if r.document_type == "non_academic")
         assert non_academic == 1
 
 

@@ -164,22 +164,50 @@ class TestSearchEngineAgentic:
         from src.indexing.structured_store import StructuredStore
 
         store = StructuredStore(tmp_path)
-        store.save_papers([
-            {"paper_id": "p1", "title": "Paper One", "author_string": "Smith",
-             "publication_year": 2024, "collections": [], "item_type": "journalArticle"},
-            {"paper_id": "p2", "title": "Paper Two", "author_string": "Jones",
-             "publication_year": 2023, "collections": [], "item_type": "journalArticle"},
-            {"paper_id": "p3", "title": "Paper Three", "author_string": "Lee",
-             "publication_year": 2022, "collections": [], "item_type": "journalArticle"},
-            {"paper_id": "p4", "title": "Paper Four", "author_string": "Park",
-             "publication_year": 2021, "collections": [], "item_type": "journalArticle"},
-        ])
-        store.save_extractions({
-            "p1": {"paper_id": "p1", "extraction": {"q02_thesis": "Thesis 1"}},
-            "p2": {"paper_id": "p2", "extraction": {"q02_thesis": "Thesis 2"}},
-            "p3": {"paper_id": "p3", "extraction": {"q02_thesis": "Thesis 3"}},
-            "p4": {"paper_id": "p4", "extraction": {"q02_thesis": "Thesis 4"}},
-        })
+        store.save_papers(
+            [
+                {
+                    "paper_id": "p1",
+                    "title": "Paper One",
+                    "author_string": "Smith",
+                    "publication_year": 2024,
+                    "collections": [],
+                    "item_type": "journalArticle",
+                },
+                {
+                    "paper_id": "p2",
+                    "title": "Paper Two",
+                    "author_string": "Jones",
+                    "publication_year": 2023,
+                    "collections": [],
+                    "item_type": "journalArticle",
+                },
+                {
+                    "paper_id": "p3",
+                    "title": "Paper Three",
+                    "author_string": "Lee",
+                    "publication_year": 2022,
+                    "collections": [],
+                    "item_type": "journalArticle",
+                },
+                {
+                    "paper_id": "p4",
+                    "title": "Paper Four",
+                    "author_string": "Park",
+                    "publication_year": 2021,
+                    "collections": [],
+                    "item_type": "journalArticle",
+                },
+            ]
+        )
+        store.save_extractions(
+            {
+                "p1": {"paper_id": "p1", "extraction": {"q02_thesis": "Thesis 1"}},
+                "p2": {"paper_id": "p2", "extraction": {"q02_thesis": "Thesis 2"}},
+                "p3": {"paper_id": "p3", "extraction": {"q02_thesis": "Thesis 3"}},
+                "p4": {"paper_id": "p4", "extraction": {"q02_thesis": "Thesis 4"}},
+            }
+        )
 
         engine = SearchEngine.__new__(SearchEngine)
         engine.structured_store = store
@@ -269,7 +297,8 @@ class TestSearchEngineAgentic:
         ]
 
         mock_analyze.return_value = GapAnalysis(
-            gaps=["gap"], follow_up_queries=["follow up"],
+            gaps=["gap"],
+            follow_up_queries=["follow up"],
         )
 
         results, metadata = engine.search_agentic("test", top_k=10, max_rounds=1)
@@ -317,7 +346,8 @@ class TestSearchEngineAgentic:
         ]
 
         mock_analyze.return_value = GapAnalysis(
-            gaps=["gap"], follow_up_queries=["q"],
+            gaps=["gap"],
+            follow_up_queries=["q"],
         )
 
         results, metadata = engine.search_agentic("test", top_k=10, max_rounds=3)
@@ -405,22 +435,33 @@ class TestAgenticAdapterIntegration:
 
         mock_results = [
             EnrichedResult(
-                paper_id="p1", title="Paper One", authors="Smith",
-                year=2024, collections=[], item_type="journalArticle",
-                chunk_type="dim_q02", matched_text="some text",
-                score=0.9, paper_data={}, extraction_data={},
+                paper_id="p1",
+                title="Paper One",
+                authors="Smith",
+                year=2024,
+                collections=[],
+                item_type="journalArticle",
+                chunk_type="dim_q02",
+                matched_text="some text",
+                score=0.9,
+                paper_data={},
+                extraction_data={},
             ),
         ]
         mock_metadata = AgenticSearchResult(
             original_query="test",
             rounds=[
                 AgenticRound(
-                    round_number=0, queries_used=["test"],
-                    papers_found=1, new_papers=1,
+                    round_number=0,
+                    queries_used=["test"],
+                    papers_found=1,
+                    new_papers=1,
                 ),
                 AgenticRound(
-                    round_number=1, queries_used=["follow up"],
-                    papers_found=0, new_papers=0,
+                    round_number=1,
+                    queries_used=["follow up"],
+                    papers_found=0,
+                    new_papers=0,
                     gap_analysis=GapAnalysis(
                         gaps=["missing theory"],
                         follow_up_queries=["follow up"],

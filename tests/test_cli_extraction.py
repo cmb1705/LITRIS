@@ -47,7 +47,9 @@ class TestClaudeCliExecutor:
                     # Mock credentials path to not exist (so API key is the fallback)
                     nonexistent_path = tmp_path / "nonexistent"
                     with patch.object(
-                        ClaudeCliAuthenticator, "_get_credentials_path", return_value=nonexistent_path
+                        ClaudeCliAuthenticator,
+                        "_get_credentials_path",
+                        return_value=nonexistent_path,
                     ):
                         executor = ClaudeCliExecutor()
                         result = executor.verify_authentication()
@@ -113,9 +115,7 @@ class TestClaudeCliExecutor:
             encoding="utf-8",
         )
 
-        with patch.object(
-            ClaudeCliAuthenticator, "_get_credentials_path", return_value=creds_path
-        ):
+        with patch.object(ClaudeCliAuthenticator, "_get_credentials_path", return_value=creds_path):
             authenticator = ClaudeCliAuthenticator()
 
         assert authenticator.get_auth_method() == "credentials_file"
@@ -148,9 +148,7 @@ class TestClaudeCliExecutor:
             encoding="utf-8",
         )
 
-        with patch.object(
-            ClaudeCliAuthenticator, "_get_credentials_path", return_value=creds_path
-        ):
+        with patch.object(ClaudeCliAuthenticator, "_get_credentials_path", return_value=creds_path):
             authenticator = ClaudeCliAuthenticator()
 
         assert authenticator.get_auth_method() == "none"
@@ -164,7 +162,10 @@ class TestClaudeCliExecutor:
         assert executor._is_rate_limited("Rate limit exceeded", "") is True
         assert executor._is_rate_limited("", "usage limit reached") is True
         assert executor._is_rate_limited("Please try again later", "") is True
-        assert executor._is_rate_limited("", "status=429 body=Rate limited. Please try again later.") is True
+        assert (
+            executor._is_rate_limited("", "status=429 body=Rate limited. Please try again later.")
+            is True
+        )
 
         # Should not detect rate limit
         assert executor._is_rate_limited("Normal response", "") is False
@@ -182,8 +183,13 @@ class TestClaudeCliExecutor:
         """Authentication detection should use explicit auth/session phrases."""
         executor = ClaudeCliExecutor()
 
-        assert executor._is_authentication_error("", "Authentication failed during extraction") is True
-        assert executor._is_authentication_error("", "Please re-authenticate before continuing") is True
+        assert (
+            executor._is_authentication_error("", "Authentication failed during extraction") is True
+        )
+        assert (
+            executor._is_authentication_error("", "Please re-authenticate before continuing")
+            is True
+        )
         assert executor._is_authentication_error("", "OAuth token expired") is True
         assert executor._is_authentication_error("", "Generic authentication context") is False
 
@@ -191,14 +197,20 @@ class TestClaudeCliExecutor:
         """Prompt-too-long responses should be recognized explicitly."""
         executor = ClaudeCliExecutor()
 
-        assert executor._is_prompt_too_long_error(
-            "",
-            'Error: 400 {"message":"prompt is too long: 212869 tokens > 200000 maximum"}',
-        ) is True
-        assert executor._is_prompt_too_long_error(
-            "maximum context length exceeded",
-            "",
-        ) is True
+        assert (
+            executor._is_prompt_too_long_error(
+                "",
+                'Error: 400 {"message":"prompt is too long: 212869 tokens > 200000 maximum"}',
+            )
+            is True
+        )
+        assert (
+            executor._is_prompt_too_long_error(
+                "maximum context length exceeded",
+                "",
+            )
+            is True
+        )
         assert executor._is_prompt_too_long_error("normal response", "") is False
 
     def test_prompt_too_long_not_retried(self):
@@ -497,7 +509,10 @@ class TestCliSectionExtractor:
             title="Test Paper",
             item_type="journalArticle",
             publication_year=2020,
-            authors=[Author(first_name="Alice", last_name="Smith"), Author(first_name="Bob", last_name="Lee")],
+            authors=[
+                Author(first_name="Alice", last_name="Smith"),
+                Author(first_name="Bob", last_name="Lee"),
+            ],
             date_added=datetime.now(),
             date_modified=datetime.now(),
         )
@@ -580,7 +595,8 @@ class TestCliIntegration:
     """Integration tests for CLI extraction (require CLI to be installed)."""
 
     @pytest.mark.skipif(
-        not os.path.exists("/usr/bin/claude") and not os.path.exists("C:\\Program Files\\claude\\claude.exe"),
+        not os.path.exists("/usr/bin/claude")
+        and not os.path.exists("C:\\Program Files\\claude\\claude.exe"),
         reason="Claude CLI not installed",
     )
     def test_cli_available(self, monkeypatch):

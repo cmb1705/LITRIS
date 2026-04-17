@@ -463,7 +463,9 @@ class ParentItemCreator:
             if enriched.issn:
                 self._insert_field(conn, parent_item_id, "ISSN", enriched.issn)
             if enriched.isbn or enriched.original.isbn:
-                self._insert_field(conn, parent_item_id, "ISBN", enriched.isbn or enriched.original.isbn or "")
+                self._insert_field(
+                    conn, parent_item_id, "ISBN", enriched.isbn or enriched.original.isbn or ""
+                )
 
             # Add authors
             for i, author in enumerate(enriched.best_authors[:20]):  # Limit to 20 authors
@@ -484,7 +486,9 @@ class ParentItemCreator:
                 conn.commit()
                 logger.info(f"Created parent item {parent_key} for attachment {attachment_key}")
             else:
-                logger.info(f"[DRY RUN] Would create parent item {parent_key} for attachment {attachment_key}")
+                logger.info(
+                    f"[DRY RUN] Would create parent item {parent_key} for attachment {attachment_key}"
+                )
 
             return CreatedParentItem(
                 parent_item_id=parent_item_id,

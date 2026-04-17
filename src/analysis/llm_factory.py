@@ -73,6 +73,7 @@ def create_llm_client(
     """
     if provider == "anthropic":
         from src.analysis.anthropic_client import AnthropicLLMClient
+
         return AnthropicLLMClient(
             mode=mode,
             model=model,
@@ -83,6 +84,7 @@ def create_llm_client(
         )
     elif provider == "openai":
         from src.analysis.openai_client import OpenAILLMClient
+
         return OpenAILLMClient(
             mode=mode,
             model=model,
@@ -92,6 +94,7 @@ def create_llm_client(
         )
     elif provider == "google":
         from src.analysis.gemini_client import GeminiLLMClient
+
         return GeminiLLMClient(
             mode=mode,
             model=model,
@@ -100,6 +103,7 @@ def create_llm_client(
         )
     elif provider == "ollama":
         from src.analysis.ollama_client import OllamaLLMClient
+
         return OllamaLLMClient(
             mode=mode,
             model=model,
@@ -109,6 +113,7 @@ def create_llm_client(
         )
     elif provider == "llamacpp":
         from src.analysis.llamacpp_client import LlamaCppLLMClient
+
         return LlamaCppLLMClient(
             mode=mode,
             model=model,
@@ -142,18 +147,23 @@ def get_provider_models(provider: Provider) -> dict[str, str]:
     """
     if provider == "anthropic":
         from src.analysis.anthropic_client import AnthropicLLMClient
+
         return AnthropicLLMClient.list_models()
     elif provider == "openai":
         from src.analysis.openai_client import OpenAILLMClient
+
         return OpenAILLMClient.list_models()
     elif provider == "google":
         from src.analysis.gemini_client import GeminiLLMClient
+
         return GeminiLLMClient.list_models()
     elif provider == "ollama":
         from src.analysis.ollama_client import OllamaLLMClient
+
         return OllamaLLMClient.list_models()
     elif provider == "llamacpp":
         from src.analysis.llamacpp_client import LlamaCppLLMClient
+
         return LlamaCppLLMClient.list_models()
     else:
         return {}

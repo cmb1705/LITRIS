@@ -116,6 +116,7 @@ def _load_cached_text(paper_id: str, cache_dir: Path) -> str | None:
             try:
                 if ext == ".json":
                     import json
+
                     data = json.loads(cache_file.read_text(encoding="utf-8"))
                     return data.get("text", "")
                 return cache_file.read_text(encoding="utf-8", errors="replace")
@@ -126,9 +127,7 @@ def _load_cached_text(paper_id: str, cache_dir: Path) -> str | None:
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Classify existing extractions by document type"
-    )
+    parser = argparse.ArgumentParser(description="Classify existing extractions by document type")
     parser.add_argument(
         "--index-dir",
         type=Path,
@@ -147,7 +146,8 @@ def parse_args():
         help="Report classifications without modifying files",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Enable verbose output",
     )
@@ -200,9 +200,7 @@ def main():
     already_classified = 0
 
     for paper_id, paper_data in papers_by_id.items():
-        doc_type, confidence = classify_paper(
-            paper_data, cache_dir, text_cleaner
-        )
+        doc_type, confidence = classify_paper(paper_data, cache_dir, text_cleaner)
 
         type_counter[doc_type] += 1
         if confidence >= 0.8:
@@ -242,7 +240,9 @@ def main():
     print("\nConfidence Distribution:")
     for level, count in confidence_bins.items():
         pct = count / len(papers_by_id) * 100 if papers_by_id else 0
-        print(f"  {level:10s} (>={'0.8' if level == 'high' else '0.6' if level == 'medium' else '0.0'}): {count:5d} ({pct:5.1f}%)")
+        print(
+            f"  {level:10s} (>={'0.8' if level == 'high' else '0.6' if level == 'medium' else '0.0'}): {count:5d} ({pct:5.1f}%)"
+        )
 
     print(f"\nItems needing review (confidence < 0.6): {confidence_bins['low']}")
 

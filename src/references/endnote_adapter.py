@@ -155,9 +155,7 @@ class EndNoteReferenceDB(BaseReferenceDB):
 
         return " ".join(text_parts).strip() or default
 
-    def _get_nested_text(
-        self, record: ET.Element, path: str, default: str = ""
-    ) -> str:
+    def _get_nested_text(self, record: ET.Element, path: str, default: str = "") -> str:
         """Get text from a nested element path.
 
         Args:
@@ -192,12 +190,14 @@ class EndNoteReferenceDB(BaseReferenceDB):
                 author_text = self._get_text(author_elem)
                 if author_text:
                     first, last = self._split_author_name(author_text)
-                    authors.append(Author(
-                        first_name=first,
-                        last_name=last,
-                        order=i + 1,
-                        role="author",
-                    ))
+                    authors.append(
+                        Author(
+                            first_name=first,
+                            last_name=last,
+                            order=i + 1,
+                            role="author",
+                        )
+                    )
 
         # Secondary authors (editors)
         secondary = contributors.find("secondary-authors")
@@ -206,12 +206,14 @@ class EndNoteReferenceDB(BaseReferenceDB):
                 author_text = self._get_text(author_elem)
                 if author_text:
                     first, last = self._split_author_name(author_text)
-                    authors.append(Author(
-                        first_name=first,
-                        last_name=last,
-                        order=len(authors) + 1,
-                        role="editor",
-                    ))
+                    authors.append(
+                        Author(
+                            first_name=first,
+                            last_name=last,
+                            order=len(authors) + 1,
+                            role="editor",
+                        )
+                    )
 
         return authors
 

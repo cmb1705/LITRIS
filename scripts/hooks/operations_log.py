@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Log tool operations to data/logs/operations.log."""
+
 import os
 import sys
 from datetime import datetime

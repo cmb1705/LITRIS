@@ -260,9 +260,7 @@ class ExtractionValidator:
             if papers and paper_id in papers:
                 title = papers[paper_id].get("title", "Unknown")
 
-            result = self.validate_extraction(
-                paper_id, title, extraction, cascade_text_dir
-            )
+            result = self.validate_extraction(paper_id, title, extraction, cascade_text_dir)
             results.append(result)
 
             # Count issues
@@ -287,9 +285,7 @@ class ExtractionValidator:
             all_fields.update(r.field_coverage.keys())
 
         for field_name in all_fields:
-            covered = sum(
-                1 for r in results if r.field_coverage.get(field_name, False)
-            )
+            covered = sum(1 for r in results if r.field_coverage.get(field_name, False))
             summary.field_coverage_rates[field_name] = covered / len(results) if results else 0
 
         # Common issues
@@ -297,9 +293,7 @@ class ExtractionValidator:
 
         # Low confidence papers
         summary.low_confidence_papers = [
-            r.paper_id
-            for r in results
-            if r.confidence < self.LOW_CONFIDENCE_THRESHOLD
+            r.paper_id for r in results if r.confidence < self.LOW_CONFIDENCE_THRESHOLD
         ][:20]
 
         return results, summary
@@ -339,7 +333,8 @@ def parse_args():
         help="Show all warnings",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Enable verbose output",
     )
@@ -393,15 +388,19 @@ def main():
     print("=" * 60)
 
     print(f"\nTotal extractions: {summary.total_extractions}")
-    print(f"Valid: {summary.valid_count} ({summary.valid_count/summary.total_extractions*100:.1f}%)")
-    print(f"Invalid: {summary.invalid_count} ({summary.invalid_count/summary.total_extractions*100:.1f}%)")
+    print(
+        f"Valid: {summary.valid_count} ({summary.valid_count / summary.total_extractions * 100:.1f}%)"
+    )
+    print(
+        f"Invalid: {summary.invalid_count} ({summary.invalid_count / summary.total_extractions * 100:.1f}%)"
+    )
     print(f"With warnings: {summary.warning_count}")
     print(f"Average confidence: {summary.avg_confidence:.3f}")
 
     print("\nField Coverage Rates:")
     for field_name, rate in sorted(summary.field_coverage_rates.items()):
         bar = "█" * int(rate * 20) + "░" * (20 - int(rate * 20))
-        print(f"  {field_name:20s} [{bar}] {rate*100:5.1f}%")
+        print(f"  {field_name:20s} [{bar}] {rate * 100:5.1f}%")
 
     if summary.common_issues:
         print("\nMost Common Issues:")

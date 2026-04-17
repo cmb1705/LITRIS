@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.config import Config
 from src.extraction.cascade import ExtractionCascade
-from src.extraction.opendataloader_extractor import build_hybrid_config
+from src.extraction.opendataloader_extractor import build_hybrid_config_from_processing
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
 from src.utils.logging_config import setup_logging
@@ -56,7 +56,7 @@ def cmd_extract(args, config):
     logger.info(f"Found {len(papers)} papers with PDFs")
 
     if args.limit:
-        papers = papers[:args.limit]
+        papers = papers[: args.limit]
         logger.info(f"Limited to {len(papers)}")
 
     # Skip already cached
@@ -73,29 +73,7 @@ def cmd_extract(args, config):
         enable_ocr=config.processing.ocr_enabled or config.processing.ocr_on_fail,
     )
     text_cleaner = TextCleaner()
-    hybrid_config = build_hybrid_config(
-        enabled=config.processing.opendataloader_hybrid_enabled,
-        backend=config.processing.opendataloader_hybrid_backend,
-        client_mode=config.processing.opendataloader_hybrid_client_mode,
-        server_url=config.processing.opendataloader_hybrid_url,
-        timeout_ms=config.processing.opendataloader_hybrid_timeout_ms,
-        autostart=config.processing.opendataloader_hybrid_autostart,
-        host=config.processing.opendataloader_hybrid_host,
-        port=config.processing.opendataloader_hybrid_port,
-        startup_timeout_seconds=(
-            config.processing.opendataloader_hybrid_startup_timeout_seconds
-        ),
-        force_ocr=config.processing.opendataloader_hybrid_force_ocr,
-        ocr_lang=config.processing.opendataloader_hybrid_ocr_lang,
-        enrich_formula=config.processing.opendataloader_hybrid_enrich_formula,
-        enrich_picture_description=(
-            config.processing.opendataloader_hybrid_enrich_picture_description
-        ),
-        picture_description_prompt=(
-            config.processing.opendataloader_hybrid_picture_description_prompt
-        ),
-        device=config.processing.opendataloader_hybrid_device,
-    )
+    hybrid_config = build_hybrid_config_from_processing(config.processing)
     cascade = ExtractionCascade(
         pdf_extractor=pdf_extractor,
         enable_arxiv=config.processing.arxiv_enabled,
@@ -103,12 +81,11 @@ def cmd_extract(args, config):
         enable_marker=config.processing.marker_enabled,
         opendataloader_mode=config.processing.opendataloader_mode,
         opendataloader_hybrid=hybrid_config,
-        opendataloader_hybrid_fallback=(
-            config.processing.opendataloader_hybrid_fallback
-        ),
+        opendataloader_hybrid_fallback=(config.processing.opendataloader_hybrid_fallback),
     )
 
     from collections import Counter
+
     methods = Counter()
     failed = 0
     start = time.time()
@@ -133,10 +110,10 @@ def cmd_extract(args, config):
                 rate = i / elapsed
                 remaining = (len(papers) - i) / rate if rate > 0 else 0
                 print(
-                    f"  {i}/{len(papers)} ({i/len(papers):.0%}) "
+                    f"  {i}/{len(papers)} ({i / len(papers):.0%}) "
                     f"| {result.method:<10} "
                     f"| {len(text.split()):,} words "
-                    f"| {remaining/60:.0f}m remaining",
+                    f"| {remaining / 60:.0f}m remaining",
                     flush=True,
                 )
         except Exception as e:
@@ -144,7 +121,7 @@ def cmd_extract(args, config):
             logger.warning(f"Failed {paper.paper_id}: {e}")
 
     elapsed = time.time() - start
-    print(f"\nDone in {elapsed/60:.1f} minutes")
+    print(f"\nDone in {elapsed / 60:.1f} minutes")
     print(f"Methods: {dict(methods)}")
     print(f"Failed: {failed}")
     print(f"Cache: {CACHE_DIR}")
@@ -162,6 +139,7 @@ def cmd_stats(config):
     total_size = sum(f.stat().st_size for f in txt_files)
 
     from collections import Counter
+
     methods = Counter()
     for f in method_files:
         methods[f.read_text(encoding="utf-8").strip()] += 1
@@ -169,8 +147,8 @@ def cmd_stats(config):
     db = ZoteroDatabase(config.zotero.database_path, config.zotero.storage_path)
     total_papers = sum(1 for p in db.get_all_papers() if p.pdf_path and p.pdf_path.exists())
 
-    print(f"Cached: {len(txt_files)}/{total_papers} papers ({len(txt_files)/total_papers:.0%})")
-    print(f"Size: {total_size/1024/1024:.0f} MB")
+    print(f"Cached: {len(txt_files)}/{total_papers} papers ({len(txt_files) / total_papers:.0%})")
+    print(f"Size: {total_size / 1024 / 1024:.0f} MB")
     print(f"Methods: {dict(methods)}")
 
 

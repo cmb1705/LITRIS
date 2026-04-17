@@ -58,9 +58,7 @@ def sample_config_dict(tmp_path: Path) -> dict:
 
 
 @pytest.fixture
-def temp_config_file(
-    tmp_path: Path, sample_config_dict: dict
-) -> Generator[Path, None, None]:
+def temp_config_file(tmp_path: Path, sample_config_dict: dict) -> Generator[Path, None, None]:
     """Create a temporary config.yaml file for testing."""
     config_path = tmp_path / "config.yaml"
     with open(config_path, "w", encoding="utf-8") as f:

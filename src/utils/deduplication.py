@@ -32,7 +32,7 @@ def normalize_doi(doi: str | None) -> str | None:
     ]
     for prefix in prefixes:
         if doi.startswith(prefix):
-            doi = doi[len(prefix):]
+            doi = doi[len(prefix) :]
             break
 
     # Remove leading/trailing whitespace after prefix removal

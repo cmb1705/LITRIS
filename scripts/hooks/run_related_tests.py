@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run pytest for test files related to a modified src/ module."""
+
 import os
 import re
 import subprocess

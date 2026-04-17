@@ -79,23 +79,17 @@ class TestPaperMetadataModel:
 
     def test_year_extraction_iso_date(self, minimal_paper):
         """Test year extraction from ISO date."""
-        paper = PaperMetadata(
-            **{**minimal_paper.model_dump(), "publication_date": "2023-05-15"}
-        )
+        paper = PaperMetadata(**{**minimal_paper.model_dump(), "publication_date": "2023-05-15"})
         assert paper.publication_year == 2023
 
     def test_year_extraction_partial_date(self, minimal_paper):
         """Test year extraction from partial date."""
-        paper = PaperMetadata(
-            **{**minimal_paper.model_dump(), "publication_date": "May 2022"}
-        )
+        paper = PaperMetadata(**{**minimal_paper.model_dump(), "publication_date": "May 2022"})
         assert paper.publication_year == 2022
 
     def test_year_extraction_year_only(self, minimal_paper):
         """Test year extraction from year-only string."""
-        paper = PaperMetadata(
-            **{**minimal_paper.model_dump(), "publication_date": "2021"}
-        )
+        paper = PaperMetadata(**{**minimal_paper.model_dump(), "publication_date": "2021"})
         assert paper.publication_year == 2021
 
     def test_empty_title_becomes_untitled(self):
@@ -237,7 +231,9 @@ class TestZoteroDatabase:
         html_dir = mock_storage_path / att_key
         html_dir.mkdir()
         html_file = html_dir / "article.html"
-        html_file.write_text("<html><body><main>Article text</main></body></html>", encoding="utf-8")
+        html_file.write_text(
+            "<html><body><main>Article text</main></body></html>", encoding="utf-8"
+        )
 
         db = ZoteroDatabase(mock_db_path, mock_storage_path)
         result = db.resolve_attachment_path(att_key, "storage:article.html")
@@ -400,6 +396,7 @@ class TestZoteroDatabaseIntegration:
         """Load real config if available."""
         try:
             from src.config import Config
+
             config = Config.load()
             # Verify database exists
             db_path = config.get_zotero_db_path()

@@ -152,7 +152,7 @@ class TestOCRMocked:
 
         try:
             # Mock is_available to return True for this test
-            with patch.object(OCRHandler, 'is_available', return_value=True):
+            with patch.object(OCRHandler, "is_available", return_value=True):
                 result = handler.extract_text(temp_path)
                 assert result.method == "ocr"
                 assert result.pages_processed == 2
@@ -171,6 +171,7 @@ class TestPDFExtractorWithOCRFallback:
 
         # Create using pymupdf
         import pymupdf
+
         doc = pymupdf.open()
         page = doc.new_page()
         page.insert_text((50, 50), "Test content for extraction")
@@ -190,6 +191,7 @@ class TestPDFExtractorWithOCRFallback:
         pdf_path = tmp_path / "test.pdf"
 
         import pymupdf
+
         doc = pymupdf.open()
         page = doc.new_page()
         page.insert_text((50, 50), "Test content")

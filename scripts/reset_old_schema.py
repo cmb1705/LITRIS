@@ -29,7 +29,8 @@ def main() -> int:
         description="Reset old PaperExtraction entries for re-extraction",
     )
     parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Show what would be reset without making changes",
     )
     args = parser.parse_args()
@@ -60,10 +61,7 @@ def main() -> int:
     new_ids = set()
     for pid, entry in extractions.items():
         ext = entry.get("extraction", {})
-        has_q = any(
-            k.startswith("q") and len(k) > 3 and k[1:3].isdigit()
-            for k in ext
-        )
+        has_q = any(k.startswith("q") and len(k) > 3 and k[1:3].isdigit() for k in ext)
         if has_q:
             new_ids.add(pid)
         else:
@@ -105,7 +103,9 @@ def main() -> int:
 
     # Confirm
     try:
-        response = input(f"\nRemove {len(old_ids)} old-schema entries and reset checkpoint? [y/N]: ")
+        response = input(
+            f"\nRemove {len(old_ids)} old-schema entries and reset checkpoint? [y/N]: "
+        )
         if response.lower() not in ("y", "yes"):
             print("Cancelled.")
             return 0
@@ -152,11 +152,15 @@ def main() -> int:
             json.dumps(cp, indent=2, ensure_ascii=False, default=str),
             encoding="utf-8",
         )
-        print(f"Reset checkpoint: {len(remaining_ids)} IDs remain, {len(old_checkpoint_ids)} removed")
+        print(
+            f"Reset checkpoint: {len(remaining_ids)} IDs remain, {len(old_checkpoint_ids)} removed"
+        )
 
     print(f"\nDone. Resume the build to re-extract {len(old_ids)} papers:")
-    print("  python scripts/build_index.py --provider openai --mode cli "
-          "--model gpt-5.4 --use-subscription --resume --gap-fill")
+    print(
+        "  python scripts/build_index.py --provider openai --mode cli "
+        "--model gpt-5.4 --use-subscription --resume --gap-fill"
+    )
 
     return 0
 

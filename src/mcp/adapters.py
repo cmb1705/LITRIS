@@ -51,7 +51,9 @@ class LitrisAdapter:
                 )
 
             if not chroma_dir.exists():
-                logger.warning(f"ChromaDB directory not found: {chroma_dir}. Vector search may fail.")
+                logger.warning(
+                    f"ChromaDB directory not found: {chroma_dir}. Vector search may fail."
+                )
 
             self._engine = SearchEngine(
                 index_dir=index_dir,
@@ -154,9 +156,7 @@ class LitrisAdapter:
             "results": formatted_results,
         }
 
-    def _apply_recency_boost(
-        self, results: list, recency_boost: float
-    ) -> list:
+    def _apply_recency_boost(self, results: list, recency_boost: float) -> list:
         """Apply recency boost to search results.
 
         More recent papers get a score bonus based on their publication year.
@@ -231,7 +231,9 @@ class LitrisAdapter:
             for dimension_id in dimension_ids:
                 dimension = registry.resolve_optional_dimension(dimension_id)
                 output_key = (
-                    dimension.legacy_field_name if dimension and dimension.legacy_field_name else dimension_id
+                    dimension.legacy_field_name
+                    if dimension and dimension.legacy_field_name
+                    else dimension_id
                 )
                 value = dimensions.get(dimension_id)
                 if value is None:
@@ -449,9 +451,7 @@ class LitrisAdapter:
         Returns:
             Formatted search results with round-by-round metadata.
         """
-        logger.info(
-            f"Agentic search: '{query[:50]}...' top_k={top_k} rounds={max_rounds}"
-        )
+        logger.info(f"Agentic search: '{query[:50]}...' top_k={top_k} rounds={max_rounds}")
 
         results, metadata = self.engine.search_agentic(
             query=query,
@@ -608,17 +608,20 @@ class LitrisAdapter:
 
         formatted_results = []
         for i, result in enumerate(results, 1):
-            formatted_results.append({
-                "rank": i,
-                "score": round(result.score, 4),
-                "paper_id": result.paper_id,
-                "title": result.title,
-                "authors": result.authors,
-                "year": result.year,
-                "matched_on": result.chunk_type,
-                "extraction": self._format_extraction(result.extraction_data)
-                if result.extraction_data else None,
-            })
+            formatted_results.append(
+                {
+                    "rank": i,
+                    "score": round(result.score, 4),
+                    "paper_id": result.paper_id,
+                    "title": result.title,
+                    "authors": result.authors,
+                    "year": result.year,
+                    "matched_on": result.chunk_type,
+                    "extraction": self._format_extraction(result.extraction_data)
+                    if result.extraction_data
+                    else None,
+                }
+            )
 
         return {
             "source_paper_id": paper_id,

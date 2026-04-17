@@ -188,6 +188,24 @@ def test_runtime_override_reports_hybrid_failure_reason():
     assert reason == "planned hybrid failed (cli exit code 1); runtime used pymupdf"
 
 
+def test_runtime_override_logging_is_emitted():
+    with patch("src.analysis.section_extractor.logger.info") as mock_info:
+        SectionExtractor._log_extraction_override(
+            paper_id="paper-1",
+            planned_profile_key="fast",
+            actual_profile_key="runtime:opendataloader_hybrid",
+            override_reason="runtime escalated from fast to hybrid",
+        )
+
+    mock_info.assert_called_once_with(
+        "Extraction routing override for %s: planned=%s actual=%s reason=%s",
+        "paper-1",
+        "fast",
+        "runtime:opendataloader_hybrid",
+        "runtime escalated from fast to hybrid",
+    )
+
+
 def test_orchestrator_reuses_stored_snapshot_for_intent_classification(tmp_path):
     config = _make_config()
     config.processing.opendataloader_hybrid_auto_picture_intents = True

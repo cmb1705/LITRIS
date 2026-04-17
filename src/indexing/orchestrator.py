@@ -23,7 +23,6 @@ from src.analysis.classification_store import (
 from src.analysis.dimensions import get_default_dimension_registry
 from src.analysis.extraction_intent_classifier import (
     EXTRACTION_INTENT_SCHEMA_VERSION,
-    ExtractionIntent,
     ExtractionPlanItem,
     build_extraction_plan,
     classify_extraction_intent,
@@ -385,12 +384,8 @@ class IndexManifest:
                     classification_policy=raw.get("classification_policy", {}),
                     extraction=raw.get("extraction", {}),
                     embedding=raw.get("embedding", {}),
-                    chunk_schema_version=raw.get(
-                        "chunk_schema_version", CHUNK_SCHEMA_VERSION
-                    ),
-                    raptor_schema_version=raw.get(
-                        "raptor_schema_version", RAPTOR_SCHEMA_VERSION
-                    ),
+                    chunk_schema_version=raw.get("chunk_schema_version", CHUNK_SCHEMA_VERSION),
+                    raptor_schema_version=raw.get("raptor_schema_version", RAPTOR_SCHEMA_VERSION),
                     similarity_schema_version=raw.get(
                         "similarity_schema_version", SIMILARITY_SCHEMA_VERSION
                     ),
@@ -662,8 +657,7 @@ class IndexOrchestrator:
                     class_store=class_store,
                     class_index=class_index,
                     papers=[
-                        current_papers_by_id[paper_id]
-                        for paper_id in classification_scope_ids
+                        current_papers_by_id[paper_id] for paper_id in classification_scope_ids
                     ],
                     deleted_paper_ids=plan.change_set.deleted_items,
                     config=config,
@@ -709,11 +703,13 @@ class IndexOrchestrator:
                 print(f"  {line}" if not line.startswith("  ") else line)
         if getattr(args, "dry_run", False):
             return 0 if plan.resolved_mode != "invalid" else 1
-        provider, mode, cache_dir, parallel_workers, use_cache = (
-            configure_extraction_runtime(args, config, self.logger)
+        provider, mode, cache_dir, parallel_workers, use_cache = configure_extraction_runtime(
+            args, config, self.logger
         )
-        if mode == "cli" and extraction_required_ids and not getattr(
-            args, "skip_extraction", False
+        if (
+            mode == "cli"
+            and extraction_required_ids
+            and not getattr(args, "skip_extraction", False)
         ):
             if provider == "anthropic":
                 verify_cli_authentication()
@@ -813,9 +809,7 @@ class IndexOrchestrator:
         extractor = None
 
         extraction_candidate_ids = sorted(extraction_required_ids)
-        extraction_plan_by_id = {
-            item.paper_id: item for item in extraction_plan_items
-        }
+        extraction_plan_by_id = {item.paper_id: item for item in extraction_plan_items}
         extraction_candidate_papers = [
             current_papers_by_id[paper_id]
             for paper_id in extraction_candidate_ids
@@ -831,12 +825,10 @@ class IndexOrchestrator:
             grouped_candidate_plan: dict[str, list[PaperMetadata]] = {}
             for paper in extraction_candidate_papers:
                 plan_item = extraction_plan_by_id.get(paper.paper_id)
-                profile_key = (
-                    plan_item.profile.profile_key if plan_item is not None else "fast"
-                )
+                profile_key = plan_item.profile.profile_key if plan_item is not None else "fast"
                 grouped_candidate_plan.setdefault(profile_key, []).append(paper)
             estimate = None
-            for profile_key, papers_for_profile in grouped_candidate_plan.items():
+            for _profile_key, papers_for_profile in grouped_candidate_plan.items():
                 plan_item = extraction_plan_by_id.get(papers_for_profile[0].paper_id)
                 extractor = build_section_extractor(
                     args=args,
@@ -853,16 +845,18 @@ class IndexOrchestrator:
                     estimate = profile_estimate
                 else:
                     estimate["papers_with_pdf"] += profile_estimate.get("papers_with_pdf", 0)
-                    estimate["papers_to_extract"] += profile_estimate.get(
-                        "papers_to_extract", 0
-                    )
-                    estimate["papers_cached"] = estimate.get("papers_cached", 0) + profile_estimate.get(
+                    estimate["papers_to_extract"] += profile_estimate.get("papers_to_extract", 0)
+                    estimate["papers_cached"] = estimate.get(
                         "papers_cached", 0
-                    )
+                    ) + profile_estimate.get("papers_cached", 0)
                     estimate["estimated_total_cost"] += profile_estimate.get(
                         "estimated_total_cost", 0.0
                     )
-            estimate = estimate or {"papers_with_pdf": 0, "papers_to_extract": 0, "estimated_total_cost": 0.0}
+            estimate = estimate or {
+                "papers_with_pdf": 0,
+                "papers_to_extract": 0,
+                "estimated_total_cost": 0.0,
+            }
             self._print_cost_estimate(estimate)
             return 0
 
@@ -922,9 +916,7 @@ class IndexOrchestrator:
                         for paper in group_papers
                         if paper.paper_id in merged_text_snapshots
                     }
-                    group_plan_map = {
-                        item.paper_id: item for item in plan_items
-                    }
+                    group_plan_map = {item.paper_id: item for item in plan_items}
                     extraction_run = run_extraction(
                         group_papers,
                         extractor,
@@ -979,9 +971,7 @@ class IndexOrchestrator:
                     self.project_root / "data" / "out" / "experiments" / "skipped_items",
                     self.logger,
                 )
-                manifest.stage_health["extraction"] = (
-                    "pending" if extraction_interrupted else "ok"
-                )
+                manifest.stage_health["extraction"] = "pending" if extraction_interrupted else "ok"
 
         failed_extraction_ids = {
             result.paper_id for result in extraction_results if not result.success
@@ -1016,10 +1006,7 @@ class IndexOrchestrator:
                 paper_id
                 for paper_id in scoped_current_ids
                 if paper_id not in failed_extraction_ids
-                and (
-                    paper_id not in extraction_required_ids
-                    or paper_id in updated_extractions
-                )
+                and (paper_id not in extraction_required_ids or paper_id in updated_extractions)
             }
             for paper_id in safe_apply_ids:
                 final_papers[paper_id] = current_papers_by_id[paper_id].to_index_dict()
@@ -1033,9 +1020,7 @@ class IndexOrchestrator:
             final_extractions=final_extractions,
             failed_extraction_ids=failed_extraction_ids,
         )
-        delete_embedding_ids = sorted(
-            set(plan.change_set.deleted_items) | removed_from_index_ids
-        )
+        delete_embedding_ids = sorted(set(plan.change_set.deleted_items) | removed_from_index_ids)
 
         artifact_snapshot = IndexArtifactSnapshot.capture(
             self.index_dir,
@@ -1123,13 +1108,11 @@ class IndexOrchestrator:
                         plan=plan,
                         delete_paper_ids=delete_embedding_ids + sorted(embedding_scope_ids),
                     )
-                    manifest.pending_work["embeddings"].all = (
-                        plan.full_rebuild and not getattr(args, "paper", [])
+                    manifest.pending_work["embeddings"].all = plan.full_rebuild and not getattr(
+                        args, "paper", []
                     )
                     if not manifest.pending_work["embeddings"].all:
-                        manifest.pending_work["embeddings"].extend(
-                            sorted(embedding_scope_ids)
-                        )
+                        manifest.pending_work["embeddings"].extend(sorted(embedding_scope_ids))
                     manifest.pending_work["raptor"] = PendingStageWork.from_dict(
                         manifest.pending_work["embeddings"].to_dict()
                     )
@@ -1187,9 +1170,7 @@ class IndexOrchestrator:
                             embedding_batch_size=config.embeddings.batch_size,
                             raptor_summaries=raptor_summaries,
                             delete_paper_ids=(
-                                []
-                                if plan.clear_vector_store
-                                else delete_embedding_ids
+                                [] if plan.clear_vector_store else delete_embedding_ids
                             ),
                             vector_store_dir=staged_chroma_dir,
                             run_metadata=embedding_run_metadata,
@@ -1477,9 +1458,7 @@ class IndexOrchestrator:
             return SyncPlan(
                 requested_mode=requested_mode,
                 resolved_mode="invalid",
-                reasons=[
-                    "Incremental update mode is only supported for Zotero sources in v1"
-                ],
+                reasons=["Incremental update mode is only supported for Zotero sources in v1"],
                 change_set=ChangeSet(),
                 pending_work={},
             )
@@ -1527,9 +1506,7 @@ class IndexOrchestrator:
             if not self._structured_store_consistent(
                 existing_papers, existing_extractions, manifest
             ):
-                compatibility_reasons.append(
-                    "Structured store and manifest are inconsistent"
-                )
+                compatibility_reasons.append("Structured store and manifest are inconsistent")
                 requires_full_extraction = True
 
             vector_reason = self._validate_vector_store()
@@ -1540,13 +1517,11 @@ class IndexOrchestrator:
                 if chunk_reason:
                     compatibility_reasons.append(chunk_reason)
 
-        target_current_ids, target_deleted_ids, target_unmatched = (
-            self._resolve_target_ids(
-                target_keys=getattr(args, "paper", []) or [],
-                current_snapshots=current_snapshots,
-                manifest=manifest,
-                existing_papers=existing_papers,
-            )
+        target_current_ids, target_deleted_ids, target_unmatched = self._resolve_target_ids(
+            target_keys=getattr(args, "paper", []) or [],
+            current_snapshots=current_snapshots,
+            manifest=manifest,
+            existing_papers=existing_papers,
         )
         if target_unmatched:
             reasons.append(f"Unmatched target IDs: {', '.join(sorted(target_unmatched))}")
@@ -1569,12 +1544,16 @@ class IndexOrchestrator:
             change_set.new_items = []
             change_set.modified_items = []
 
-        pending_work = manifest.pending_work if manifest else {
-            "extraction": PendingStageWork(),
-            "embeddings": PendingStageWork(),
-            "raptor": PendingStageWork(),
-            "similarity": PendingStageWork(),
-        }
+        pending_work = (
+            manifest.pending_work
+            if manifest
+            else {
+                "extraction": PendingStageWork(),
+                "embeddings": PendingStageWork(),
+                "raptor": PendingStageWork(),
+                "similarity": PendingStageWork(),
+            }
+        )
 
         if requested_mode == "update" and compatibility_reasons:
             return SyncPlan(
@@ -1676,9 +1655,7 @@ class IndexOrchestrator:
                         len(all_papers),
                     )
             papers = [paper for paper in all_papers if paper.has_extractable_source]
-            papers_without_pdf = [
-                paper for paper in all_papers if not paper.has_extractable_source
-            ]
+            papers_without_pdf = [paper for paper in all_papers if not paper.has_extractable_source]
             if papers_without_pdf:
                 self.logger.info(
                     "Found %d papers, %d without local extractable sources (skipped)",
@@ -1696,9 +1673,7 @@ class IndexOrchestrator:
         current_papers: list[PaperMetadata],
     ) -> int:
         class_index = (
-            class_store.load()
-            if not getattr(args, "reclassify", False)
-            else ClassificationIndex()
+            class_store.load() if not getattr(args, "reclassify", False) else ClassificationIndex()
         )
         self._update_classification_index(
             class_store=class_store,
@@ -1753,8 +1728,7 @@ class IndexOrchestrator:
                     word_count = stats.word_count
                     page_count = int(snapshot.get("page_count") or stats.page_count)
                     section_markers = int(
-                        snapshot.get("section_markers")
-                        or text_cleaner.count_section_markers(text)
+                        snapshot.get("section_markers") or text_cleaner.count_section_markers(text)
                     )
                     source_tier = "stored_snapshot"
             elif paper.pdf_path and Path(paper.pdf_path).exists():
@@ -1816,9 +1790,7 @@ class IndexOrchestrator:
     ) -> list[str]:
         if getattr(args, "paper", []):
             return sorted(
-                paper_id
-                for paper_id in plan.forced_paper_ids
-                if paper_id in current_papers_by_id
+                paper_id for paper_id in plan.forced_paper_ids if paper_id in current_papers_by_id
             )
         if getattr(args, "reclassify", False):
             return sorted(current_papers_by_id.keys())
@@ -2026,7 +1998,9 @@ class IndexOrchestrator:
     ) -> set[str]:
         desired_ids = set(final_papers) & set(final_extractions)
         if getattr(args, "paper", []):
-            pending_ids = set(plan.pending_work["embeddings"].paper_ids) & set(plan.forced_paper_ids)
+            pending_ids = set(plan.pending_work["embeddings"].paper_ids) & set(
+                plan.forced_paper_ids
+            )
             if plan.pending_work["embeddings"].all:
                 pending_ids = set(plan.forced_paper_ids)
             forced_ids = set(plan.forced_paper_ids) & desired_ids
@@ -2071,7 +2045,8 @@ class IndexOrchestrator:
                 processed_ids = set(state.processed_ids)
                 failed_ids = set(checkpoint_mgr.get_failed_ids())
                 papers_to_extract = [
-                    paper for paper in papers_to_extract
+                    paper
+                    for paper in papers_to_extract
                     if paper.paper_id not in processed_ids and paper.paper_id not in failed_ids
                 ]
 
@@ -2087,10 +2062,7 @@ class IndexOrchestrator:
 
     def _show_skipped(self, papers_without_pdf: list[PaperMetadata]) -> None:
         if papers_without_pdf:
-            print(
-                f"\nPapers without local extractable sources "
-                f"({len(papers_without_pdf)}):"
-            )
+            print(f"\nPapers without local extractable sources ({len(papers_without_pdf)}):")
             print("-" * 70)
             for paper in papers_without_pdf:
                 print(f"  {paper.paper_id}: {paper.title[:60]}...")
@@ -2243,9 +2215,7 @@ class IndexOrchestrator:
         payload = {
             "schema_version": EXTRACTION_SCHEMA_VERSION,
             "provider": provider,
-            "mode": getattr(args, "mode", None)
-            or provider_settings.mode
-            or config.extraction.mode,
+            "mode": getattr(args, "mode", None) or provider_settings.mode or config.extraction.mode,
             "model": getattr(args, "model", None)
             or provider_settings.model
             or config.extraction.model,
@@ -2257,9 +2227,7 @@ class IndexOrchestrator:
             "opendataloader_mode": config.processing.opendataloader_mode,
             "opendataloader_hybrid_enabled": config.processing.opendataloader_hybrid_enabled,
             "opendataloader_hybrid_backend": config.processing.opendataloader_hybrid_backend,
-            "opendataloader_hybrid_fallback": (
-                config.processing.opendataloader_hybrid_fallback
-            ),
+            "opendataloader_hybrid_fallback": (config.processing.opendataloader_hybrid_fallback),
         }
         return {**payload, "fingerprint": fingerprint_payload(payload)}
 

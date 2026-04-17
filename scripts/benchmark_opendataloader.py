@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import Config
-from src.extraction.opendataloader_extractor import build_hybrid_config
+from src.extraction.opendataloader_extractor import build_hybrid_config_from_processing
 from src.extraction.text_cleaner import TextCleaner
 from src.zotero.database import ZoteroDatabase
 
@@ -224,30 +224,9 @@ def main() -> None:
             papers_map[p.pdf_attachment_key] = p
 
     text_cleaner = TextCleaner()
-    hybrid_config = build_hybrid_config(
-        enabled=(
-            config.processing.opendataloader_hybrid_enabled or args.include_hybrid
-        ),
-        backend=config.processing.opendataloader_hybrid_backend,
-        client_mode=config.processing.opendataloader_hybrid_client_mode,
-        server_url=config.processing.opendataloader_hybrid_url,
-        timeout_ms=config.processing.opendataloader_hybrid_timeout_ms,
-        autostart=config.processing.opendataloader_hybrid_autostart,
-        host=config.processing.opendataloader_hybrid_host,
-        port=config.processing.opendataloader_hybrid_port,
-        startup_timeout_seconds=(
-            config.processing.opendataloader_hybrid_startup_timeout_seconds
-        ),
-        force_ocr=config.processing.opendataloader_hybrid_force_ocr,
-        ocr_lang=config.processing.opendataloader_hybrid_ocr_lang,
-        enrich_formula=config.processing.opendataloader_hybrid_enrich_formula,
-        enrich_picture_description=(
-            config.processing.opendataloader_hybrid_enrich_picture_description
-        ),
-        picture_description_prompt=(
-            config.processing.opendataloader_hybrid_picture_description_prompt
-        ),
-        device=config.processing.opendataloader_hybrid_device,
+    hybrid_config = build_hybrid_config_from_processing(
+        config.processing,
+        enabled=(config.processing.opendataloader_hybrid_enabled or args.include_hybrid),
     )
     hybrid_ready = None
     if hybrid_config is not None:
@@ -297,9 +276,7 @@ def main() -> None:
         print("\n  [PyMuPDF] Extracting...")
         pymupdf_text, pymupdf_time = extract_pymupdf(pdf_path)
         pymupdf_clean = (
-            text_cleaner.clean(pymupdf_text)
-            if not is_error_text(pymupdf_text)
-            else pymupdf_text
+            text_cleaner.clean(pymupdf_text) if not is_error_text(pymupdf_text) else pymupdf_text
         )
         pymupdf_wc = word_count(pymupdf_clean)
         per_page = pymupdf_time / pages if pages else 0
@@ -332,7 +309,9 @@ def main() -> None:
         # 3. OpenDataLoader (fast + struct_tree)
         print("\n  [ODL-tree] Extracting with use_struct_tree=True...")
         odl_tree_text, odl_tree_time = extract_opendataloader(
-            pdf_path, mode="fast", use_struct_tree=True,
+            pdf_path,
+            mode="fast",
+            use_struct_tree=True,
         )
         odl_tree_clean = (
             text_cleaner.clean(odl_tree_text, preserve_markdown=True)
@@ -427,10 +406,7 @@ def main() -> None:
         f"{'ODL-tree':>9} {'ODL-hyb':>8} {'Marker':>8} {'Best':>10}"
     )
     print(header)
-    print(
-        f"{'-' * 35} {'-' * 10} {'-' * 8} {'-' * 9} {'-' * 9} "
-        f"{'-' * 8} {'-' * 8} {'-' * 10}"
-    )
+    print(f"{'-' * 35} {'-' * 10} {'-' * 8} {'-' * 9} {'-' * 9} {'-' * 8} {'-' * 8} {'-' * 10}")
     for r in results:
         title = r["title"][:33]
         cat = r["category"][:8]
@@ -440,10 +416,7 @@ def main() -> None:
         oh = r.get("odl_hybrid", {}).get("word_count", 0)
         mk = r["marker"]["word_count"]
         best_val = r["best_method"]
-        print(
-            f"{title:<35} {cat:<10} {pm:>8} {of:>9} {ot:>9} "
-            f"{oh:>8} {mk:>8} {best_val:>10}"
-        )
+        print(f"{title:<35} {cat:<10} {pm:>8} {of:>9} {ot:>9} {oh:>8} {mk:>8} {best_val:>10}")
 
     print(f"\n{'=' * 100}")
     print("TIMING SUMMARY (seconds)")
@@ -453,9 +426,7 @@ def main() -> None:
         f"{'ODL-tree':>9} {'ODL-hyb':>8} {'Marker':>8}"
     )
     print(header)
-    print(
-        f"{'-' * 35} {'-' * 5} {'-' * 8} {'-' * 9} {'-' * 9} {'-' * 8} {'-' * 8}"
-    )
+    print(f"{'-' * 35} {'-' * 5} {'-' * 8} {'-' * 9} {'-' * 9} {'-' * 8} {'-' * 8}")
     for r in results:
         title = r["title"][:33]
         pages = r["page_count"]
@@ -464,10 +435,7 @@ def main() -> None:
         ot = r["odl_struct_tree"]["time_seconds"]
         oh = r.get("odl_hybrid", {}).get("time_seconds", 0)
         mk = r["marker"]["time_seconds"]
-        print(
-            f"{title:<35} {pages:>5} {pm:>8.2f} {of:>9.2f} {ot:>9.2f} "
-            f"{oh:>8.2f} {mk:>8.2f}"
-        )
+        print(f"{title:<35} {pages:>5} {pm:>8.2f} {of:>9.2f} {ot:>9.2f} {oh:>8.2f} {mk:>8.2f}")
 
     # Compute averages
     if results:

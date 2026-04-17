@@ -32,6 +32,7 @@ from src.zotero.models import PaperMetadata
 
 logger = get_logger(__name__)
 
+
 @dataclass
 class BatchRequest:
     """A single request in a batch."""
@@ -62,7 +63,9 @@ class BatchIssue:
 
     paper_id: str
     pass_number: int
-    issue_type: str  # "policy_violation", "content_filter", "rate_limit", "parse_error", "api_error"
+    issue_type: (
+        str  # "policy_violation", "content_filter", "rate_limit", "parse_error", "api_error"
+    )
     message: str
     status_code: int = 0
     error_code: str = ""
@@ -203,12 +206,14 @@ class OpenAIBatchClient:
                 if self.reasoning_effort and self.model.startswith("gpt-5"):
                     body["reasoning_effort"] = self.reasoning_effort
 
-                line = json.dumps({
-                    "custom_id": req.custom_id,
-                    "method": "POST",
-                    "url": "/v1/chat/completions",
-                    "body": body,
-                })
+                line = json.dumps(
+                    {
+                        "custom_id": req.custom_id,
+                        "method": "POST",
+                        "url": "/v1/chat/completions",
+                        "body": body,
+                    }
+                )
                 f.write(line + "\n")
             jsonl_path = f.name
 
@@ -255,15 +260,9 @@ class OpenAIBatchClient:
             batch_id=batch.id,
             status=batch.status,
             created_at=str(batch.created_at),
-            total_requests=(
-                counts.total if counts else 0
-            ),
-            completed_requests=(
-                counts.completed if counts else 0
-            ),
-            failed_requests=(
-                counts.failed if counts else 0
-            ),
+            total_requests=(counts.total if counts else 0),
+            completed_requests=(counts.completed if counts else 0),
+            failed_requests=(counts.failed if counts else 0),
             output_file_id=batch.output_file_id,
             error_file_id=batch.error_file_id,
         )
@@ -302,9 +301,7 @@ class OpenAIBatchClient:
 
             elapsed = time.time() - start_time
             if elapsed > max_wait:
-                raise TimeoutError(
-                    f"Batch {batch_id} did not complete within {max_wait}s"
-                )
+                raise TimeoutError(f"Batch {batch_id} did not complete within {max_wait}s")
 
             logger.info(
                 f"Batch {batch_id}: {status.completed_requests}/{status.total_requests} "
@@ -332,9 +329,7 @@ class OpenAIBatchClient:
         lines = content.text.strip().split("\n")
 
         # Collect all pass results grouped by paper_id
-        paper_results: dict[str, _PaperPassResults] = defaultdict(
-            _PaperPassResults
-        )
+        paper_results: dict[str, _PaperPassResults] = defaultdict(_PaperPassResults)
         issues: list[BatchIssue] = []
 
         for line in lines:
@@ -376,9 +371,7 @@ class OpenAIBatchClient:
                     acc.total_output_tokens += usage.get("completion_tokens", 0)
 
                 except Exception as e:
-                    logger.error(
-                        f"Failed to parse pass {pass_num} for {paper_id}: {e}"
-                    )
+                    logger.error(f"Failed to parse pass {pass_num} for {paper_id}: {e}")
                     acc.errors.append(f"pass {pass_num}: parse error: {e}")
             else:
                 error = response.get("error", {})
@@ -392,7 +385,11 @@ class OpenAIBatchClient:
 
                 # Classify the error
                 issue = self._classify_error(
-                    paper_id, pass_num, status_code, error_code, error_msg,
+                    paper_id,
+                    pass_num,
+                    status_code,
+                    error_code,
+                    error_msg,
                 )
                 issues.append(issue)
                 acc.errors.append(f"pass {pass_num}: [{issue.issue_type}] {error_msg}")
@@ -408,8 +405,7 @@ class OpenAIBatchClient:
                 yield ExtractionResult(
                     paper_id=paper_id,
                     success=False,
-                    error=f"All {num_passes} passes failed: "
-                    + "; ".join(acc.errors),
+                    error=f"All {num_passes} passes failed: " + "; ".join(acc.errors),
                     model_used=self.model,
                     input_tokens=acc.total_input_tokens,
                     output_tokens=acc.total_output_tokens,
@@ -521,11 +517,7 @@ class OpenAIBatchClient:
             )
 
         # Content filter (model refusal)
-        if (
-            "content_filter" in code_lower
-            or "flagged" in msg_lower
-            or "refused" in msg_lower
-        ):
+        if "content_filter" in code_lower or "flagged" in msg_lower or "refused" in msg_lower:
             return BatchIssue(
                 paper_id=paper_id,
                 pass_number=pass_num,
@@ -546,7 +538,9 @@ class OpenAIBatchClient:
         )
 
     def _report_issues(
-        self, batch_id: str, issues: list[BatchIssue],
+        self,
+        batch_id: str,
+        issues: list[BatchIssue],
     ) -> None:
         """Log and save a report of batch issues.
 
@@ -634,12 +628,12 @@ class OpenAIBatchClient:
 
     def _save_batch_state(self, batch_id: str, requests: list[BatchRequest]) -> None:
         """Save batch state to disk for recovery."""
-        paper_ids = sorted({
-            r.custom_id.rsplit(":pass", 1)[0]
-            if ":pass" in r.custom_id
-            else r.custom_id
-            for r in requests
-        })
+        paper_ids = sorted(
+            {
+                r.custom_id.rsplit(":pass", 1)[0] if ":pass" in r.custom_id else r.custom_id
+                for r in requests
+            }
+        )
 
         state = {
             "batch_id": batch_id,
@@ -694,9 +688,7 @@ class OpenAIBatchClient:
         total_output = output_tokens_per_pass * num_papers * num_passes
 
         # Standard pricing with 50% batch discount
-        std_input, std_output = OPENAI_PRICING.get(
-            self.model, (2.50, 15.0)
-        )
+        std_input, std_output = OPENAI_PRICING.get(self.model, (2.50, 15.0))
         input_cost_per_million = std_input * 0.5
         output_cost_per_million = std_output * 0.5
 

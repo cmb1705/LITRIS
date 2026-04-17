@@ -93,9 +93,7 @@ class TestFormatPaperEmbed:
 
         embed = format_paper_embed(paper)
 
-        methods_field = next(
-            f for f in embed["fields"] if f["name"] == "Methods"
-        )
+        methods_field = next(f for f in embed["fields"] if f["name"] == "Methods")
         assert "Quantitative" in methods_field["value"]
 
 
@@ -141,8 +139,14 @@ class TestFormatSearchPage:
 
     def test_single_page(self):
         results = [
-            {"title": f"Paper {i}", "authors": "Auth", "year": 2024,
-             "score": 0.9 - i * 0.1, "paper_id": f"p{i}", "matched_text": ""}
+            {
+                "title": f"Paper {i}",
+                "authors": "Auth",
+                "year": 2024,
+                "score": 0.9 - i * 0.1,
+                "paper_id": f"p{i}",
+                "matched_text": "",
+            }
             for i in range(3)
         ]
 
@@ -155,8 +159,14 @@ class TestFormatSearchPage:
 
     def test_multi_page_info(self):
         results = [
-            {"title": f"Paper {i}", "authors": "Auth", "year": 2024,
-             "score": 0.5, "paper_id": f"p{i}", "matched_text": ""}
+            {
+                "title": f"Paper {i}",
+                "authors": "Auth",
+                "year": 2024,
+                "score": 0.5,
+                "paper_id": f"p{i}",
+                "matched_text": "",
+            }
             for i in range(RESULTS_PER_PAGE)
         ]
 
@@ -194,9 +204,7 @@ class TestFormatSummaryEmbed:
         assert "332" in embed["description"]
         assert embed["color"] == 0xE67E22
         # Check fields contain stats
-        paper_field = next(
-            f for f in embed["fields"] if f["name"] == "Papers"
-        )
+        paper_field = next(f for f in embed["fields"] if f["name"] == "Papers")
         assert paper_field["value"] == "332"
 
     def test_empty_summary(self):
@@ -231,7 +239,9 @@ class TestBotCreation:
     def test_run_bot_raises_without_token(self):
         from src.discord_bot.bot import run_bot
 
-        with patch("src.discord_bot.bot.HAS_DISCORD", True), \
-             patch.dict("os.environ", {}, clear=True):
+        with (
+            patch("src.discord_bot.bot.HAS_DISCORD", True),
+            patch.dict("os.environ", {}, clear=True),
+        ):
             with pytest.raises(ValueError, match="Discord bot token required"):
                 run_bot(token=None)

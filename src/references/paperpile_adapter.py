@@ -213,12 +213,14 @@ class PaperpileReferenceDB(BaseReferenceDB):
                 else:
                     last_name = part
 
-            authors.append(Author(
-                first_name=first_name,
-                last_name=last_name,
-                order=i + 1,
-                role="author",
-            ))
+            authors.append(
+                Author(
+                    first_name=first_name,
+                    last_name=last_name,
+                    order=i + 1,
+                    role="author",
+                )
+            )
 
         return authors
 
@@ -423,9 +425,7 @@ class PaperpileReferenceDB(BaseReferenceDB):
                     progress_callback(i + 1, total)
                 yield paper
             except Exception as e:
-                logger.warning(
-                    f"Failed to parse entry {entry.get('_key', 'unknown')}: {e}"
-                )
+                logger.warning(f"Failed to parse entry {entry.get('_key', 'unknown')}: {e}")
                 continue
 
     def get_paper_count(self) -> int:

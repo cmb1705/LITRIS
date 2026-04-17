@@ -59,8 +59,7 @@ def main() -> int:
             print(f"No run-control request at {control_path}")
         else:
             print(
-                f"Run-control request at {control_path}: "
-                f"{request.action} ({request.requested_at})"
+                f"Run-control request at {control_path}: {request.action} ({request.requested_at})"
             )
             if request.reason:
                 print(f"Reason: {request.reason}")
@@ -74,10 +73,7 @@ def main() -> int:
         return 0
 
     request = write_pause_request(control_path, reason=args.reason)
-    print(
-        f"Requested graceful pause at {control_path} "
-        f"({request.requested_at})"
-    )
+    print(f"Requested graceful pause at {control_path} ({request.requested_at})")
     if request.reason:
         print(f"Reason: {request.reason}")
     return 0

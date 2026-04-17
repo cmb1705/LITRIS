@@ -169,19 +169,41 @@ class TestSearchEngineRRF:
         from src.indexing.structured_store import StructuredStore
 
         store = StructuredStore(tmp_path)
-        store.save_papers([
-            {"paper_id": "p1", "title": "Paper One", "author_string": "Smith",
-             "publication_year": 2024, "collections": [], "item_type": "journalArticle"},
-            {"paper_id": "p2", "title": "Paper Two", "author_string": "Jones",
-             "publication_year": 2023, "collections": [], "item_type": "journalArticle"},
-            {"paper_id": "p3", "title": "Paper Three", "author_string": "Lee",
-             "publication_year": 2022, "collections": [], "item_type": "journalArticle"},
-        ])
-        store.save_extractions({
-            "p1": {"paper_id": "p1", "extraction": {"q02_thesis": "Thesis 1"}},
-            "p2": {"paper_id": "p2", "extraction": {"q02_thesis": "Thesis 2"}},
-            "p3": {"paper_id": "p3", "extraction": {"q02_thesis": "Thesis 3"}},
-        })
+        store.save_papers(
+            [
+                {
+                    "paper_id": "p1",
+                    "title": "Paper One",
+                    "author_string": "Smith",
+                    "publication_year": 2024,
+                    "collections": [],
+                    "item_type": "journalArticle",
+                },
+                {
+                    "paper_id": "p2",
+                    "title": "Paper Two",
+                    "author_string": "Jones",
+                    "publication_year": 2023,
+                    "collections": [],
+                    "item_type": "journalArticle",
+                },
+                {
+                    "paper_id": "p3",
+                    "title": "Paper Three",
+                    "author_string": "Lee",
+                    "publication_year": 2022,
+                    "collections": [],
+                    "item_type": "journalArticle",
+                },
+            ]
+        )
+        store.save_extractions(
+            {
+                "p1": {"paper_id": "p1", "extraction": {"q02_thesis": "Thesis 1"}},
+                "p2": {"paper_id": "p2", "extraction": {"q02_thesis": "Thesis 2"}},
+                "p3": {"paper_id": "p3", "extraction": {"q02_thesis": "Thesis 3"}},
+            }
+        )
 
         engine = SearchEngine.__new__(SearchEngine)
         engine.structured_store = store
@@ -201,16 +223,40 @@ class TestSearchEngineRRF:
         engine.embedding_generator.embed_text.return_value = [0.1] * 384
         engine.vector_store.search.side_effect = [
             [
-                SearchResult(paper_id="p1", chunk_id="c1", chunk_type="dim_q02",
-                             text="text1", score=0.9, metadata={"title": "Paper One"}),
-                SearchResult(paper_id="p2", chunk_id="c2", chunk_type="dim_q02",
-                             text="text2", score=0.8, metadata={"title": "Paper Two"}),
+                SearchResult(
+                    paper_id="p1",
+                    chunk_id="c1",
+                    chunk_type="dim_q02",
+                    text="text1",
+                    score=0.9,
+                    metadata={"title": "Paper One"},
+                ),
+                SearchResult(
+                    paper_id="p2",
+                    chunk_id="c2",
+                    chunk_type="dim_q02",
+                    text="text2",
+                    score=0.8,
+                    metadata={"title": "Paper Two"},
+                ),
             ],
             [
-                SearchResult(paper_id="p2", chunk_id="c3", chunk_type="dim_q02",
-                             text="text2b", score=0.85, metadata={"title": "Paper Two"}),
-                SearchResult(paper_id="p3", chunk_id="c4", chunk_type="dim_q02",
-                             text="text3", score=0.7, metadata={"title": "Paper Three"}),
+                SearchResult(
+                    paper_id="p2",
+                    chunk_id="c3",
+                    chunk_type="dim_q02",
+                    text="text2b",
+                    score=0.85,
+                    metadata={"title": "Paper Two"},
+                ),
+                SearchResult(
+                    paper_id="p3",
+                    chunk_id="c4",
+                    chunk_type="dim_q02",
+                    text="text3",
+                    score=0.7,
+                    metadata={"title": "Paper Three"},
+                ),
             ],
         ]
 
@@ -230,12 +276,30 @@ class TestSearchEngineRRF:
 
         engine.embedding_generator.embed_text.return_value = [0.1] * 384
         engine.vector_store.search.return_value = [
-            SearchResult(paper_id="p1", chunk_id="c1", chunk_type="dim_q02",
-                         text="t1", score=0.9, metadata={"title": "Paper One"}),
-            SearchResult(paper_id="p2", chunk_id="c2", chunk_type="dim_q02",
-                         text="t2", score=0.8, metadata={"title": "Paper Two"}),
-            SearchResult(paper_id="p3", chunk_id="c3", chunk_type="dim_q02",
-                         text="t3", score=0.7, metadata={"title": "Paper Three"}),
+            SearchResult(
+                paper_id="p1",
+                chunk_id="c1",
+                chunk_type="dim_q02",
+                text="t1",
+                score=0.9,
+                metadata={"title": "Paper One"},
+            ),
+            SearchResult(
+                paper_id="p2",
+                chunk_id="c2",
+                chunk_type="dim_q02",
+                text="t2",
+                score=0.8,
+                metadata={"title": "Paper Two"},
+            ),
+            SearchResult(
+                paper_id="p3",
+                chunk_id="c3",
+                chunk_type="dim_q02",
+                text="t3",
+                score=0.7,
+                metadata={"title": "Paper Three"},
+            ),
         ]
 
         results, _ = engine.search_rrf("test", top_k=2)
@@ -287,16 +351,40 @@ class TestSearchEngineRRF:
         # p1 appears in both rankings, p2 only in first, p3 only in second
         engine.vector_store.search.side_effect = [
             [
-                SearchResult(paper_id="p1", chunk_id="c1", chunk_type="dim_q02",
-                             text="t1", score=0.9, metadata={"title": "Paper One"}),
-                SearchResult(paper_id="p2", chunk_id="c2", chunk_type="dim_q02",
-                             text="t2", score=0.8, metadata={"title": "Paper Two"}),
+                SearchResult(
+                    paper_id="p1",
+                    chunk_id="c1",
+                    chunk_type="dim_q02",
+                    text="t1",
+                    score=0.9,
+                    metadata={"title": "Paper One"},
+                ),
+                SearchResult(
+                    paper_id="p2",
+                    chunk_id="c2",
+                    chunk_type="dim_q02",
+                    text="t2",
+                    score=0.8,
+                    metadata={"title": "Paper Two"},
+                ),
             ],
             [
-                SearchResult(paper_id="p1", chunk_id="c3", chunk_type="dim_q02",
-                             text="t1b", score=0.85, metadata={"title": "Paper One"}),
-                SearchResult(paper_id="p3", chunk_id="c4", chunk_type="dim_q02",
-                             text="t3", score=0.7, metadata={"title": "Paper Three"}),
+                SearchResult(
+                    paper_id="p1",
+                    chunk_id="c3",
+                    chunk_type="dim_q02",
+                    text="t1b",
+                    score=0.85,
+                    metadata={"title": "Paper One"},
+                ),
+                SearchResult(
+                    paper_id="p3",
+                    chunk_id="c4",
+                    chunk_type="dim_q02",
+                    text="t3",
+                    score=0.7,
+                    metadata={"title": "Paper Three"},
+                ),
             ],
         ]
 
@@ -334,10 +422,17 @@ class TestRRFAdapterIntegration:
 
         mock_results = [
             EnrichedResult(
-                paper_id="p1", title="Paper One", authors="Smith",
-                year=2024, collections=[], item_type="journalArticle",
-                chunk_type="dim_q02", matched_text="some text",
-                score=0.032, paper_data={}, extraction_data={},
+                paper_id="p1",
+                title="Paper One",
+                authors="Smith",
+                year=2024,
+                collections=[],
+                item_type="journalArticle",
+                chunk_type="dim_q02",
+                matched_text="some text",
+                score=0.032,
+                paper_data={},
+                extraction_data={},
             ),
         ]
         mock_engine.search_rrf.return_value = (

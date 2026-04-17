@@ -1,6 +1,5 @@
 """Tests for document type classification and type profiles."""
 
-
 from src.analysis.document_classifier import (
     classify,
     classify_metadata,
@@ -250,7 +249,9 @@ class TestClassifyText:
         """Low words per page with many pages -> presentation/non-academic."""
         text = "slide content " * 40
         doc_type, _ = classify_text(
-            text, word_count=200, page_count=10  # 20 words/page
+            text,
+            word_count=200,
+            page_count=10,  # 20 words/page
         )
         assert doc_type == DocumentType.NON_ACADEMIC
 

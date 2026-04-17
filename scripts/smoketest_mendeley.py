@@ -122,22 +122,14 @@ def create_test_db(db_path: Path, pdf_path: Path) -> None:
                 (11, "Subfolder", 10),
             ],
         )
-        conn.execute(
-            "INSERT INTO DocumentFolders (documentId, folderId) VALUES (1, 11)"
-        )
-        conn.execute(
-            "INSERT INTO Keywords (id, keyword) VALUES (5, 'smoketest')"
-        )
-        conn.execute(
-            "INSERT INTO DocumentKeywords (documentId, keywordId) VALUES (1, 5)"
-        )
+        conn.execute("INSERT INTO DocumentFolders (documentId, folderId) VALUES (1, 11)")
+        conn.execute("INSERT INTO Keywords (id, keyword) VALUES (5, 'smoketest')")
+        conn.execute("INSERT INTO DocumentKeywords (documentId, keywordId) VALUES (1, 5)")
         conn.execute(
             "INSERT INTO Files (hash, localUrl) VALUES (?, ?)",
             ("filehash1", pdf_path.as_uri()),
         )
-        conn.execute(
-            "INSERT INTO DocumentFiles (documentId, fileHash) VALUES (1, 'filehash1')"
-        )
+        conn.execute("INSERT INTO DocumentFiles (documentId, fileHash) VALUES (1, 'filehash1')")
         conn.commit()
     finally:
         conn.close()

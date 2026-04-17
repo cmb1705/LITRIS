@@ -289,8 +289,7 @@ class DimensionProfile(BaseModel):
         return [
             dimension
             for dimension in self.ordered_dimensions
-            if dimension.section == section_id
-            and (include_disabled or dimension.enabled)
+            if dimension.section == section_id and (include_disabled or dimension.enabled)
         ]
 
     def alias_map(self) -> dict[str, DimensionDefinition]:
@@ -390,46 +389,526 @@ def _legacy_role_definitions() -> list[DimensionRole]:
 
 def _legacy_dimensions() -> list[DimensionDefinition]:
     raw_dimensions = [
-        ("research_question", "Research Question", "What research questions or objectives does this work address?", "research_core", 1, True, "high", "q01_research_question", "q01", "dim_q01", ["research_question"]),
-        ("thesis", "Thesis", "What is the central thesis or main argument?", "research_core", 2, True, "high", "q02_thesis", "q02", "dim_q02", ["thesis"]),
-        ("key_claims", "Key Claims", "What are the key claims or propositions made?", "research_core", 3, True, "xhigh", "q03_key_claims", "q03", "dim_q03", ["key_claims"]),
-        ("evidence", "Evidence", "What evidence is presented and how strong is it?", "research_core", 4, True, "xhigh", "q04_evidence", "q04", "dim_q04", ["evidence"]),
-        ("limitations", "Limitations", "What limitations are acknowledged or apparent?", "research_core", 5, True, "xhigh", "q05_limitations", "q05", "dim_q05", ["limitations"]),
-        ("paradigm", "Paradigm", "What research paradigm underlies this work? (positivist, interpretivist, critical, pragmatist, etc.)", "methodology", 6, False, "xhigh", "q06_paradigm", "q06", "dim_q06", ["paradigm"]),
-        ("methods", "Methods", "What methods and analytical techniques are used?", "methodology", 7, False, "high", "q07_methods", "q07", "dim_q07", ["methods"]),
-        ("data", "Data", "What data sources, sample sizes, and time periods are involved?", "methodology", 8, False, "high", "q08_data", "q08", "dim_q08", ["data"]),
-        ("reproducibility", "Reproducibility", "How reproducible is this work? Are methods, data, and code available?", "methodology", 9, False, "high", "q09_reproducibility", "q09", "dim_q09", ["reproducibility"]),
-        ("framework", "Framework", "What theoretical or conceptual framework is used?", "methodology", 10, False, "high", "q10_framework", "q10", "dim_q10", ["framework"]),
-        ("traditions", "Traditions", "What intellectual traditions or schools of thought does this draw from?", "context", 11, False, "xhigh", "q11_traditions", "q11", "dim_q11", []),
-        ("key_citations", "Key Citations", "What are the most influential works cited, and how do they shape this paper?", "context", 12, False, "high", "q12_key_citations", "q12", "dim_q12", []),
-        ("assumptions", "Assumptions", "What assumptions (stated or unstated) underlie the analysis?", "context", 13, False, "xhigh", "q13_assumptions", "q13", "dim_q13", []),
-        ("counterarguments", "Counterarguments", "What counterarguments or alternative interpretations are addressed?", "context", 14, False, "xhigh", "q14_counterarguments", "q14", "dim_q14", []),
-        ("novelty", "Novelty", "What is novel or original about this work?", "context", 15, False, "xhigh", "q15_novelty", "q15", "dim_q15", []),
-        ("stance", "Stance", "What is the author's stance or perspective on the topic?", "context", 16, False, "xhigh", "q16_stance", "q16", "dim_q16", []),
-        ("field", "Field", "What academic field(s) does this work belong to?", "meta", 17, False, "high", "q17_field", "q17", "dim_q17", ["field"]),
-        ("audience", "Audience", "Who is the intended audience?", "meta", 18, False, "high", "q18_audience", "q18", "dim_q18", ["audience"]),
-        ("implications", "Implications", "What are the broader theoretical or practical implications?", "meta", 19, False, "xhigh", "q19_implications", "q19", "dim_q19", ["implications"]),
-        ("future_work", "Future Work", "What future research directions are suggested?", "meta", 20, False, "xhigh", "q20_future_work", "q20", "dim_q20", ["future_work"]),
-        ("quality", "Quality", "How would you rate the overall quality? (methodology rigor, evidence strength, contribution significance)", "meta", 21, False, "xhigh", "q21_quality", "q21", "dim_q21", ["quality"]),
-        ("contribution", "Contribution", "What is the explicit contribution of this work to its field?", "meta", 22, False, "xhigh", "q22_contribution", "q22", "dim_q22", ["contribution"]),
-        ("source_type", "Source Type", "What type of document is this? (empirical study, review, theoretical, report, etc.)", "meta", 23, False, "high", "q23_source_type", "q23", "dim_q23", []),
-        ("other", "Other", "What else is noteworthy that the above questions don't capture?", "meta", 24, False, "xhigh", "q24_other", "q24", "dim_q24", []),
-        ("institutional_context", "Institutional Context", "What institutional or organizational context shaped this work?", "scholarly", 25, False, "high", "q25_institutional_context", "q25", "dim_q25", []),
-        ("historical_timing", "Historical Timing", "Why does this work appear now? What historical/temporal factors are relevant?", "scholarly", 26, False, "xhigh", "q26_historical_timing", "q26", "dim_q26", []),
-        ("paradigm_influence", "Paradigm Influence", "How does this work relate to dominant paradigms in its field?", "scholarly", 27, False, "xhigh", "q27_paradigm_influence", "q27", "dim_q27", []),
-        ("disciplines_bridged", "Disciplines Bridged", "What disciplines does this work bridge or draw from?", "scholarly", 28, False, "high", "q28_disciplines_bridged", "q28", "dim_q28", []),
-        ("cross_domain_insights", "Cross-Domain Insights", "What insights transfer to or from other domains?", "scholarly", 29, False, "xhigh", "q29_cross_domain_insights", "q29", "dim_q29", []),
-        ("cultural_scope", "Cultural Scope", "What cultural, geographic, or demographic scope does this cover?", "scholarly", 30, False, "high", "q30_cultural_scope", "q30", "dim_q30", []),
-        ("philosophical_assumptions", "Philosophical Assumptions", "What philosophical assumptions underlie the methodology or claims?", "scholarly", 31, False, "xhigh", "q31_philosophical_assumptions", "q31", "dim_q31", []),
-        ("deployment_gap", "Deployment Gap", "What gap exists between this research and real-world application?", "impact", 32, False, "xhigh", "q32_deployment_gap", "q32", "dim_q32", []),
-        ("infrastructure_contribution", "Infrastructure Contribution", "Does this work contribute tools, datasets, frameworks, or infrastructure?", "impact", 33, False, "high", "q33_infrastructure_contribution", "q33", "dim_q33", []),
-        ("power_dynamics", "Power Dynamics", "What power dynamics, inequities, or stakeholder tensions are relevant?", "impact", 34, False, "xhigh", "q34_power_dynamics", "q34", "dim_q34", []),
-        ("gaps_and_omissions", "Gaps And Omissions", "What important aspects does this work fail to address?", "impact", 35, False, "xhigh", "q35_gaps_and_omissions", "q35", "dim_q35", []),
-        ("dual_use_concerns", "Dual-Use Concerns", "Are there dual-use or ethical concerns with the findings or methods?", "impact", 36, False, "xhigh", "q36_dual_use_concerns", "q36", "dim_q36", []),
-        ("emergence_claims", "Emergence Claims", "Does this work describe emergent phenomena or system-level behaviors?", "impact", 37, False, "xhigh", "q37_emergence_claims", "q37", "dim_q37", []),
-        ("remaining_other", "Remaining Other", "What else is significant that no prior question has captured?", "impact", 38, False, "xhigh", "q38_remaining_other", "q38", "dim_q38", []),
-        ("network_properties", "Network Properties", "What network structures, metrics, or graph algorithms are central?", "impact", 39, False, "high", "q39_network_properties", "q39", "dim_q39", []),
-        ("policy_recommendations", "Policy Recommendations", "What specific policy recommendations or actionable guidance is proposed?", "impact", 40, False, "high", "q40_policy_recommendations", "q40", "dim_q40", []),
+        (
+            "research_question",
+            "Research Question",
+            "What research questions or objectives does this work address?",
+            "research_core",
+            1,
+            True,
+            "high",
+            "q01_research_question",
+            "q01",
+            "dim_q01",
+            ["research_question"],
+        ),
+        (
+            "thesis",
+            "Thesis",
+            "What is the central thesis or main argument?",
+            "research_core",
+            2,
+            True,
+            "high",
+            "q02_thesis",
+            "q02",
+            "dim_q02",
+            ["thesis"],
+        ),
+        (
+            "key_claims",
+            "Key Claims",
+            "What are the key claims or propositions made?",
+            "research_core",
+            3,
+            True,
+            "xhigh",
+            "q03_key_claims",
+            "q03",
+            "dim_q03",
+            ["key_claims"],
+        ),
+        (
+            "evidence",
+            "Evidence",
+            "What evidence is presented and how strong is it?",
+            "research_core",
+            4,
+            True,
+            "xhigh",
+            "q04_evidence",
+            "q04",
+            "dim_q04",
+            ["evidence"],
+        ),
+        (
+            "limitations",
+            "Limitations",
+            "What limitations are acknowledged or apparent?",
+            "research_core",
+            5,
+            True,
+            "xhigh",
+            "q05_limitations",
+            "q05",
+            "dim_q05",
+            ["limitations"],
+        ),
+        (
+            "paradigm",
+            "Paradigm",
+            "What research paradigm underlies this work? (positivist, interpretivist, critical, pragmatist, etc.)",
+            "methodology",
+            6,
+            False,
+            "xhigh",
+            "q06_paradigm",
+            "q06",
+            "dim_q06",
+            ["paradigm"],
+        ),
+        (
+            "methods",
+            "Methods",
+            "What methods and analytical techniques are used?",
+            "methodology",
+            7,
+            False,
+            "high",
+            "q07_methods",
+            "q07",
+            "dim_q07",
+            ["methods"],
+        ),
+        (
+            "data",
+            "Data",
+            "What data sources, sample sizes, and time periods are involved?",
+            "methodology",
+            8,
+            False,
+            "high",
+            "q08_data",
+            "q08",
+            "dim_q08",
+            ["data"],
+        ),
+        (
+            "reproducibility",
+            "Reproducibility",
+            "How reproducible is this work? Are methods, data, and code available?",
+            "methodology",
+            9,
+            False,
+            "high",
+            "q09_reproducibility",
+            "q09",
+            "dim_q09",
+            ["reproducibility"],
+        ),
+        (
+            "framework",
+            "Framework",
+            "What theoretical or conceptual framework is used?",
+            "methodology",
+            10,
+            False,
+            "high",
+            "q10_framework",
+            "q10",
+            "dim_q10",
+            ["framework"],
+        ),
+        (
+            "traditions",
+            "Traditions",
+            "What intellectual traditions or schools of thought does this draw from?",
+            "context",
+            11,
+            False,
+            "xhigh",
+            "q11_traditions",
+            "q11",
+            "dim_q11",
+            [],
+        ),
+        (
+            "key_citations",
+            "Key Citations",
+            "What are the most influential works cited, and how do they shape this paper?",
+            "context",
+            12,
+            False,
+            "high",
+            "q12_key_citations",
+            "q12",
+            "dim_q12",
+            [],
+        ),
+        (
+            "assumptions",
+            "Assumptions",
+            "What assumptions (stated or unstated) underlie the analysis?",
+            "context",
+            13,
+            False,
+            "xhigh",
+            "q13_assumptions",
+            "q13",
+            "dim_q13",
+            [],
+        ),
+        (
+            "counterarguments",
+            "Counterarguments",
+            "What counterarguments or alternative interpretations are addressed?",
+            "context",
+            14,
+            False,
+            "xhigh",
+            "q14_counterarguments",
+            "q14",
+            "dim_q14",
+            [],
+        ),
+        (
+            "novelty",
+            "Novelty",
+            "What is novel or original about this work?",
+            "context",
+            15,
+            False,
+            "xhigh",
+            "q15_novelty",
+            "q15",
+            "dim_q15",
+            [],
+        ),
+        (
+            "stance",
+            "Stance",
+            "What is the author's stance or perspective on the topic?",
+            "context",
+            16,
+            False,
+            "xhigh",
+            "q16_stance",
+            "q16",
+            "dim_q16",
+            [],
+        ),
+        (
+            "field",
+            "Field",
+            "What academic field(s) does this work belong to?",
+            "meta",
+            17,
+            False,
+            "high",
+            "q17_field",
+            "q17",
+            "dim_q17",
+            ["field"],
+        ),
+        (
+            "audience",
+            "Audience",
+            "Who is the intended audience?",
+            "meta",
+            18,
+            False,
+            "high",
+            "q18_audience",
+            "q18",
+            "dim_q18",
+            ["audience"],
+        ),
+        (
+            "implications",
+            "Implications",
+            "What are the broader theoretical or practical implications?",
+            "meta",
+            19,
+            False,
+            "xhigh",
+            "q19_implications",
+            "q19",
+            "dim_q19",
+            ["implications"],
+        ),
+        (
+            "future_work",
+            "Future Work",
+            "What future research directions are suggested?",
+            "meta",
+            20,
+            False,
+            "xhigh",
+            "q20_future_work",
+            "q20",
+            "dim_q20",
+            ["future_work"],
+        ),
+        (
+            "quality",
+            "Quality",
+            "How would you rate the overall quality? (methodology rigor, evidence strength, contribution significance)",
+            "meta",
+            21,
+            False,
+            "xhigh",
+            "q21_quality",
+            "q21",
+            "dim_q21",
+            ["quality"],
+        ),
+        (
+            "contribution",
+            "Contribution",
+            "What is the explicit contribution of this work to its field?",
+            "meta",
+            22,
+            False,
+            "xhigh",
+            "q22_contribution",
+            "q22",
+            "dim_q22",
+            ["contribution"],
+        ),
+        (
+            "source_type",
+            "Source Type",
+            "What type of document is this? (empirical study, review, theoretical, report, etc.)",
+            "meta",
+            23,
+            False,
+            "high",
+            "q23_source_type",
+            "q23",
+            "dim_q23",
+            [],
+        ),
+        (
+            "other",
+            "Other",
+            "What else is noteworthy that the above questions don't capture?",
+            "meta",
+            24,
+            False,
+            "xhigh",
+            "q24_other",
+            "q24",
+            "dim_q24",
+            [],
+        ),
+        (
+            "institutional_context",
+            "Institutional Context",
+            "What institutional or organizational context shaped this work?",
+            "scholarly",
+            25,
+            False,
+            "high",
+            "q25_institutional_context",
+            "q25",
+            "dim_q25",
+            [],
+        ),
+        (
+            "historical_timing",
+            "Historical Timing",
+            "Why does this work appear now? What historical/temporal factors are relevant?",
+            "scholarly",
+            26,
+            False,
+            "xhigh",
+            "q26_historical_timing",
+            "q26",
+            "dim_q26",
+            [],
+        ),
+        (
+            "paradigm_influence",
+            "Paradigm Influence",
+            "How does this work relate to dominant paradigms in its field?",
+            "scholarly",
+            27,
+            False,
+            "xhigh",
+            "q27_paradigm_influence",
+            "q27",
+            "dim_q27",
+            [],
+        ),
+        (
+            "disciplines_bridged",
+            "Disciplines Bridged",
+            "What disciplines does this work bridge or draw from?",
+            "scholarly",
+            28,
+            False,
+            "high",
+            "q28_disciplines_bridged",
+            "q28",
+            "dim_q28",
+            [],
+        ),
+        (
+            "cross_domain_insights",
+            "Cross-Domain Insights",
+            "What insights transfer to or from other domains?",
+            "scholarly",
+            29,
+            False,
+            "xhigh",
+            "q29_cross_domain_insights",
+            "q29",
+            "dim_q29",
+            [],
+        ),
+        (
+            "cultural_scope",
+            "Cultural Scope",
+            "What cultural, geographic, or demographic scope does this cover?",
+            "scholarly",
+            30,
+            False,
+            "high",
+            "q30_cultural_scope",
+            "q30",
+            "dim_q30",
+            [],
+        ),
+        (
+            "philosophical_assumptions",
+            "Philosophical Assumptions",
+            "What philosophical assumptions underlie the methodology or claims?",
+            "scholarly",
+            31,
+            False,
+            "xhigh",
+            "q31_philosophical_assumptions",
+            "q31",
+            "dim_q31",
+            [],
+        ),
+        (
+            "deployment_gap",
+            "Deployment Gap",
+            "What gap exists between this research and real-world application?",
+            "impact",
+            32,
+            False,
+            "xhigh",
+            "q32_deployment_gap",
+            "q32",
+            "dim_q32",
+            [],
+        ),
+        (
+            "infrastructure_contribution",
+            "Infrastructure Contribution",
+            "Does this work contribute tools, datasets, frameworks, or infrastructure?",
+            "impact",
+            33,
+            False,
+            "high",
+            "q33_infrastructure_contribution",
+            "q33",
+            "dim_q33",
+            [],
+        ),
+        (
+            "power_dynamics",
+            "Power Dynamics",
+            "What power dynamics, inequities, or stakeholder tensions are relevant?",
+            "impact",
+            34,
+            False,
+            "xhigh",
+            "q34_power_dynamics",
+            "q34",
+            "dim_q34",
+            [],
+        ),
+        (
+            "gaps_and_omissions",
+            "Gaps And Omissions",
+            "What important aspects does this work fail to address?",
+            "impact",
+            35,
+            False,
+            "xhigh",
+            "q35_gaps_and_omissions",
+            "q35",
+            "dim_q35",
+            [],
+        ),
+        (
+            "dual_use_concerns",
+            "Dual-Use Concerns",
+            "Are there dual-use or ethical concerns with the findings or methods?",
+            "impact",
+            36,
+            False,
+            "xhigh",
+            "q36_dual_use_concerns",
+            "q36",
+            "dim_q36",
+            [],
+        ),
+        (
+            "emergence_claims",
+            "Emergence Claims",
+            "Does this work describe emergent phenomena or system-level behaviors?",
+            "impact",
+            37,
+            False,
+            "xhigh",
+            "q37_emergence_claims",
+            "q37",
+            "dim_q37",
+            [],
+        ),
+        (
+            "remaining_other",
+            "Remaining Other",
+            "What else is significant that no prior question has captured?",
+            "impact",
+            38,
+            False,
+            "xhigh",
+            "q38_remaining_other",
+            "q38",
+            "dim_q38",
+            [],
+        ),
+        (
+            "network_properties",
+            "Network Properties",
+            "What network structures, metrics, or graph algorithms are central?",
+            "impact",
+            39,
+            False,
+            "high",
+            "q39_network_properties",
+            "q39",
+            "dim_q39",
+            [],
+        ),
+        (
+            "policy_recommendations",
+            "Policy Recommendations",
+            "What specific policy recommendations or actionable guidance is proposed?",
+            "impact",
+            40,
+            False,
+            "high",
+            "q40_policy_recommendations",
+            "q40",
+            "dim_q40",
+            [],
+        ),
     ]
     return [
         DimensionDefinition(
@@ -657,18 +1136,11 @@ class DimensionRegistry:
         include_disabled: bool = False,
     ) -> list[str]:
         profile = self.get_profile(profile_id)
-        dimensions = (
-            profile.ordered_dimensions
-            if include_disabled
-            else profile.enabled_dimensions
-        )
+        dimensions = profile.ordered_dimensions if include_disabled else profile.enabled_dimensions
         return [dimension.id for dimension in dimensions]
 
     def get_core_dimension_ids(self, profile_id: str | None = None) -> list[str]:
-        return [
-            dimension.id
-            for dimension in self.get_profile(profile_id).core_dimensions
-        ]
+        return [dimension.id for dimension in self.get_profile(profile_id).core_dimensions]
 
     def get_chunk_types(
         self,
@@ -678,11 +1150,7 @@ class DimensionRegistry:
         include_legacy_aliases: bool = True,
     ) -> list[str]:
         profile = self.get_profile(profile_id)
-        dimensions = (
-            profile.ordered_dimensions
-            if include_disabled
-            else profile.enabled_dimensions
-        )
+        dimensions = profile.ordered_dimensions if include_disabled else profile.enabled_dimensions
         chunk_types = [dimension.chunk_type for dimension in dimensions]
         if include_legacy_aliases:
             chunk_types.extend(
@@ -864,16 +1332,12 @@ def normalize_dimension_payload(
     raw_dimensions = values.get("dimensions")
     if isinstance(raw_dimensions, Mapping):
         base_values = {
-            key: value
-            for key, value in values.items()
-            if key not in EXTRACTION_METADATA_KEYS
+            key: value for key, value in values.items() if key not in EXTRACTION_METADATA_KEYS
         }
         merged_values = {**dict(raw_dimensions), **base_values}
     else:
         merged_values = {
-            key: value
-            for key, value in values.items()
-            if key not in EXTRACTION_METADATA_KEYS
+            key: value for key, value in values.items() if key not in EXTRACTION_METADATA_KEYS
         }
 
     return active_registry.normalize_dimension_values(
@@ -900,8 +1364,7 @@ def normalize_dimension_input_values(
     raw_dimensions = values.get("dimensions")
     if isinstance(raw_dimensions, Mapping):
         normalized["dimensions"] = {
-            str(key): normalize_dimension_value(value)
-            for key, value in raw_dimensions.items()
+            str(key): normalize_dimension_value(value) for key, value in raw_dimensions.items()
         }
 
     for key, value in values.items():
@@ -972,11 +1435,7 @@ def get_dimension_value(
         )
         if not dimension:
             dimension = local_registry.resolve_role(identifier, profile_id=profile_id)
-        if (
-            dimension
-            and "dimensions" in unwrapped
-            and isinstance(unwrapped["dimensions"], Mapping)
-        ):
+        if dimension and "dimensions" in unwrapped and isinstance(unwrapped["dimensions"], Mapping):
             value = unwrapped["dimensions"].get(dimension.id)
             if value is not None:
                 return normalize_dimension_value(value)
@@ -1012,8 +1471,7 @@ def get_dimension_map(
         dimensions = unwrapped.get("dimensions")
         if isinstance(dimensions, Mapping):
             return {
-                str(key): None if value is None else str(value)
-                for key, value in dimensions.items()
+                str(key): None if value is None else str(value) for key, value in dimensions.items()
             }
         return local_registry.normalize_dimension_values(
             unwrapped,

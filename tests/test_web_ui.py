@@ -23,9 +23,7 @@ class TestHighlightQueryTerms:
 
     def test_highlights_matching_terms(self):
         """Query terms found in text get wrapped in <mark> tags."""
-        result = highlight_query_terms(
-            "Network analysis of citation graphs", "network citation"
-        )
+        result = highlight_query_terms("Network analysis of citation graphs", "network citation")
         assert "<mark" in result
         assert "Network" in result
         assert "citation" in result

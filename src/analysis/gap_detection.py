@@ -139,9 +139,7 @@ def analyze_gap_report(
         paper_lookup,
     )
 
-    extractions_in_scope = sum(
-        1 for paper_id in paper_lookup if paper_id in extractions
-    )
+    extractions_in_scope = sum(1 for paper_id in paper_lookup if paper_id in extractions)
 
     report = {
         "generated_at": datetime.now().isoformat(),
@@ -311,9 +309,7 @@ def _tokenize(text: str, min_len: int) -> list[str]:
     if not text:
         return []
     tokens = [t.lower() for t in _TOKEN_RE.findall(text)]
-    return [
-        t for t in tokens if len(t) >= min_len and t not in _STOPWORDS
-    ]
+    return [t for t in tokens if len(t) >= min_len and t not in _STOPWORDS]
 
 
 def _count_topics(
@@ -347,7 +343,11 @@ def _count_methods(
     data_text = get_dimension_value(extraction, "data") or ""
 
     # Parse prose into labels by splitting on commas/semicolons
-    for prefix, text in [("methods", methods_text), ("paradigm", paradigm_text), ("data", data_text)]:
+    for prefix, text in [
+        ("methods", methods_text),
+        ("paradigm", paradigm_text),
+        ("data", data_text),
+    ]:
         labels = [s.strip() for s in re.split(r"[,;]", text) if s.strip()]
         for value in labels:
             label = _normalize_label(f"{prefix}: {value}")
@@ -423,11 +423,7 @@ def _calculate_gap_confidence(
     corpus_factor = min(corpus_size / 50.0, 1.0)
 
     # Weighted combination
-    confidence = (
-        0.5 * signal_strength
-        + 0.3 * evidence_quality
-        + 0.2 * corpus_factor
-    )
+    confidence = 0.5 * signal_strength + 0.3 * evidence_quality + 0.2 * corpus_factor
     return round(min(confidence, 1.0), 3)
 
 
@@ -440,11 +436,7 @@ def _select_underrepresented(
     if not counter:
         return []
     threshold = max(config.min_count, _quantile(list(counter.values()), config.quantile))
-    candidates = [
-        (label, count)
-        for label, count in counter.items()
-        if count <= threshold
-    ]
+    candidates = [(label, count) for label, count in counter.items() if count <= threshold]
     candidates.sort(key=lambda x: (x[1], x[0]))
     output = []
     for label, count in candidates[: config.max_items]:
@@ -491,7 +483,7 @@ def _summarize_year_gaps(
             for year, count in counts.items()
             if count <= sparse_year_max_count
         ],
-        key=lambda x: (x["year"]),
+        key=lambda x: x["year"],
     )
     return {
         "min_year": min_year,
@@ -728,7 +720,5 @@ def _build_notes(
         notes.append("No underrepresented topics detected under current thresholds.")
     if not method_gaps:
         notes.append("No underrepresented methodologies detected under current thresholds.")
-    notes.append(
-        "Gap signals are heuristic and should be validated against domain expertise."
-    )
+    notes.append("Gap signals are heuristic and should be validated against domain expertise.")
     return notes

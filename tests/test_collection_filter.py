@@ -3,11 +3,7 @@
 
 def _filter_by_collection(papers: list[dict], collection: str) -> list[dict]:
     """Replicate the collection filter logic from build_index.py (lines 713-715)."""
-    return [
-        p
-        for p in papers
-        if any(collection in c for c in p.get("collections", []))
-    ]
+    return [p for p in papers if any(collection in c for c in p.get("collections", []))]
 
 
 class TestCollectionFilter:

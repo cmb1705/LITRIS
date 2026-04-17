@@ -145,8 +145,11 @@ class TestSearchDimension:
         mock_engine.search.return_value = []
 
         search_dimension(
-            mock_engine, "test", "q01",
-            year_min=2020, collections=["ML"],
+            mock_engine,
+            "test",
+            "q01",
+            year_min=2020,
+            collections=["ML"],
         )
 
         call_kwargs = mock_engine.search.call_args[1]
@@ -223,8 +226,11 @@ class TestSearchGroup:
         mock_engine.search.return_value = []
 
         search_group(
-            mock_engine, "test", "context",
-            year_min=2020, quality_min=3,
+            mock_engine,
+            "test",
+            "context",
+            year_min=2020,
+            quality_min=3,
         )
 
         call_kwargs = mock_engine.search.call_args[1]

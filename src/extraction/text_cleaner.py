@@ -85,7 +85,8 @@ class TextCleaner:
             # Filter short lines (destroys markdown list items, table rows)
             lines = text.split("\n")
             lines = [
-                line for line in lines
+                line
+                for line in lines
                 if len(line.strip()) >= self.min_line_length or not line.strip()
             ]
             text = "\n".join(lines)
@@ -169,8 +170,14 @@ class TextCleaner:
         # Common section patterns
         section_patterns = [
             (r"abstract", r"(?i)\babstract\b[:\s]*\n?(.+?)(?=\n\n|\n[A-Z]|\n\d\.|$)"),
-            (r"introduction", r"(?i)\b(?:1\.?\s*)?introduction\b[:\s]*\n?(.+?)(?=\n\n[A-Z]|\n2\.|$)"),
-            (r"methodology", r"(?i)\b(?:method(?:ology|s)?|research (?:design|method))\b[:\s]*\n?(.+?)(?=\n\n[A-Z]|\n\d\.|$)"),
+            (
+                r"introduction",
+                r"(?i)\b(?:1\.?\s*)?introduction\b[:\s]*\n?(.+?)(?=\n\n[A-Z]|\n2\.|$)",
+            ),
+            (
+                r"methodology",
+                r"(?i)\b(?:method(?:ology|s)?|research (?:design|method))\b[:\s]*\n?(.+?)(?=\n\n[A-Z]|\n\d\.|$)",
+            ),
             (r"results", r"(?i)\b(?:results?|findings?)\b[:\s]*\n?(.+?)(?=\n\n[A-Z]|\n\d\.|$)"),
             (r"discussion", r"(?i)\bdiscussion\b[:\s]*\n?(.+?)(?=\n\n[A-Z]|\n\d\.|$)"),
             (r"conclusion", r"(?i)\bconclusions?\b[:\s]*\n?(.+?)(?=\n\n[A-Z]|\nreferences|$)"),
@@ -219,9 +226,7 @@ class TextCleaner:
         if middle_size <= 0:
             # Just take start and end
             return (
-                text[:preserve_start]
-                + "\n\n[... content truncated ...]\n\n"
-                + text[-preserve_end:]
+                text[:preserve_start] + "\n\n[... content truncated ...]\n\n" + text[-preserve_end:]
             )
 
         # Take start, some middle, and end

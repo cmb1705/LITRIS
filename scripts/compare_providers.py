@@ -32,7 +32,7 @@ from src.analysis.constants import DEFAULT_MODELS
 from src.analysis.schemas import SemanticAnalysis
 from src.analysis.section_extractor import SectionExtractor
 from src.config import Config
-from src.extraction.opendataloader_extractor import build_hybrid_config
+from src.extraction.opendataloader_extractor import build_hybrid_config_from_processing
 from src.indexing.structured_store import StructuredStore
 from src.zotero.database import ZoteroDatabase
 from src.zotero.models import PaperMetadata
@@ -108,22 +108,12 @@ def run_extraction(
             "input_tokens": result.input_tokens,
             "output_tokens": result.output_tokens,
             "dimension_coverage": (
-                extraction.dimension_coverage
-                if result.success and extraction
-                else 0.0
+                extraction.dimension_coverage if result.success and extraction else 0.0
             ),
-            "coverage_flags": (
-                extraction.coverage_flags
-                if result.success and extraction
-                else []
-            ),
+            "coverage_flags": (extraction.coverage_flags if result.success and extraction else []),
             "error": result.error,
             "dimensions": dimensions,
-            "full_extraction": (
-                extraction.model_dump()
-                if result.success and extraction
-                else None
-            ),
+            "full_extraction": (extraction.model_dump() if result.success and extraction else None),
         }
     except Exception as e:
         import traceback
@@ -183,25 +173,31 @@ def format_index_extraction(entry: dict) -> dict:
 
 
 def print_dimension_comparison(
-    anthropic_dims: dict, openai_dims: dict, verbose: bool = False,
+    anthropic_dims: dict,
+    openai_dims: dict,
+    verbose: bool = False,
 ) -> dict:
     """Print dimension-by-dimension comparison and return agreement stats."""
     a_filled = sum(1 for v in anthropic_dims.values() if v is not None)
     o_filled = sum(1 for v in openai_dims.values() if v is not None)
     both_filled = sum(
-        1 for k in SemanticAnalysis.DIMENSION_FIELDS
+        1
+        for k in SemanticAnalysis.DIMENSION_FIELDS
         if anthropic_dims.get(k) is not None and openai_dims.get(k) is not None
     )
     a_only = sum(
-        1 for k in SemanticAnalysis.DIMENSION_FIELDS
+        1
+        for k in SemanticAnalysis.DIMENSION_FIELDS
         if anthropic_dims.get(k) is not None and openai_dims.get(k) is None
     )
     o_only = sum(
-        1 for k in SemanticAnalysis.DIMENSION_FIELDS
+        1
+        for k in SemanticAnalysis.DIMENSION_FIELDS
         if anthropic_dims.get(k) is None and openai_dims.get(k) is not None
     )
     both_null = sum(
-        1 for k in SemanticAnalysis.DIMENSION_FIELDS
+        1
+        for k in SemanticAnalysis.DIMENSION_FIELDS
         if anthropic_dims.get(k) is None and openai_dims.get(k) is None
     )
 
@@ -256,32 +252,14 @@ def print_dimension_comparison(
 
 
 def create_extractor(
-    config: Config, provider: str, mode: str, model: str, no_cache: bool,
+    config: Config,
+    provider: str,
+    mode: str,
+    model: str,
+    no_cache: bool,
 ) -> SectionExtractor:
     """Create a SectionExtractor for the given provider."""
-    hybrid_config = build_hybrid_config(
-        enabled=config.processing.opendataloader_hybrid_enabled,
-        backend=config.processing.opendataloader_hybrid_backend,
-        client_mode=config.processing.opendataloader_hybrid_client_mode,
-        server_url=config.processing.opendataloader_hybrid_url,
-        timeout_ms=config.processing.opendataloader_hybrid_timeout_ms,
-        autostart=config.processing.opendataloader_hybrid_autostart,
-        host=config.processing.opendataloader_hybrid_host,
-        port=config.processing.opendataloader_hybrid_port,
-        startup_timeout_seconds=(
-            config.processing.opendataloader_hybrid_startup_timeout_seconds
-        ),
-        force_ocr=config.processing.opendataloader_hybrid_force_ocr,
-        ocr_lang=config.processing.opendataloader_hybrid_ocr_lang,
-        enrich_formula=config.processing.opendataloader_hybrid_enrich_formula,
-        enrich_picture_description=(
-            config.processing.opendataloader_hybrid_enrich_picture_description
-        ),
-        picture_description_prompt=(
-            config.processing.opendataloader_hybrid_picture_description_prompt
-        ),
-        device=config.processing.opendataloader_hybrid_device,
-    )
+    hybrid_config = build_hybrid_config_from_processing(config.processing)
     return SectionExtractor(
         cache_dir=Path(config.storage.cache_path),
         provider=provider,
@@ -297,9 +275,7 @@ def create_extractor(
         opendataloader_enabled=config.processing.opendataloader_enabled,
         opendataloader_mode=config.processing.opendataloader_mode,
         opendataloader_hybrid_config=hybrid_config,
-        opendataloader_hybrid_fallback=(
-            config.processing.opendataloader_hybrid_fallback
-        ),
+        opendataloader_hybrid_fallback=(config.processing.opendataloader_hybrid_fallback),
         marker_enabled=config.processing.marker_enabled,
         use_cache=not no_cache,
     )
@@ -308,10 +284,7 @@ def create_extractor(
 def select_batch_keys(db: ZoteroDatabase, count: int) -> list[str]:
     """Select random paper keys that have PDFs available."""
     all_papers = db.get_all_papers()
-    papers_with_pdfs = [
-        p for p in all_papers
-        if p.pdf_path and p.pdf_path.exists()
-    ]
+    papers_with_pdfs = [p for p in all_papers if p.pdf_path and p.pdf_path.exists()]
     if len(papers_with_pdfs) < count:
         count = len(papers_with_pdfs)
     selected = random.sample(papers_with_pdfs, count)
@@ -351,34 +324,50 @@ def compare_single_paper(
         else:
             print("  Anthropic: not found in index, running live...")
             extractor = create_extractor(
-                config, "anthropic", args.mode, args.anthropic_model, args.no_cache,
+                config,
+                "anthropic",
+                args.mode,
+                args.anthropic_model,
+                args.no_cache,
             )
             results["anthropic"] = run_extraction(extractor, paper)
     else:
         print("  Anthropic: extracting...")
         extractor = create_extractor(
-            config, "anthropic", args.mode, args.anthropic_model, args.no_cache,
+            config,
+            "anthropic",
+            args.mode,
+            args.anthropic_model,
+            args.no_cache,
         )
         results["anthropic"] = run_extraction(extractor, paper)
 
     a = results["anthropic"]
     if a["success"]:
-        print(f"    Model: {a.get('model', 'N/A')}  Duration: {a.get('duration_seconds', 'N/A')}s"
-              f"  Coverage: {a.get('dimension_coverage', 0):.0%}")
+        print(
+            f"    Model: {a.get('model', 'N/A')}  Duration: {a.get('duration_seconds', 'N/A')}s"
+            f"  Coverage: {a.get('dimension_coverage', 0):.0%}"
+        )
     else:
         print(f"    FAILED: {a.get('error', 'Unknown')}")
 
     # OpenAI extraction
     print("  OpenAI: extracting...")
     extractor = create_extractor(
-        config, "openai", args.mode, args.openai_model, args.no_cache,
+        config,
+        "openai",
+        args.mode,
+        args.openai_model,
+        args.no_cache,
     )
     results["openai"] = run_extraction(extractor, paper)
 
     o = results["openai"]
     if o["success"]:
-        print(f"    Model: {o.get('model', 'N/A')}  Duration: {o.get('duration_seconds', 'N/A')}s"
-              f"  Coverage: {o.get('dimension_coverage', 0):.0%}")
+        print(
+            f"    Model: {o.get('model', 'N/A')}  Duration: {o.get('duration_seconds', 'N/A')}s"
+            f"  Coverage: {o.get('dimension_coverage', 0):.0%}"
+        )
     else:
         print(f"    FAILED: {o.get('error', 'Unknown')}")
 
@@ -402,22 +391,19 @@ def compare_single_paper(
                 output_path = output_dir / f"{key}_{provider}.json"
                 with open(output_path, "w", encoding="utf-8") as f:
                     json.dump(
-                        data["full_extraction"], f,
-                        indent=2, ensure_ascii=False, default=str,
+                        data["full_extraction"],
+                        f,
+                        indent=2,
+                        ensure_ascii=False,
+                        default=str,
                     )
                 print(f"\n  Saved {provider} -> {output_path}")
 
     return {
         "key": key,
         "title": paper.title,
-        "anthropic": {
-            k: v for k, v in a.items()
-            if k not in ("dimensions", "full_extraction")
-        },
-        "openai": {
-            k: v for k, v in o.items()
-            if k not in ("dimensions", "full_extraction")
-        },
+        "anthropic": {k: v for k, v in a.items() if k not in ("dimensions", "full_extraction")},
+        "openai": {k: v for k, v in o.items() if k not in ("dimensions", "full_extraction")},
         "comparison_stats": results.get("comparison_stats"),
     }
 
@@ -429,10 +415,7 @@ def print_batch_summary(all_results: list[dict]) -> None:
     print(f"{'=' * 70}")
 
     successful = [r for r in all_results if r is not None]
-    both_ok = [
-        r for r in successful
-        if r["anthropic"]["success"] and r["openai"]["success"]
-    ]
+    both_ok = [r for r in successful if r["anthropic"]["success"] and r["openai"]["success"]]
 
     print(f"\nPapers compared: {len(successful)}")
     print(f"Both providers succeeded: {len(both_ok)}")
@@ -445,18 +428,33 @@ def print_batch_summary(all_results: list[dict]) -> None:
     print(f"\n{'Metric':<25} {'Anthropic':<20} {'OpenAI':<20}")
     print("-" * 65)
 
-    a_durations = [r["anthropic"]["duration_seconds"] for r in both_ok if r["anthropic"].get("duration_seconds")]
-    o_durations = [r["openai"]["duration_seconds"] for r in both_ok if r["openai"].get("duration_seconds")]
+    a_durations = [
+        r["anthropic"]["duration_seconds"]
+        for r in both_ok
+        if r["anthropic"].get("duration_seconds")
+    ]
+    o_durations = [
+        r["openai"]["duration_seconds"] for r in both_ok if r["openai"].get("duration_seconds")
+    ]
 
     if a_durations and o_durations:
-        print(f"{'Avg duration (s)':<25} {sum(a_durations)/len(a_durations):<20.1f} {sum(o_durations)/len(o_durations):<20.1f}")
+        print(
+            f"{'Avg duration (s)':<25} {sum(a_durations) / len(a_durations):<20.1f} {sum(o_durations) / len(o_durations):<20.1f}"
+        )
 
     a_coverages = [r["anthropic"]["dimension_coverage"] for r in both_ok]
     o_coverages = [r["openai"]["dimension_coverage"] for r in both_ok]
-    print(f"{'Avg coverage':<25} {sum(a_coverages)/len(a_coverages):<20.1%} {sum(o_coverages)/len(o_coverages):<20.1%}")
+    print(
+        f"{'Avg coverage':<25} {sum(a_coverages) / len(a_coverages):<20.1%} {sum(o_coverages) / len(o_coverages):<20.1%}"
+    )
 
-    a_tokens = sum(r["anthropic"].get("input_tokens", 0) + r["anthropic"].get("output_tokens", 0) for r in both_ok)
-    o_tokens = sum(r["openai"].get("input_tokens", 0) + r["openai"].get("output_tokens", 0) for r in both_ok)
+    a_tokens = sum(
+        r["anthropic"].get("input_tokens", 0) + r["anthropic"].get("output_tokens", 0)
+        for r in both_ok
+    )
+    o_tokens = sum(
+        r["openai"].get("input_tokens", 0) + r["openai"].get("output_tokens", 0) for r in both_ok
+    )
     print(f"{'Total tokens':<25} {a_tokens:<20,} {o_tokens:<20,}")
 
     # Aggregate dimension stats
@@ -464,6 +462,7 @@ def print_batch_summary(all_results: list[dict]) -> None:
     if stats_list:
         print(f"\n{'Dimension Agreement':<25}")
         print("-" * 65)
+
         def avg(key: str) -> float:
             return sum(s[key] for s in stats_list) / len(stats_list)
 
@@ -494,35 +493,47 @@ def main():
     group.add_argument("--keys", nargs="+", help="Multiple Zotero item keys")
 
     parser.add_argument(
-        "--mode", default="cli", choices=["api", "cli"],
+        "--mode",
+        default="cli",
+        choices=["api", "cli"],
         help="Extraction mode (default: cli for subscription)",
     )
     parser.add_argument(
-        "--openai-model", dest="openai_model", default="gpt-5.4",
+        "--openai-model",
+        dest="openai_model",
+        default="gpt-5.4",
         help="OpenAI model to use (default: gpt-5.4)",
     )
     parser.add_argument(
-        "--anthropic-model", default=DEFAULT_MODELS["anthropic"],
+        "--anthropic-model",
+        default=DEFAULT_MODELS["anthropic"],
         help=f"Anthropic model to use (default: {DEFAULT_MODELS['anthropic']})",
     )
     parser.add_argument(
-        "--save", action="store_true",
+        "--save",
+        action="store_true",
         help="Save full extractions to data/comparison/",
     )
     parser.add_argument(
-        "--no-cache", action="store_true",
+        "--no-cache",
+        action="store_true",
         help="Skip cache and force fresh extraction",
     )
     parser.add_argument(
-        "--anthropic-from-index", action="store_true",
+        "--anthropic-from-index",
+        action="store_true",
         help="Use existing Anthropic extraction from data/index instead of running",
     )
     parser.add_argument(
-        "--index-dir", type=Path, default=Path("data/index"),
+        "--index-dir",
+        type=Path,
+        default=Path("data/index"),
         help="Index directory for existing extractions (default: data/index)",
     )
     parser.add_argument(
-        "--verbose", "-v", action="store_true",
+        "--verbose",
+        "-v",
+        action="store_true",
         help="Show per-dimension fill status table",
     )
     args = parser.parse_args()
@@ -543,8 +554,12 @@ def main():
     all_results = []
     for i, key in enumerate(keys, 1):
         result = compare_single_paper(
-            key, db, config, args,
-            paper_num=i, total_papers=len(keys),
+            key,
+            db,
+            config,
+            args,
+            paper_num=i,
+            total_papers=len(keys),
         )
         all_results.append(result)
 

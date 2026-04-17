@@ -184,7 +184,9 @@ def update_report(
                         if not row.get("year") and entry.get("year"):
                             row["year"] = str(entry["year"])
                         # Also update title if current one is messy (contains year prefix)
-                        if entry.get("title") and (current_title.startswith("1") or current_title.startswith("2")):
+                        if entry.get("title") and (
+                            current_title.startswith("1") or current_title.startswith("2")
+                        ):
                             row["title"] = entry["title"]
                         stats["doi_added"] += 1
                         break
@@ -201,7 +203,11 @@ def update_report(
                     )
                     if title_match:
                         # Update title if current one is messy
-                        if entry.get("title") and (current_title.startswith("1") or current_title.startswith("2") or " - " in current_title):
+                        if entry.get("title") and (
+                            current_title.startswith("1")
+                            or current_title.startswith("2")
+                            or " - " in current_title
+                        ):
                             row["title"] = entry["title"]
                         # Update year if missing
                         if not row.get("year") and entry.get("year"):

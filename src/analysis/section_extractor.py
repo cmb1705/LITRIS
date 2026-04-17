@@ -8,12 +8,12 @@ from datetime import datetime
 from pathlib import Path
 from threading import Lock
 
-from src.analysis.extraction_intent_classifier import ExtractionPlanItem
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode
 from src.analysis.coverage import score_coverage
 from src.analysis.dimensions import get_default_dimension_registry, get_dimension_value
 from src.analysis.document_classifier import classify as classify_document
 from src.analysis.document_types import DocumentType
+from src.analysis.extraction_intent_classifier import ExtractionPlanItem
 from src.analysis.llm_factory import create_llm_client
 from src.analysis.schemas import ExtractionResult, SemanticAnalysis
 from src.analysis.semantic_prompts import (
@@ -31,6 +31,7 @@ from src.zotero.models import PaperMetadata
 
 logger = get_logger(__name__)
 
+
 class ExtractionCache:
     """Cache for extraction results based on content hash."""
 
@@ -45,7 +46,10 @@ class ExtractionCache:
         self._lock = Lock()
 
     def compute_content_hash(
-        self, pdf_path: Path | None, model: str, prompt_version: str = SEMANTIC_PROMPT_VERSION,
+        self,
+        pdf_path: Path | None,
+        model: str,
+        prompt_version: str = SEMANTIC_PROMPT_VERSION,
         pass_number: int | None = None,
         profile_fingerprint: str | None = None,
         source_fingerprint: str | None = None,
@@ -110,9 +114,7 @@ class ExtractionCache:
             logger.debug(f"Cache read failed for {paper_id}: {e}")
             return None
 
-    def get_extraction_result(
-        self, paper_id: str, content_hash: str
-    ) -> ExtractionResult | None:
+    def get_extraction_result(self, paper_id: str, content_hash: str) -> ExtractionResult | None:
         """Retrieve cached full extraction result.
 
         Args:
@@ -388,9 +390,7 @@ class SectionExtractor:
                 resolved_section_ids.append(resolved)
 
         if invalid_sections:
-            raise ValueError(
-                "Unknown dimension section(s): " + ", ".join(sorted(invalid_sections))
-            )
+            raise ValueError("Unknown dimension section(s): " + ", ".join(sorted(invalid_sections)))
 
         selected = set(resolved_section_ids)
         return [
@@ -438,9 +438,7 @@ class SectionExtractor:
                     if isinstance(raw_snapshot_hash, str) and raw_snapshot_hash:
                         snapshot_hash = raw_snapshot_hash
                     else:
-                        snapshot_hash = hashlib.sha256(
-                            snapshot_text.encode("utf-8")
-                        ).hexdigest()
+                        snapshot_hash = hashlib.sha256(snapshot_text.encode("utf-8")).hexdigest()
 
             # Check for source text
             if snapshot_text is None and (not paper.pdf_path or not paper.pdf_path.exists()):
@@ -470,9 +468,7 @@ class SectionExtractor:
 
             snapshot_payload: dict[str, object] | None = None
             planned_intent = extraction_plan.intent.value if extraction_plan else None
-            planned_profile_key = (
-                extraction_plan.profile.profile_key if extraction_plan else None
-            )
+            planned_profile_key = extraction_plan.profile.profile_key if extraction_plan else None
 
             # Extract text from PDF (via cascade or direct) unless a canonical
             # snapshot is already available for this exact source state.
@@ -499,9 +495,7 @@ class SectionExtractor:
                         text = cascade_result.text
                         method = cascade_result.method
                     else:
-                        text, method = self.pdf_extractor.extract_text_with_method(
-                            paper.pdf_path
-                        )
+                        text, method = self.pdf_extractor.extract_text_with_method(paper.pdf_path)
                     preserve_md = cascade_result.is_markdown if cascade_result else False
                     is_cleaned = False
                 except Exception as e:
@@ -535,13 +529,9 @@ class SectionExtractor:
                             f"page_count<{self.min_publication_pages} ({stats.page_count})"
                         )
                     if self.min_section_hits > 0:
-                        section_hits = self.text_cleaner.count_section_markers(
-                            cleaned_text
-                        )
+                        section_hits = self.text_cleaner.count_section_markers(cleaned_text)
                         if section_hits < self.min_section_hits:
-                            reasons.append(
-                                f"section_hits<{self.min_section_hits} ({section_hits})"
-                            )
+                            reasons.append(f"section_hits<{self.min_section_hits} ({section_hits})")
                 return valid, reasons
 
             # Clean text (preserve markdown for companion/marker tiers). Stored
@@ -572,9 +562,7 @@ class SectionExtractor:
                     "word_count": len(text.split()),
                     "captured_at": datetime.now().isoformat(),
                     "source": "cascade",
-                    "extraction_method": (
-                        cascade_result.method if cascade_result else method
-                    ),
+                    "extraction_method": (cascade_result.method if cascade_result else method),
                     "tiers_attempted": (
                         list(cascade_result.tiers_attempted) if cascade_result else [method]
                     ),
@@ -591,9 +579,7 @@ class SectionExtractor:
             if planned_profile_key:
                 snapshot_payload["planned_profile_key"] = planned_profile_key
             if cascade_result and cascade_result.tier_errors:
-                snapshot_payload["extraction_diagnostics"] = dict(
-                    cascade_result.tier_errors
-                )
+                snapshot_payload["extraction_diagnostics"] = dict(cascade_result.tier_errors)
 
             extraction_diagnostics: dict[str, str] = {}
             if snapshot_payload is not None:
@@ -613,13 +599,9 @@ class SectionExtractor:
                 and snapshot_text is None
                 and (not valid_text or non_pub_reasons)
             ):
-                logger.info(
-                    f"Text check failed for {paper.paper_id}; attempting OCR fallback"
-                )
+                logger.info(f"Text check failed for {paper.paper_id}; attempting OCR fallback")
                 try:
-                    ocr_result = self.pdf_extractor.ocr_handler.extract_text(
-                        paper.pdf_path
-                    )
+                    ocr_result = self.pdf_extractor.ocr_handler.extract_text(paper.pdf_path)
                     text = self.text_cleaner.clean(ocr_result.text)
                     valid_text, non_pub_reasons = evaluate_text(text)
                     snapshot_payload.update(
@@ -642,9 +624,7 @@ class SectionExtractor:
                         }
                     )
                 except Exception as ocr_error:
-                    logger.warning(
-                        f"OCR fallback failed for {paper.paper_id}: {ocr_error}"
-                    )
+                    logger.warning(f"OCR fallback failed for {paper.paper_id}: {ocr_error}")
 
             if not valid_text:
                 logger.warning(f"Insufficient text content for paper {paper.paper_id}")
@@ -658,9 +638,7 @@ class SectionExtractor:
 
             if non_pub_reasons:
                 reason_text = "; ".join(non_pub_reasons)
-                logger.warning(
-                    f"Likely non-publication for {paper.paper_id}: {reason_text}"
-                )
+                logger.warning(f"Likely non-publication for {paper.paper_id}: {reason_text}")
                 return ExtractionResult(
                     paper_id=paper.paper_id,
                     success=False,
@@ -703,10 +681,14 @@ class SectionExtractor:
             if skip_llm:
                 actual_profile_key, override_reason = self._resolve_actual_profile(
                     planned_profile_key=planned_profile_key,
-                    extraction_method=(
-                        cascade_result.method if cascade_result else method
-                    ),
+                    extraction_method=(cascade_result.method if cascade_result else method),
                     extraction_diagnostics=extraction_diagnostics,
+                )
+                self._log_extraction_override(
+                    paper.paper_id,
+                    planned_profile_key,
+                    actual_profile_key,
+                    override_reason,
                 )
                 return ExtractionResult(
                     paper_id=paper.paper_id,
@@ -715,9 +697,7 @@ class SectionExtractor:
                     document_type=doc_type.value,
                     type_confidence=type_confidence,
                     model_used=None,
-                    extraction_method=(
-                        cascade_result.method if cascade_result else method
-                    ),
+                    extraction_method=(cascade_result.method if cascade_result else method),
                     text_snapshot=snapshot_payload,
                     planned_extraction_intent=planned_intent,
                     planned_profile_key=planned_profile_key,
@@ -745,13 +725,17 @@ class SectionExtractor:
             # Attach classification and extraction method to result
             result.document_type = doc_type.value
             result.type_confidence = type_confidence
-            result.extraction_method = (
-                cascade_result.method if cascade_result else method
-            )
+            result.extraction_method = cascade_result.method if cascade_result else method
             actual_profile_key, override_reason = self._resolve_actual_profile(
                 planned_profile_key=planned_profile_key,
                 extraction_method=result.extraction_method,
                 extraction_diagnostics=extraction_diagnostics,
+            )
+            self._log_extraction_override(
+                paper.paper_id,
+                planned_profile_key,
+                actual_profile_key,
+                override_reason,
             )
             result.planned_extraction_intent = planned_intent
             result.planned_profile_key = planned_profile_key
@@ -771,9 +755,7 @@ class SectionExtractor:
 
                 # Cache the full result
                 if self.extraction_cache and full_hash:
-                    self.extraction_cache.set_extraction_result(
-                        paper.paper_id, full_hash, result
-                    )
+                    self.extraction_cache.set_extraction_result(paper.paper_id, full_hash, result)
 
             return result, False
 
@@ -794,22 +776,38 @@ class SectionExtractor:
         else:
             actual_profile_key = planned_profile_key
 
-        if (
-            planned_profile_key
-            and actual_profile_key
-            and actual_profile_key != planned_profile_key
-        ):
+        if planned_profile_key and actual_profile_key and actual_profile_key != planned_profile_key:
             hybrid_error = (extraction_diagnostics or {}).get("opendataloader_hybrid")
             if planned_profile_key.startswith("hybrid:") and hybrid_error:
                 return (
                     actual_profile_key,
-                    f"planned hybrid failed ({hybrid_error}); runtime used "
-                    f"{actual_profile_key}",
+                    f"planned hybrid failed ({hybrid_error}); runtime used {actual_profile_key}",
                 )
             if extraction_method == "opendataloader_hybrid" and planned_profile_key == "fast":
                 return actual_profile_key, "runtime escalated from fast to hybrid"
-            return actual_profile_key, f"runtime used {actual_profile_key} instead of {planned_profile_key}"
+            return (
+                actual_profile_key,
+                f"runtime used {actual_profile_key} instead of {planned_profile_key}",
+            )
         return actual_profile_key, None
+
+    @staticmethod
+    def _log_extraction_override(
+        paper_id: str,
+        planned_profile_key: str | None,
+        actual_profile_key: str | None,
+        override_reason: str | None,
+    ) -> None:
+        """Log runtime extraction routing overrides when they occur."""
+        if override_reason is None:
+            return
+        logger.info(
+            "Extraction routing override for %s: planned=%s actual=%s reason=%s",
+            paper_id,
+            planned_profile_key,
+            actual_profile_key,
+            override_reason,
+        )
 
     def _extract_6_pass(
         self,
@@ -872,18 +870,14 @@ class SectionExtractor:
                     total_input_tokens += cached_data.get("input_tokens", 0)
                     total_output_tokens += cached_data.get("output_tokens", 0)
                     total_duration += cached_data.get("duration_seconds", 0.0)
-                    logger.debug(
-                        f"Using cached pass {pass_num} for {paper.paper_id}"
-                    )
+                    logger.debug(f"Using cached pass {pass_num} for {paper.paper_id}")
 
             if cached_answers is not None:
                 all_answers.update(cached_answers)
                 continue
 
             # Build pass-specific prompt
-            embed_text_in_prompt = not (
-                self.provider == "anthropic" and self.mode == "cli"
-            )
+            embed_text_in_prompt = not (self.provider == "anthropic" and self.mode == "cli")
             prompt = build_pass_user_prompt(
                 pass_number=pass_num,
                 title=paper.title,
@@ -912,9 +906,7 @@ class SectionExtractor:
             if not result.success:
                 error_msg = f"pass {pass_num} ({pass_label}): {result.error or 'Unknown error'}"
                 errors.append(error_msg)
-                logger.warning(
-                    f"Pass {pass_num} failed for {paper.paper_id}: {result.error}"
-                )
+                logger.warning(f"Pass {pass_num} failed for {paper.paper_id}: {result.error}")
                 continue
 
             # Parse pass answers from extraction result
@@ -922,12 +914,16 @@ class SectionExtractor:
 
             # Cache per-pass result
             if self.extraction_cache and pass_hash:
-                self.extraction_cache.set(paper.paper_id, pass_hash, {
-                    "answers": pass_answers,
-                    "input_tokens": result.input_tokens,
-                    "output_tokens": result.output_tokens,
-                    "duration_seconds": result.duration_seconds,
-                })
+                self.extraction_cache.set(
+                    paper.paper_id,
+                    pass_hash,
+                    {
+                        "answers": pass_answers,
+                        "input_tokens": result.input_tokens,
+                        "output_tokens": result.output_tokens,
+                        "duration_seconds": result.duration_seconds,
+                    },
+                )
 
             all_answers.update(pass_answers)
 
@@ -1158,9 +1154,9 @@ class SectionExtractor:
                 consecutive_rate_limits = 0
             else:
                 error_str = result.error or ""
-                if error_str.startswith(
-                    "Likely non-publication"
-                ) or error_str.startswith("Insufficient text content"):
+                if error_str.startswith("Likely non-publication") or error_str.startswith(
+                    "Insufficient text content"
+                ):
                     stats.skipped += 1
                     consecutive_rate_limits = 0
                 elif self._is_rate_limit_error(error_str):
@@ -1170,9 +1166,7 @@ class SectionExtractor:
                         consecutive_rate_limits = 0
                         continue  # Don't increment i, retry same paper
                     # Brief backoff for transient rate limit
-                    logger.warning(
-                        f"Rate limit on {paper.paper_id}, waiting 30s"
-                    )
+                    logger.warning(f"Rate limit on {paper.paper_id}, waiting 30s")
                     time.sleep(30)
                     continue  # Retry same paper
                 else:
@@ -1317,9 +1311,9 @@ class SectionExtractor:
                         rate_limit_count = 0
                     else:
                         error_str = result.error or ""
-                        if error_str.startswith(
-                            "Likely non-publication"
-                        ) or error_str.startswith("Insufficient text content"):
+                        if error_str.startswith("Likely non-publication") or error_str.startswith(
+                            "Insufficient text content"
+                        ):
                             stats.skipped += 1
                         elif self._is_rate_limit_error(error_str):
                             rate_limit_count += 1
@@ -1423,18 +1417,21 @@ class SectionExtractor:
     def _is_rate_limit_error(error: str) -> bool:
         """Check if an error string indicates a rate limit."""
         lower = error.lower()
-        return any(phrase in lower for phrase in (
-            "rate limit",
-            "rate limited",
-            "429",
-            "too many requests",
-            "quota exceeded",
-            "throttl",
-            "usage_limit_reached",
-            "usage limit",
-            "usage cap",
-            "credit balance",
-        ))
+        return any(
+            phrase in lower
+            for phrase in (
+                "rate limit",
+                "rate limited",
+                "429",
+                "too many requests",
+                "quota exceeded",
+                "throttl",
+                "usage_limit_reached",
+                "usage limit",
+                "usage cap",
+                "credit balance",
+            )
+        )
 
     @staticmethod
     def _get_provider_failure_kind(error: str) -> str | None:
@@ -1503,9 +1500,7 @@ class SectionExtractor:
             slept += chunk
             remaining = (sleep_seconds - slept) / 3600
             if remaining > 0:
-                logger.info(
-                    f"Quota cooldown: {remaining:.1f} hours remaining"
-                )
+                logger.info(f"Quota cooldown: {remaining:.1f} hours remaining")
 
         logger.info("Quota cooldown complete. Resuming extraction.")
         return True
@@ -1591,3 +1586,5 @@ class SectionExtractor:
             "estimated_total_cost": round(total_cost, 2),
             "model": self.model,
         }
+
+

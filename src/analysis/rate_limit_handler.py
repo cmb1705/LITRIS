@@ -138,7 +138,7 @@ class RateLimitHandler:
             if wait_seconds > 0:
                 logger.info(
                     f"Auto-resume enabled. Waiting until {reset_time} "
-                    f"({wait_seconds/60:.1f} minutes)"
+                    f"({wait_seconds / 60:.1f} minutes)"
                 )
                 self._wait_for_reset(wait_seconds)
 
