@@ -78,7 +78,7 @@ class AnthropicLLMClient(BaseLLMClient):
         if mode == "batch_api":
             raise ValueError(
                 "batch_api mode is not supported via AnthropicLLMClient. "
-                "Use scripts/batch_extract.py to submit and collect batch jobs."
+                "Use scripts/dimensions.py batch submit/collect for async semantic jobs."
             )
         if mode == "api":
             api_key = get_anthropic_api_key()

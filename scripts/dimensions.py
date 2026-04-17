@@ -45,6 +45,20 @@ from src.indexing.pipeline import (
     run_embedding_generation,
 )
 from src.indexing.raptor_pipeline import generate_scoped_raptor_summaries
+from src.indexing.semantic_jobs import (
+    collect_semantic_batch,
+    get_semantic_batch_status,
+    list_batch_manifests,
+    list_pending_semantic_batches,
+    plan_semantic_batch,
+    retry_semantic_papers,
+    semantic_batch_state_dir,
+    submit_semantic_batch,
+    wait_for_semantic_batch,
+)
+from src.indexing.semantic_jobs import (
+    resolve_dimension_profile as resolve_runtime_dimension_profile,
+)
 from src.indexing.structured_store import StructuredStore
 from src.utils.checkpoint import CheckpointManager
 from src.utils.file_utils import safe_read_json, safe_write_json
@@ -688,6 +702,152 @@ def parse_args() -> argparse.Namespace:
     suggest.add_argument("--heuristic-only", action="store_true")
     suggest.add_argument("--output", type=Path, default=None)
 
+    batch = subparsers.add_parser(
+        "batch",
+        help="Plan, submit, and collect index-scoped semantic batch jobs",
+    )
+    batch_subparsers = batch.add_subparsers(dest="batch_command", required=True)
+
+    batch_plan = batch_subparsers.add_parser(
+        "plan",
+        help="Show which papers would be submitted for semantic batch extraction",
+    )
+    batch_plan.add_argument(
+        "--index-dir",
+        type=Path,
+        default=project_root / "data" / "index",
+    )
+    batch_plan.add_argument(
+        "--dimension-profile",
+        type=str,
+        default=None,
+        help="Profile id or path. Defaults to the index snapshot profile.",
+    )
+    batch_plan.add_argument(
+        "--provider",
+        choices=["anthropic", "openai"],
+        default=None,
+    )
+    batch_plan.add_argument("--model", type=str, default=None)
+    batch_plan.add_argument("--paper", action="append", default=[])
+    batch_plan.add_argument("--skip-paper", action="append", default=[])
+    batch_plan.add_argument("--limit", type=int, default=None)
+    batch_plan.add_argument("--include-existing", action="store_true")
+    batch_plan.add_argument("--allow-abstract-fallback", action="store_true")
+    batch_plan.add_argument(
+        "--live-text-fallback",
+        action="store_true",
+        help="Run the source extraction cascade when no stored fulltext snapshot exists",
+    )
+    batch_plan.add_argument("--output", type=Path, default=None)
+
+    batch_submit = batch_subparsers.add_parser(
+        "submit",
+        help="Submit an index-scoped semantic batch job",
+    )
+    batch_submit.add_argument(
+        "--index-dir",
+        type=Path,
+        default=project_root / "data" / "index",
+    )
+    batch_submit.add_argument(
+        "--dimension-profile",
+        type=str,
+        default=None,
+        help="Profile id or path. Defaults to the index snapshot profile.",
+    )
+    batch_submit.add_argument(
+        "--provider",
+        choices=["anthropic", "openai"],
+        default=None,
+    )
+    batch_submit.add_argument("--model", type=str, default=None)
+    batch_submit.add_argument("--paper", action="append", default=[])
+    batch_submit.add_argument("--skip-paper", action="append", default=[])
+    batch_submit.add_argument("--limit", type=int, default=None)
+    batch_submit.add_argument("--include-existing", action="store_true")
+    batch_submit.add_argument("--allow-abstract-fallback", action="store_true")
+    batch_submit.add_argument("--live-text-fallback", action="store_true")
+    batch_submit.add_argument("--dry-run", action="store_true")
+
+    batch_status = batch_subparsers.add_parser(
+        "status",
+        help="Fetch provider status for one index-scoped semantic batch",
+    )
+    batch_status.add_argument("batch_id")
+    batch_status.add_argument(
+        "--index-dir",
+        type=Path,
+        default=project_root / "data" / "index",
+    )
+
+    batch_wait = batch_subparsers.add_parser(
+        "wait",
+        help="Wait for one semantic batch to complete",
+    )
+    batch_wait.add_argument("batch_id")
+    batch_wait.add_argument(
+        "--index-dir",
+        type=Path,
+        default=project_root / "data" / "index",
+    )
+    batch_wait.add_argument("--poll-interval", type=int, default=60)
+
+    batch_collect = batch_subparsers.add_parser(
+        "collect",
+        help="Collect semantic batch results into semantic_analyses.json only",
+    )
+    batch_collect.add_argument("batch_id")
+    batch_collect.add_argument(
+        "--index-dir",
+        type=Path,
+        default=project_root / "data" / "index",
+    )
+
+    batch_pending = batch_subparsers.add_parser(
+        "pending",
+        help="List non-terminal semantic batches for an index",
+    )
+    batch_pending.add_argument(
+        "--index-dir",
+        type=Path,
+        default=project_root / "data" / "index",
+    )
+    batch_pending.add_argument(
+        "--provider",
+        choices=["anthropic", "openai"],
+        default=None,
+    )
+
+    retry = subparsers.add_parser(
+        "retry",
+        help="Re-run semantic extraction for specific papers using stored fulltext snapshots",
+    )
+    retry.add_argument(
+        "--index-dir",
+        type=Path,
+        default=project_root / "data" / "index",
+    )
+    retry.add_argument(
+        "--dimension-profile",
+        type=str,
+        default=None,
+        help="Profile id or path. Defaults to the index snapshot profile.",
+    )
+    retry.add_argument(
+        "--paper",
+        action="append",
+        default=[],
+        help="Paper ids to retry (repeatable)",
+    )
+    retry.add_argument("--provider", choices=["anthropic", "openai", "google"], default=None)
+    retry.add_argument("--mode", choices=["api", "cli"], default=None)
+    retry.add_argument("--model", type=str, default=None)
+    retry.add_argument("--parallel", type=int, default=None)
+    retry.add_argument("--no-cache", action="store_true")
+    retry.add_argument("--dry-run", action="store_true")
+    retry.add_argument("--output", type=Path, default=None)
+
     approve = subparsers.add_parser(
         "approve",
         help="Apply approved proposals to a profile file",
@@ -766,6 +926,51 @@ def _apply_dimension_profile_override(config: Config, profile_path: Path) -> Dim
     config.dimensions.active_profile = profile.profile_id
     config.configure_dimension_registry()
     return profile
+
+
+def _prepare_runtime_profile(
+    args: argparse.Namespace,
+    config: Config,
+    *,
+    index_dir: Path,
+) -> DimensionProfile:
+    """Resolve and, when needed, activate the requested runtime profile."""
+
+    reference = getattr(args, "dimension_profile", None)
+    if reference is None:
+        return resolve_runtime_dimension_profile(
+            index_dir=index_dir,
+            config=config,
+            reference=None,
+        )
+
+    candidate = Path(reference)
+    if candidate.exists():
+        return _apply_dimension_profile_override(config, candidate)
+
+    config.dimensions.active_profile = reference
+    config.configure_dimension_registry()
+    return resolve_runtime_dimension_profile(
+        index_dir=index_dir,
+        config=config,
+        reference=reference,
+    )
+
+
+def _emit_payload(payload: dict[str, Any], output: Path | None = None) -> None:
+    """Render a payload to stdout and optionally persist it."""
+
+    rendered = yaml.safe_dump(
+        payload,
+        sort_keys=False,
+        allow_unicode=False,
+    ).strip()
+    if output is not None:
+        if output.suffix.lower() == ".json":
+            safe_write_json(output, payload)
+        else:
+            output.write_text(rendered + "\n", encoding="utf-8")
+    print(rendered)
 
 
 def _paper_from_index_dict(paper_id: str, paper_dict: dict[str, Any]) -> PaperMetadata:
@@ -1276,6 +1481,205 @@ def suggest_dimensions(args: argparse.Namespace, config: Config) -> int:
     return 0
 
 
+def semantic_batch_command(args: argparse.Namespace, config: Config, logger) -> int:
+    """Handle semantic batch planning, submission, and collection."""
+
+    provider = getattr(args, "provider", None) or config.extraction.provider
+    provider_settings = config.extraction.get_provider_settings(provider)
+    if getattr(args, "model", None):
+        provider_settings.model = args.model
+        config.extraction.model = args.model
+
+    if args.batch_command == "plan":
+        plan = plan_semantic_batch(
+            index_dir=args.index_dir,
+            config=config,
+            provider=provider,
+            paper_ids=args.paper,
+            exclude_paper_ids=args.skip_paper,
+            limit=args.limit,
+            include_existing=args.include_existing,
+            allow_abstract_fallback=args.allow_abstract_fallback,
+            live_text_fallback=args.live_text_fallback,
+            profile_reference=args.dimension_profile,
+        )
+        _emit_payload(plan.to_dict(), args.output)
+        return 0
+
+    if args.batch_command == "submit":
+        plan = plan_semantic_batch(
+            index_dir=args.index_dir,
+            config=config,
+            provider=provider,
+            paper_ids=args.paper,
+            exclude_paper_ids=args.skip_paper,
+            limit=args.limit,
+            include_existing=args.include_existing,
+            allow_abstract_fallback=args.allow_abstract_fallback,
+            live_text_fallback=args.live_text_fallback,
+            profile_reference=args.dimension_profile,
+        )
+        if args.dry_run:
+            _emit_payload(plan.to_dict())
+            return 0
+
+        manifest = submit_semantic_batch(plan, config=config)
+        _emit_payload(
+            {
+                "batch_id": manifest["batch_id"],
+                "index_dir": str(args.index_dir),
+                "provider": manifest["provider"],
+                "model": manifest["model"],
+                "profile_id": manifest["profile_snapshot"]["profile_id"],
+                "profile_version": manifest["profile_snapshot"]["version"],
+                "profile_fingerprint": plan.profile.fingerprint,
+                "paper_count": len(manifest["paper_ids"]),
+                "state_dir": str(semantic_batch_state_dir(args.index_dir)),
+                "next_steps": {
+                    "status": (
+                        "python scripts/dimensions.py batch status "
+                        f"{manifest['batch_id']} --index-dir {args.index_dir}"
+                    ),
+                    "wait": (
+                        "python scripts/dimensions.py batch wait "
+                        f"{manifest['batch_id']} --index-dir {args.index_dir}"
+                    ),
+                    "collect": (
+                        "python scripts/dimensions.py batch collect "
+                        f"{manifest['batch_id']} --index-dir {args.index_dir}"
+                    ),
+                },
+            }
+        )
+        return 0
+
+    if args.batch_command == "status":
+        manifest, status = get_semantic_batch_status(
+            index_dir=args.index_dir,
+            batch_id=args.batch_id,
+            config=config,
+        )
+        _emit_payload(
+            {
+                "batch_id": manifest["batch_id"],
+                "index_dir": str(args.index_dir),
+                "provider": manifest["provider"],
+                "model": manifest["model"],
+                "profile_id": manifest["profile_snapshot"]["profile_id"],
+                "status": status.status,
+                "completed_requests": status.completed_requests,
+                "total_requests": status.total_requests,
+                "failed_requests": getattr(status, "failed_requests", 0),
+                "last_checked_at": manifest.get("last_checked_at"),
+            }
+        )
+        return 0
+
+    if args.batch_command == "wait":
+        manifest, status = wait_for_semantic_batch(
+            index_dir=args.index_dir,
+            batch_id=args.batch_id,
+            config=config,
+            poll_interval=args.poll_interval,
+            progress_callback=lambda state: logger.info(
+                "Batch %s: %s/%s (%s)",
+                args.batch_id,
+                state.completed_requests,
+                state.total_requests,
+                state.status,
+            ),
+        )
+        _emit_payload(
+            {
+                "batch_id": manifest["batch_id"],
+                "status": status.status,
+                "completed_requests": status.completed_requests,
+                "total_requests": status.total_requests,
+                "failed_requests": getattr(status, "failed_requests", 0),
+                "completed_at": manifest.get("completed_at"),
+            }
+        )
+        return 0
+
+    if args.batch_command == "collect":
+        _emit_payload(
+            collect_semantic_batch(
+                index_dir=args.index_dir,
+                batch_id=args.batch_id,
+                config=config,
+                logger_override=logger,
+            )
+        )
+        return 0
+
+    if args.batch_command == "pending":
+        manifests = list_batch_manifests(args.index_dir, provider=args.provider)
+        pending = list_pending_semantic_batches(
+            index_dir=args.index_dir,
+            config=config,
+            provider=args.provider,
+        )
+        _emit_payload(
+            {
+                "index_dir": str(args.index_dir),
+                "state_dir": str(semantic_batch_state_dir(args.index_dir)),
+                "stored_manifest_count": len(manifests),
+                "pending_count": len(pending),
+                "pending": pending,
+            }
+        )
+        return 0
+
+    raise ValueError(f"Unsupported batch command: {args.batch_command}")
+
+
+def retry_dimensions(args: argparse.Namespace, config: Config, logger) -> int:
+    """Retry semantic extraction for explicit papers using stored snapshots."""
+
+    if not args.paper:
+        raise ValueError("retry requires at least one --paper value")
+
+    profile = _prepare_runtime_profile(args, config, index_dir=args.index_dir)
+    if args.dry_run:
+        _emit_payload(
+            {
+                "index_dir": str(args.index_dir),
+                "profile_id": profile.profile_id,
+                "profile_fingerprint": profile.fingerprint,
+                "paper_ids": list(dict.fromkeys(args.paper)),
+                "provider": args.provider or config.extraction.provider,
+                "mode": args.mode or config.extraction.mode,
+                "model": args.model or config.extraction.model,
+                "snapshot_dir": str(args.index_dir / "fulltext"),
+            },
+            args.output,
+        )
+        return 0
+
+    summary = retry_semantic_papers(
+        index_dir=args.index_dir,
+        config=config,
+        logger_override=logger,
+        paper_ids=args.paper,
+        provider=args.provider,
+        mode=args.mode,
+        model=args.model,
+        parallel=args.parallel,
+        no_cache=args.no_cache,
+        profile=profile,
+    )
+    _emit_payload(
+        {
+            "index_dir": str(args.index_dir),
+            "profile_id": profile.profile_id,
+            "profile_fingerprint": profile.fingerprint,
+            **summary,
+        },
+        args.output,
+    )
+    return 0
+
+
 def approve_dimensions(args: argparse.Namespace) -> int:
     """Append approved proposals to a profile and write a new profile file."""
 
@@ -1694,6 +2098,10 @@ def main() -> int:
         return approve_dimensions(args)
 
     config = _load_config(args)
+    if args.command == "batch":
+        return semantic_batch_command(args, config, logger)
+    if args.command == "retry":
+        return retry_dimensions(args, config, logger)
     if args.command == "suggest":
         return suggest_dimensions(args, config)
     if args.command == "backfill":

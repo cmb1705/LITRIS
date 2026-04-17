@@ -7,7 +7,7 @@ Prompt version is tracked separately from the legacy prompts.py version.
 Cache keys include this version so bumping it invalidates all cached results.
 """
 
-from src.analysis.dimensions import get_default_dimension_registry
+from src.analysis.dimensions import DimensionProfile, get_default_dimension_registry
 from src.analysis.prompts import PAPER_TEXT_STDIN_PLACEHOLDER
 
 # Prompt version for SemanticAnalysis extraction.
@@ -100,19 +100,26 @@ def _get_framing(document_type: str) -> str:
 # output keys; newer profiles can emit canonical IDs directly.
 
 
-def get_pass_definitions() -> list[tuple[str, list[tuple[str, str]]]]:
-    """Return the ordered extraction passes for the active profile."""
+def build_pass_definitions(
+    profile: DimensionProfile | None = None,
+) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Return the ordered extraction passes for a profile."""
 
-    registry = get_default_dimension_registry()
-    profile = registry.active_profile
+    active_profile = profile or get_default_dimension_registry().active_profile
     pass_definitions: list[tuple[str, list[tuple[str, str]]]] = []
-    for section in profile.ordered_sections:
+    for section in active_profile.ordered_sections:
         questions = []
-        for dimension in profile.dimensions_for_section(section.id):
+        for dimension in active_profile.dimensions_for_section(section.id):
             output_key = dimension.legacy_field_name or dimension.id
             questions.append((output_key, dimension.question))
         pass_definitions.append((section.display_label, questions))
     return pass_definitions
+
+
+def get_pass_definitions() -> list[tuple[str, list[tuple[str, str]]]]:
+    """Return the ordered extraction passes for the active profile."""
+
+    return build_pass_definitions()
 
 
 def get_dimension_groups() -> dict[str, list[str]]:
@@ -196,6 +203,7 @@ def build_pass_user_prompt(
     text: str,
     *,
     embed_text: bool = True,
+    pass_definitions: list[tuple[str, list[tuple[str, str]]]] | None = None,
 ) -> str:
     """Build the user prompt for a specific extraction pass.
 
@@ -214,11 +222,13 @@ def build_pass_user_prompt(
     Raises:
         ValueError: If pass_number is not 1-6.
     """
-    pass_definitions = get_pass_definitions()
-    if not 1 <= pass_number <= len(pass_definitions):
-        raise ValueError(f"pass_number must be 1-{len(pass_definitions)}, got {pass_number}")
+    resolved_pass_definitions = pass_definitions or get_pass_definitions()
+    if not 1 <= pass_number <= len(resolved_pass_definitions):
+        raise ValueError(
+            f"pass_number must be 1-{len(resolved_pass_definitions)}, got {pass_number}"
+        )
 
-    pass_label, questions = pass_definitions[pass_number - 1]
+    pass_label, questions = resolved_pass_definitions[pass_number - 1]
     framing = _get_framing(document_type)
     formatted_questions = _format_questions(questions)
     prompt_text = text if embed_text else PAPER_TEXT_STDIN_PLACEHOLDER
@@ -263,7 +273,7 @@ def get_pass_fields(pass_number: int) -> list[str]:
 
 def get_all_dimension_fields() -> list[str]:
     """Return all output keys for the active profile in order."""
-    fields = []
+    fields: list[str] = []
     for _, questions in get_pass_definitions():
         fields.extend(q[0] for q in questions)
     return fields

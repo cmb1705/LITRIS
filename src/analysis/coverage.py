@@ -23,7 +23,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.analysis.schemas import SemanticAnalysis
 
-from src.analysis.dimensions import get_default_dimension_registry
+from collections.abc import Mapping
+
+from src.analysis.dimensions import DimensionProfile, get_default_dimension_registry
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +113,60 @@ def _dimension_value(
     if value is None and legacy_field:
         value = getattr(analysis, legacy_field, None)
     return value
+
+
+def score_dimension_values(
+    *,
+    paper_id: str,
+    profile: DimensionProfile,
+    dimensions: Mapping[str, str | None],
+) -> CoverageResult:
+    """Compute coverage directly from canonical dimension values and a profile."""
+
+    active_dimensions = [
+        (dimension.id, dimension.legacy_field_name) for dimension in profile.enabled_dimensions
+    ]
+    core_dimensions = [
+        (dimension.id, dimension.legacy_field_name) for dimension in profile.core_dimensions
+    ]
+    total_dimensions = len(active_dimensions) or TOTAL_DIMENSIONS
+    answered = sum(1 for dimension_id, _legacy in active_dimensions if dimensions.get(dimension_id))
+    coverage = answered / total_dimensions if total_dimensions else 0.0
+
+    if coverage >= TIER_FULL:
+        tier = "full"
+    elif coverage >= TIER_PARTIAL:
+        tier = "partial"
+    elif coverage >= TIER_SPARSE:
+        tier = "sparse"
+    else:
+        tier = "critical"
+
+    flags: list[str] = []
+    if tier == "partial":
+        flags.append(FLAG_PARTIAL_COVERAGE)
+    elif tier == "sparse":
+        flags.append(FLAG_SPARSE_COVERAGE)
+    elif tier == "critical":
+        flags.append(FLAG_CRITICAL_GAPS)
+
+    missing_core = [
+        legacy_field or dimension_id
+        for dimension_id, legacy_field in core_dimensions
+        if dimensions.get(dimension_id) is None
+    ]
+    if missing_core:
+        flags.append(FLAG_CORE_GAPS)
+
+    return CoverageResult(
+        paper_id=paper_id,
+        answered=answered,
+        total=total_dimensions,
+        coverage=coverage,
+        tier=tier,
+        flags=flags,
+        missing_core=missing_core,
+    )
 
 
 def score_coverage(analysis: SemanticAnalysis) -> CoverageResult:

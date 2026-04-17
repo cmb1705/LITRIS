@@ -725,7 +725,10 @@ class IndexOrchestrator:
             print("\n" + "=" * 60)
             print("Batch API Mode")
             print("=" * 60)
-            print("\nUse scripts/batch_extract.py for async extraction, then rerun build_index.py.")
+            print(
+                "\nUse scripts/dimensions.py batch submit --index-dir <index_dir> "
+                "for async semantic extraction, then rerun build_index.py."
+            )
             return 0
 
         return self._execute_plan(

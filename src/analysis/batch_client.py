@@ -11,8 +11,9 @@ from pathlib import Path
 from anthropic import Anthropic
 
 from src.analysis.constants import ANTHROPIC_BATCH_PRICING, DEFAULT_MODELS
-from src.analysis.coverage import score_coverage
-from src.analysis.schemas import ExtractionResult, SemanticAnalysis
+from src.analysis.coverage import score_coverage, score_dimension_values
+from src.analysis.dimensions import DimensionProfile
+from src.analysis.schemas import DimensionedExtraction, ExtractionResult, SemanticAnalysis
 from src.analysis.semantic_prompts import (
     SEMANTIC_PROMPT_VERSION,
     SEMANTIC_SYSTEM_PROMPT,
@@ -116,6 +117,7 @@ class BatchExtractionClient:
         self,
         papers: list[PaperMetadata],
         text_getter: Callable,
+        pass_definitions: list[tuple[str, list[tuple[str, str]]]] | None = None,
     ) -> list[BatchRequest]:
         """Create batch requests from papers.
 
@@ -130,7 +132,8 @@ class BatchExtractionClient:
             List of BatchRequest objects (6 per paper).
         """
         requests = []
-        num_passes = len(get_pass_definitions())
+        resolved_pass_definitions = pass_definitions or get_pass_definitions()
+        num_passes = len(resolved_pass_definitions)
 
         for paper in papers:
             try:
@@ -144,6 +147,7 @@ class BatchExtractionClient:
                         year=paper.publication_year,
                         document_type=paper.item_type,
                         text=text,
+                        pass_definitions=resolved_pass_definitions,
                     )
                     custom_id = self._build_custom_id(paper.paper_id, pass_num)
                     requests.append(
@@ -159,7 +163,7 @@ class BatchExtractionClient:
 
         return requests
 
-    def submit_batch(self, requests: list[BatchRequest]) -> str:
+    def submit_batch(self, requests: list[BatchRequest], *, persist_state: bool = True) -> str:
         """Submit a batch of requests.
 
         Args:
@@ -195,7 +199,8 @@ class BatchExtractionClient:
         logger.info(f"Batch submitted: {batch_id}")
 
         # Save batch state
-        self._save_batch_state(batch_id, requests)
+        if persist_state:
+            self._save_batch_state(batch_id, requests)
 
         return batch_id
 
@@ -268,7 +273,14 @@ class BatchExtractionClient:
             )
             time.sleep(poll_interval)
 
-    def get_results(self, batch_id: str) -> Iterator[ExtractionResult]:
+    def get_results(
+        self,
+        batch_id: str,
+        *,
+        pass_definitions: list[tuple[str, list[tuple[str, str]]]] | None = None,
+        profile: DimensionProfile | None = None,
+        prompt_version: str = SEMANTIC_PROMPT_VERSION,
+    ) -> Iterator[ExtractionResult]:
         """Retrieve results from a completed batch.
 
         Reassembles 6 per-pass responses into one SemanticAnalysis per paper.
@@ -281,6 +293,9 @@ class BatchExtractionClient:
         """
         # Collect all pass results grouped by paper_id
         paper_results: dict[str, _PaperPassResults] = defaultdict(_PaperPassResults)
+
+        resolved_pass_definitions = pass_definitions or get_pass_definitions()
+        field_to_dimension = _field_to_dimension_id(profile)
 
         for result in self.client.messages.batches.results(batch_id):
             custom_id = result.custom_id
@@ -307,9 +322,8 @@ class BatchExtractionClient:
                     pass_data = self._parse_pass_response(response_text)
 
                     # Get expected fields for this pass
-                    pass_definitions = get_pass_definitions()
-                    if 1 <= pass_num <= len(pass_definitions):
-                        _, pass_questions = pass_definitions[pass_num - 1]
+                    if 1 <= pass_num <= len(resolved_pass_definitions):
+                        _, pass_questions = resolved_pass_definitions[pass_num - 1]
                         expected_fields = [q[0] for q in pass_questions]
 
                         for field_name in expected_fields:
@@ -327,7 +341,7 @@ class BatchExtractionClient:
 
         # Reassemble each paper's passes into a SemanticAnalysis
         for paper_id, acc in paper_results.items():
-            num_passes = len(get_pass_definitions())
+            num_passes = len(resolved_pass_definitions)
             if len(acc.errors) == num_passes:
                 yield ExtractionResult(
                     paper_id=paper_id,
@@ -340,29 +354,25 @@ class BatchExtractionClient:
                 continue
 
             try:
-                analysis = SemanticAnalysis(
+                extraction = _build_extraction(
                     paper_id=paper_id,
-                    prompt_version=SEMANTIC_PROMPT_VERSION,
-                    extraction_model=self.model,
-                    extracted_at=datetime.now().isoformat(),
-                    **acc.answers,
+                    answers=acc.answers,
+                    model=self.model,
+                    field_to_dimension=field_to_dimension,
+                    profile=profile,
+                    prompt_version=prompt_version,
                 )
-
-                # Compute coverage scoring
-                coverage_result = score_coverage(analysis)
-                analysis.dimension_coverage = coverage_result.coverage
-                analysis.coverage_flags = coverage_result.flags
 
                 logger.info(
                     f"Reassembled {paper_id}: "
                     f"{num_passes - len(acc.errors)}/{num_passes} passes, "
-                    f"coverage: {analysis.dimension_coverage:.0%}"
+                    f"coverage: {extraction.dimension_coverage:.0%}"
                 )
 
                 yield ExtractionResult(
                     paper_id=paper_id,
                     success=True,
-                    extraction=analysis,
+                    extraction=extraction,
                     model_used=self.model,
                     input_tokens=acc.total_input_tokens,
                     output_tokens=acc.total_output_tokens,
@@ -517,3 +527,66 @@ class BatchExtractionClient:
                 logger.warning(f"Invalid pass number in custom_id: {custom_id}")
                 return None
         return None
+
+
+def _field_to_dimension_id(profile: DimensionProfile | None) -> dict[str, str]:
+    """Return output-key -> canonical dimension id mapping for a profile."""
+
+    if profile is None:
+        return {}
+    mapping: dict[str, str] = {}
+    for dimension in profile.dimensions:
+        for key in [dimension.id, dimension.legacy_field_name, dimension.legacy_short_name]:
+            if key:
+                mapping[key] = dimension.id
+    return mapping
+
+
+def _build_extraction(
+    *,
+    paper_id: str,
+    answers: dict[str, str | None],
+    model: str,
+    field_to_dimension: dict[str, str],
+    profile: DimensionProfile | None,
+    prompt_version: str,
+) -> SemanticAnalysis | DimensionedExtraction:
+    """Build an extraction object from pass answers."""
+
+    if profile is None:
+        analysis = SemanticAnalysis(
+            paper_id=paper_id,
+            prompt_version=prompt_version,
+            extraction_model=model,
+            extracted_at=datetime.now().isoformat(),
+            **answers,
+        )
+        coverage_result = score_coverage(analysis)
+        analysis.dimension_coverage = coverage_result.coverage
+        analysis.coverage_flags = coverage_result.flags
+        return analysis
+
+    dimensions = {dimension.id: None for dimension in profile.dimensions}
+    for field_name, value in answers.items():
+        canonical_id = field_to_dimension.get(field_name)
+        if canonical_id:
+            dimensions[canonical_id] = value
+
+    extraction = DimensionedExtraction(
+        paper_id=paper_id,
+        profile_id=profile.profile_id,
+        profile_version=profile.version,
+        profile_fingerprint=profile.fingerprint,
+        prompt_version=prompt_version,
+        extraction_model=model,
+        extracted_at=datetime.now().isoformat(),
+        dimensions=dimensions,
+    )
+    coverage_result = score_dimension_values(
+        paper_id=paper_id,
+        profile=profile,
+        dimensions=extraction.dimensions,
+    )
+    extraction.dimension_coverage = coverage_result.coverage
+    extraction.coverage_flags = coverage_result.flags
+    return extraction

@@ -319,7 +319,7 @@ def main():
         print("  python scripts/build_index.py --dedupe-by-doi --dry-run")
 
         print("\n  # For Batch API extraction:")
-        print("  python scripts/batch_extract.py submit --dedupe-by-doi")
+        print("  python scripts/dimensions.py batch submit --index-dir data/index")
 
         print("\n  # For CLI extraction (uses subscription):")
         print("  python scripts/build_index.py --dedupe-by-doi --mode cli")
