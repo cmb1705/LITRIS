@@ -1,0 +1,9 @@
+# Optional dependencies that are intentionally excluded from the reproducible
+# base environment and requirements.lock.
+#
+# marker-pdf 1.10.x currently requires openai<2, anthropic<0.47, and
+# Pillow<11, which conflicts with the base LITRIS environment's OpenAI 2.x
+# requirement line. Install this file only in a dedicated ad hoc environment
+# if you explicitly need the Marker fallback tier.
+
+marker-pdf>=1.0,<2.0

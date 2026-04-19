@@ -23,5 +23,8 @@ types-PyYAML>=6.0
 # Security scanning
 pip-audit>=2.10
 
+# Reproducible lockfile generation
+pip-tools>=7.4,<8.0
+
 # Pre-commit hooks
 pre-commit>=3.0

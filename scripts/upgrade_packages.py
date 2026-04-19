@@ -91,6 +91,19 @@ def get_outdated() -> dict[str, dict[str, str]]:
     return {entry["name"].lower(): entry for entry in entries}
 
 
+def get_latest_version(entry: dict[str, str]) -> str:
+    """Return the latest version field from a pip outdated entry.
+
+    Different pip versions report the target version as either ``latest`` or
+    ``latest_version``. Support both so the upgrade helper works across the
+    project's supported environments.
+    """
+    latest = entry.get("latest") or entry.get("latest_version")
+    if not latest:
+        raise KeyError(f"Missing latest version field in pip outdated entry: {entry}")
+    return latest
+
+
 def is_pinned(req: Any) -> bool:
     """Return True if the requirement has an exact pin (== or ===)."""
     return any(spec.operator in {"==", "==="} for spec in req.specifier)
@@ -155,7 +168,7 @@ def main() -> int:
     print("Planned upgrades:")
     for name in sorted(targets):
         entry = outdated[name.lower()]
-        print(f"- {entry['name']}: {entry['version']} -> {entry['latest']}")
+        print(f"- {entry['name']}: {entry['version']} -> {get_latest_version(entry)}")
 
     if args.dry_run:
         print("Dry run: no packages were upgraded.")

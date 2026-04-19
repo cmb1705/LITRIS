@@ -1,6 +1,6 @@
 # Core dependency ranges for LITRIS.
-# requirements.lock is currently only an environment snapshot, not a
-# cross-platform reproducible lockfile.
+# requirements.lock is generated from requirements-dev.txt with pip-compile
+# to capture a reproducible project environment.
 
 # LLM API clients
 anthropic>=0.18,<1.0
@@ -59,8 +59,10 @@ pytesseract>=0.3.10,<1.0
 pdf2image>=1.16,<2.0
 Pillow>=10.0,<13.0
 
-# PDF to markdown (optional - ML-based extraction for tables/figures)
-marker-pdf>=1.0,<2.0
+# PDF to markdown (optional - install separately; marker-pdf 1.10.x still
+# pins openai<2, anthropic<0.47, and Pillow<11, so it is excluded from the
+# reproducible base environment and lockfile)
+# See requirements-optional.txt if you need the Marker tier explicitly.
 
 # PDF layout analysis (optional - Java-based, requires Java 11+)
 opendataloader-pdf>=2.0,<3.0
