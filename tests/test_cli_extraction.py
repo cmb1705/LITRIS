@@ -154,6 +154,42 @@ class TestClaudeCliExecutor:
         assert authenticator.get_auth_method() == "none"
         assert authenticator.is_authenticated() == (False, "No credentials found")
 
+    def test_authenticator_logs_malformed_credentials_file(
+        self,
+        monkeypatch,
+        tmp_path,
+        caplog,
+    ):
+        """Malformed stored credentials should be explicit, then treated as unavailable."""
+        from src.analysis.cli_executor import ClaudeCliAuthenticator
+
+        parent_logger = logging.getLogger("lit_review")
+        cli_logger = logging.getLogger("lit_review.analysis.cli_executor")
+        original_parent_propagate = parent_logger.propagate
+        original_cli_propagate = cli_logger.propagate
+        parent_logger.propagate = True
+        cli_logger.propagate = True
+        caplog.set_level(logging.WARNING, logger="lit_review")
+
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+
+        creds_path = tmp_path / ".credentials.json"
+        creds_path.write_text("{not-json", encoding="utf-8")
+
+        try:
+            with patch.object(ClaudeCliAuthenticator, "_get_credentials_path", return_value=creds_path):
+                authenticator = ClaudeCliAuthenticator()
+
+            assert authenticator.get_auth_method() == "none"
+            assert any(
+                "Failed to load Claude OAuth credentials" in rec.message
+                for rec in caplog.records
+            )
+        finally:
+            parent_logger.propagate = original_parent_propagate
+            cli_logger.propagate = original_cli_propagate
+
     def test_rate_limit_detection(self):
         """Test rate limit detection in responses."""
         executor = ClaudeCliExecutor()

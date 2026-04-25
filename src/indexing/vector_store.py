@@ -488,7 +488,11 @@ class VectorStore:
                     if chunk_type:
                         chunk_type_counts[chunk_type] = chunk_type_counts.get(chunk_type, 0) + 1
             unique_papers = len(paper_ids)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Could not inspect vector store metadata; returning partial stats: %s",
+                exc,
+            )
             chunk_type_counts = {}
             unique_papers = 0
 

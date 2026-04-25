@@ -3,7 +3,7 @@
 from typing import Literal
 
 from src.analysis.base_llm import BaseLLMClient, ExtractionMode
-from src.analysis.constants import DEFAULT_MODELS
+from src.analysis.constants import get_default_model as _get_default_model
 
 # Provider type for configuration
 Provider = Literal["anthropic", "openai", "google", "ollama", "llamacpp"]
@@ -178,7 +178,7 @@ def get_default_model(provider: Provider) -> str:
     Returns:
         Default model identifier.
     """
-    return DEFAULT_MODELS.get(provider, DEFAULT_MODELS["anthropic"])
+    return _get_default_model(provider)
 
 
 # Backward compatibility alias

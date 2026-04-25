@@ -11,8 +11,6 @@ logger = get_logger(__name__)
 class RateLimitExceededError(Exception):
     """Rate limit exceeded and cannot continue."""
 
-    pass
-
 
 class RateLimitHandler:
     """Monitor and handle Max subscription rate limits.

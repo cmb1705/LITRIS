@@ -16,8 +16,6 @@ ExtractionMethod = Literal["pymupdf", "ocr", "hybrid"]
 class PDFExtractionError(Exception):
     """Error during PDF extraction."""
 
-    pass
-
 
 class PDFExtractor:
     """Extract text from PDF files using PyMuPDF with optional OCR fallback."""

@@ -7,9 +7,9 @@ from unittest.mock import patch
 import pytest
 
 from src.analysis.classification_store import (
+    SCHEMA_VERSION,
     ClassificationIndex,
     ClassificationRecord,
-    SCHEMA_VERSION,
     ClassificationStore,
 )
 

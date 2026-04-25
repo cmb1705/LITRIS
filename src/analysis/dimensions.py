@@ -11,7 +11,7 @@ import hashlib
 import json
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -64,7 +64,37 @@ DIMENSION_VALUE_TEXT_KEYS = (
 )
 
 
-def normalize_dimension_value(value: Any) -> str | None:
+@runtime_checkable
+class DimensionValueProvider(Protocol):
+    """Object that can resolve dimension and role values."""
+
+    def get_dimension(self, identifier: str) -> str | None:
+        """Return a dimension value by canonical, legacy, or alias identifier."""
+        ...
+
+    def get_role(self, role_name: str) -> str | None:
+        """Return a dimension value by semantic role."""
+        ...
+
+
+@runtime_checkable
+class DimensionMapProvider(Protocol):
+    """Object exposing canonical dimension values."""
+
+    @property
+    def dimension_map(self) -> dict[str, str | None]:
+        """Return canonical dimension values keyed by dimension ID."""
+        ...
+
+
+@runtime_checkable
+class ProfileIdProvider(Protocol):
+    """Object exposing a dimension profile ID."""
+
+    profile_id: str | None
+
+
+def normalize_dimension_value(value: object) -> str | None:
     """Convert a raw dimension payload into a compact string value."""
 
     if value is None:
@@ -83,17 +113,17 @@ def normalize_dimension_value(value: Any) -> str | None:
         for key in DIMENSION_VALUE_TEXT_KEYS:
             if key not in value:
                 continue
-            text = normalize_dimension_value(value.get(key))
-            if text:
-                preferred.append(text)
+            normalized_text = normalize_dimension_value(value.get(key))
+            if normalized_text:
+                preferred.append(normalized_text)
 
         for key, item in value.items():
             if key in DIMENSION_VALUE_TEXT_KEYS:
                 continue
-            text = normalize_dimension_value(item)
-            if not text:
+            normalized_text = normalize_dimension_value(item)
+            if not normalized_text:
                 continue
-            extras.append(f"{str(key).replace('_', ' ')}: {text}")
+            extras.append(f"{str(key).replace('_', ' ')}: {normalized_text}")
 
         parts = list(dict.fromkeys([*preferred, *extras]))
         if parts:
@@ -1376,7 +1406,7 @@ def normalize_dimension_input_values(
     return normalized
 
 
-def unwrap_extraction_record(record: Any) -> Any:
+def unwrap_extraction_record(record: object) -> object:
     """Unwrap nested extraction wrappers when present."""
 
     if (
@@ -1388,11 +1418,11 @@ def unwrap_extraction_record(record: Any) -> Any:
     return record
 
 
-def get_profile_id_from_record(record: Any) -> str:
+def get_profile_id_from_record(record: object) -> str:
     """Return the profile ID encoded in a record, with legacy fallback."""
 
     unwrapped = unwrap_extraction_record(record)
-    if hasattr(unwrapped, "profile_id"):
+    if isinstance(unwrapped, ProfileIdProvider):
         return unwrapped.profile_id or DEFAULT_DIMENSION_PROFILE
     if isinstance(unwrapped, Mapping):
         return str(unwrapped.get("profile_id") or DEFAULT_DIMENSION_PROFILE)
@@ -1400,7 +1430,7 @@ def get_profile_id_from_record(record: Any) -> str:
 
 
 def get_dimension_value(
-    record: Any,
+    record: object,
     identifier: str,
     registry: DimensionRegistry | None = None,
 ) -> str | None:
@@ -1410,13 +1440,10 @@ def get_dimension_value(
         return None
 
     unwrapped = unwrap_extraction_record(record)
-    get_dimension = getattr(type(unwrapped), "get_dimension", None)
-    if callable(get_dimension):
+    if isinstance(unwrapped, DimensionValueProvider):
         value = unwrapped.get_dimension(identifier)
         if value is not None:
             return value
-    get_role = getattr(type(unwrapped), "get_role", None)
-    if callable(get_role):
         value = unwrapped.get_role(identifier)
         if value is not None:
             return value
@@ -1453,7 +1480,7 @@ def get_dimension_value(
 
 
 def get_dimension_map(
-    record: Any,
+    record: object,
     registry: DimensionRegistry | None = None,
 ) -> dict[str, str | None]:
     """Return canonical dimension values from a raw mapping or model instance."""
@@ -1462,7 +1489,7 @@ def get_dimension_map(
         return {}
 
     unwrapped = unwrap_extraction_record(record)
-    if hasattr(unwrapped, "dimension_map"):
+    if isinstance(unwrapped, DimensionMapProvider):
         return dict(unwrapped.dimension_map)
 
     if isinstance(unwrapped, Mapping):

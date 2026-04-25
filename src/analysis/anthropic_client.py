@@ -380,7 +380,6 @@ class AnthropicLLMClient(BaseLLMClient):
         Returns:
             Parsed SemanticAnalysis.
         """
-        # Clean response - remove any markdown formatting
         text = response_text.strip()
         if text.startswith("```json"):
             text = text[7:]
@@ -390,11 +389,9 @@ class AnthropicLLMClient(BaseLLMClient):
             text = text[:-3]
         text = text.strip()
 
-        # Guard against empty response
         if not text:
             raise ValueError("Cannot parse empty response from LLM")
 
-        # Parse JSON
         data = json.loads(text)
 
         if is_dimension_payload(data):

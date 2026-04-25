@@ -1,12 +1,19 @@
 """Input validation for MCP tool parameters."""
 
-from src.indexing.embeddings import CHUNK_TYPES
-
 # Constants
 MAX_QUERY_LENGTH = 1000
 MAX_TOP_K = 50
 MIN_YEAR = 1800
 MAX_YEAR = 2100
+
+
+def _chunk_types_error_detail() -> str:
+    """Return known chunk types for validation errors without eager imports."""
+    try:
+        from src.indexing.embeddings import CHUNK_TYPES
+    except Exception:  # noqa: BLE001 - validation should still fail clearly
+        return "abstract, raptor_overview, raptor_core, and profile-defined dim_*"
+    return f"{CHUNK_TYPES} plus profile-defined dim_* chunk types"
 
 
 class ValidationError(Exception):
@@ -126,7 +133,7 @@ def validate_chunk_types(chunk_types: list[str]) -> list[str]:
     if invalid_types:
         raise ValidationError(
             f"Invalid chunk types: {invalid_types}. "
-            f"Valid types are: {CHUNK_TYPES} plus profile-defined dim_* chunk types"
+            f"Valid types are: {_chunk_types_error_detail()}"
         )
 
     return chunk_types

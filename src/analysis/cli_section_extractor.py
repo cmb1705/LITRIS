@@ -26,31 +26,6 @@ from src.zotero.models import PaperMetadata
 logger = get_logger(__name__)
 
 
-def _normalize_discipline_tags(tags: list[str] | None) -> list[str]:
-    """Normalize discipline tags to lowercase and deduplicate.
-
-    Args:
-        tags: Raw discipline tags from extraction.
-
-    Returns:
-        Normalized, deduplicated list of discipline tags.
-    """
-    if not tags:
-        return []
-
-    normalized = []
-    seen = set()
-    for tag in tags:
-        if not isinstance(tag, str):
-            continue
-        # Normalize: lowercase, strip whitespace
-        clean = tag.lower().strip()
-        if clean and clean not in seen:
-            normalized.append(clean)
-            seen.add(clean)
-    return normalized
-
-
 class CliSectionExtractor:
     """Orchestrate CLI-based extraction with rate limiting and progress tracking.
 

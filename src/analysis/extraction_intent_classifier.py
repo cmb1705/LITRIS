@@ -9,9 +9,10 @@ planned routing.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from src.extraction.opendataloader_extractor import (
     OpenDataLoaderHybridConfig,
@@ -144,6 +145,18 @@ class ExtractionPlanItem:
     source_tier: IntentSourceTier
     profile: HybridProfileSpec
     fallback_policy: str
+
+
+class ClassificationRecordLike(Protocol):
+    """Classification record fields required for extraction planning."""
+
+    document_type: str
+    extractable: bool
+    extraction_intent: str | None
+    intent_confidence: float
+    intent_reasons: list[str]
+    intent_source_tier: str | None
+    hybrid_profile_key: str | None
 
 
 def classify_extraction_intent(
@@ -331,7 +344,7 @@ def resolve_hybrid_profile(
 def build_extraction_plan(
     *,
     paper_ids: list[str],
-    classification_records: dict[str, object],
+    classification_records: Mapping[str, ClassificationRecordLike],
     processing: ProcessingConfig,
 ) -> list[ExtractionPlanItem]:
     """Build extraction plan items from persisted classification records."""
@@ -345,12 +358,12 @@ def build_extraction_plan(
         plan_items.append(
             ExtractionPlanItem(
                 paper_id=paper_id,
-                document_type=getattr(record, "document_type", "unknown"),
-                extractable=bool(getattr(record, "extractable", False)),
+                document_type=record.document_type,
+                extractable=record.extractable,
                 intent=intent,
-                intent_confidence=float(getattr(record, "intent_confidence", 0.0) or 0.0),
-                intent_reasons=list(getattr(record, "intent_reasons", []) or []),
-                source_tier=(getattr(record, "intent_source_tier", None) or "metadata_only"),
+                intent_confidence=record.intent_confidence,
+                intent_reasons=list(record.intent_reasons),
+                source_tier=_coerce_source_tier(record.intent_source_tier),
                 profile=profile,
                 fallback_policy="runtime_escalation_allowed",
             )
@@ -369,16 +382,16 @@ def group_extraction_plan_by_profile(
 
 
 def summarize_intents(
-    records: dict[str, object],
+    records: Mapping[str, ClassificationRecordLike],
 ) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
     """Return counts by intent, by profile key, and by confidence bucket."""
     by_intent: dict[str, int] = {}
     by_profile: dict[str, int] = {}
     confidence_buckets = {"low": 0, "medium": 0, "high": 0}
     for record in records.values():
-        intent = str(getattr(record, "extraction_intent", None) or ExtractionIntent.FAST.value)
-        profile_key = str(getattr(record, "hybrid_profile_key", None) or "fast")
-        confidence = float(getattr(record, "intent_confidence", 0.0) or 0.0)
+        intent = record.extraction_intent or ExtractionIntent.FAST.value
+        profile_key = record.hybrid_profile_key or "fast"
+        confidence = record.intent_confidence
         by_intent[intent] = by_intent.get(intent, 0) + 1
         by_profile[profile_key] = by_profile.get(profile_key, 0) + 1
         if confidence >= 0.8:
@@ -388,6 +401,15 @@ def summarize_intents(
         else:
             confidence_buckets["low"] += 1
     return by_intent, by_profile, confidence_buckets
+
+
+def _coerce_source_tier(source_tier: str | None) -> IntentSourceTier:
+    """Normalize stored source-tier strings to the supported literal set."""
+    if source_tier == "cheap_text_pass":
+        return "cheap_text_pass"
+    if source_tier == "stored_snapshot":
+        return "stored_snapshot"
+    return "metadata_only"
 
 
 def _count_pattern_hits(pattern: re.Pattern[str], text: str) -> int:

@@ -203,22 +203,12 @@ def main():
 
     results = {}
 
-    # Test model listing
     results["models"] = test_openai_models()
-
-    # Test cost estimation
     results["costs"] = test_cost_estimation()
-
-    # Test factory
     results["factory"] = test_factory()
-
-    # Test CLI mode (optional - requires Codex CLI)
     results["cli"] = test_openai_cli_mode()
-
-    # Test API mode (optional - requires key)
     results["api"] = test_openai_api_mode()
 
-    # Summary
     print("\n" + "=" * 60)
     print("Summary")
     print("=" * 60)

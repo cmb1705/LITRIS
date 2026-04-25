@@ -1,12 +1,26 @@
 """Adapter layer connecting MCP tools to LITRIS SearchEngine."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
-from src.config import Config
-from src.query.search import SearchEngine
 from src.utils.logging_config import get_logger
+
+if TYPE_CHECKING:
+    from src.config import Config
+    from src.query.search import SearchEngine
+else:
+
+    class Config:
+        """Lazy proxy preserving the historical ``src.mcp.adapters.Config`` patch target."""
+
+        @classmethod
+        def load(cls, *args: Any, **kwargs: Any) -> Any:
+            from src.config import Config as RealConfig
+
+            return RealConfig.load(*args, **kwargs)
 
 logger = get_logger(__name__)
 
@@ -30,6 +44,8 @@ class LitrisAdapter:
     def engine(self) -> SearchEngine:
         """Lazy-initialize and return the SearchEngine."""
         if self._engine is None:
+            from src.query.search import SearchEngine
+
             logger.info("Initializing SearchEngine...")
             index_dir = self._get_index_dir()
             chroma_dir = index_dir / "chroma"
@@ -74,7 +90,7 @@ class LitrisAdapter:
         """Get the index directory path."""
         # Index is stored in data/index relative to project root
         if self.config._project_root:
-            return self.config._project_root / "data" / "index"
+            return cast(Path, self.config._project_root / "data" / "index")
         return Path("data/index")
 
     def search(
@@ -335,7 +351,7 @@ class LitrisAdapter:
             "author_string": paper.get("author_string", ""),
             "publication_year": paper.get("publication_year"),
         }
-        return context
+        return cast(dict[str, Any], context)
 
     def search_rrf(
         self,
@@ -655,7 +671,7 @@ class LitrisAdapter:
             min_cluster_size=min_cluster_size,
         )
 
-        return result.to_dict()
+        return cast(dict[str, Any], result.to_dict())
 
     def get_summary(self) -> dict[str, Any]:
         """Get index summary statistics.

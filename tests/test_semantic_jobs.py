@@ -13,6 +13,7 @@ from src.analysis.dimensions import DimensionProfile, configure_dimension_regist
 from src.analysis.schemas import DimensionedExtraction, ExtractionResult
 from src.config import Config
 from src.indexing.semantic_jobs import (
+    _ensure_index_profile_compatible,
     build_batch_manifest,
     collect_semantic_batch,
     load_batch_manifest,
@@ -110,6 +111,40 @@ def _save_snapshot(store: StructuredStore, paper_id: str, text: str) -> None:
             "pdf_mtime_ns": int(stat.st_mtime_ns),
         },
     )
+
+
+def _make_retry_extractor(
+    profile: DimensionProfile,
+    *,
+    answer: str = "retried answer",
+    expected_ids: list[str] | None = None,
+    expected_snapshot_text: str = "Snapshot text for retry flow",
+) -> type:
+    expected_ids = expected_ids or ["paper_001"]
+
+    class FakeExtractor:
+        def extract_batch(self, papers, text_snapshots):
+            assert [paper.paper_id for paper in papers] == expected_ids
+            assert text_snapshots[expected_ids[0]]["text"] == expected_snapshot_text
+            yield ExtractionResult(
+                paper_id=expected_ids[0],
+                success=True,
+                extraction=DimensionedExtraction(
+                    paper_id=expected_ids[0],
+                    profile_id=profile.profile_id,
+                    profile_version=profile.version,
+                    profile_fingerprint=profile.fingerprint,
+                    prompt_version="2.0.0",
+                    extraction_model="retry-model",
+                    extracted_at="2026-04-16T00:00:00",
+                    dimensions={"custom_dimension": answer},
+                ),
+                timestamp=datetime(2026, 4, 16, 0, 0, 0),
+                model_used="retry-model",
+                duration_seconds=1.0,
+            )
+
+    return FakeExtractor
 
 
 @pytest.fixture(autouse=True)
@@ -288,27 +323,7 @@ def test_retry_semantic_papers_uses_stored_snapshots(
     store = _seed_index(tmp_path, ["paper_001"])
     _save_snapshot(store, "paper_001", "Snapshot text for retry flow")
 
-    class FakeExtractor:
-        def extract_batch(self, papers, text_snapshots):
-            assert [paper.paper_id for paper in papers] == ["paper_001"]
-            assert text_snapshots["paper_001"]["text"] == "Snapshot text for retry flow"
-            yield ExtractionResult(
-                paper_id="paper_001",
-                success=True,
-                extraction=DimensionedExtraction(
-                    paper_id="paper_001",
-                    profile_id=profile.profile_id,
-                    profile_version=profile.version,
-                    profile_fingerprint=profile.fingerprint,
-                    prompt_version="2.0.0",
-                    extraction_model="retry-model",
-                    extracted_at="2026-04-16T00:00:00",
-                    dimensions={"custom_dimension": "retried answer"},
-                ),
-                timestamp=datetime(2026, 4, 16, 0, 0, 0),
-                model_used="retry-model",
-                duration_seconds=1.0,
-            )
+    FakeExtractor = _make_retry_extractor(profile)
 
     monkeypatch.setattr(
         "src.indexing.pipeline.configure_extraction_runtime",
@@ -382,27 +397,7 @@ def test_retry_semantic_papers_allows_mixed_index_outside_selected_scope(
     )
     _save_snapshot(store, "paper_001", "Snapshot text for retry flow")
 
-    class FakeExtractor:
-        def extract_batch(self, papers, text_snapshots):
-            assert [paper.paper_id for paper in papers] == ["paper_001"]
-            assert text_snapshots["paper_001"]["text"] == "Snapshot text for retry flow"
-            yield ExtractionResult(
-                paper_id="paper_001",
-                success=True,
-                extraction=DimensionedExtraction(
-                    paper_id="paper_001",
-                    profile_id=profile.profile_id,
-                    profile_version=profile.version,
-                    profile_fingerprint=profile.fingerprint,
-                    prompt_version="2.0.0",
-                    extraction_model="retry-model",
-                    extracted_at="2026-04-16T00:00:00",
-                    dimensions={"custom_dimension": "retried answer"},
-                ),
-                timestamp=datetime(2026, 4, 16, 0, 0, 0),
-                model_used="retry-model",
-                duration_seconds=1.0,
-            )
+    FakeExtractor = _make_retry_extractor(profile)
 
     monkeypatch.setattr(
         "src.indexing.pipeline.configure_extraction_runtime",
@@ -479,27 +474,7 @@ def test_retry_semantic_papers_overwrites_selected_mismatched_profile(
     )
     _save_snapshot(store, "paper_001", "Snapshot text for retry flow")
 
-    class FakeExtractor:
-        def extract_batch(self, papers, text_snapshots):
-            assert [paper.paper_id for paper in papers] == ["paper_001"]
-            assert text_snapshots["paper_001"]["text"] == "Snapshot text for retry flow"
-            yield ExtractionResult(
-                paper_id="paper_001",
-                success=True,
-                extraction=DimensionedExtraction(
-                    paper_id="paper_001",
-                    profile_id=profile.profile_id,
-                    profile_version=profile.version,
-                    profile_fingerprint=profile.fingerprint,
-                    prompt_version="2.0.0",
-                    extraction_model="retry-model",
-                    extracted_at="2026-04-16T00:00:00",
-                    dimensions={"custom_dimension": "retried answer"},
-                ),
-                timestamp=datetime(2026, 4, 16, 0, 0, 0),
-                model_used="retry-model",
-                duration_seconds=1.0,
-            )
+    FakeExtractor = _make_retry_extractor(profile)
 
     monkeypatch.setattr(
         "src.indexing.pipeline.configure_extraction_runtime",
@@ -536,6 +511,25 @@ def test_retry_semantic_papers_overwrites_selected_mismatched_profile(
     saved = reloaded.load_extractions()["paper_001"]
     assert saved["extraction"]["profile_id"] == profile.profile_id
     assert saved["extraction"]["dimensions"]["custom_dimension"] == "retried answer"
+
+
+def test_profile_compatibility_rejects_unreadable_existing_extraction(tmp_path: Path) -> None:
+    profile = _custom_profile()
+    store = _seed_index(tmp_path, ["paper_001"])
+    store.save_extractions(
+        {
+            "paper_001": {
+                "paper_id": "paper_001",
+                "extraction": {
+                    "paper_id": "paper_001",
+                    "dimensions": [],
+                },
+            }
+        }
+    )
+
+    with pytest.raises(ValueError, match="Cannot validate existing semantic extraction"):
+        _ensure_index_profile_compatible(index_dir=tmp_path, profile=profile)
 
 
 def test_retry_semantic_papers_rejects_partial_pass_results(

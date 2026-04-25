@@ -13,11 +13,13 @@ import tempfile
 import time
 from collections import defaultdict
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from src.analysis.batch_types import BatchRequest
+from src.analysis.batch_types import PaperPassResults as _PaperPassResults
 from src.analysis.constants import DEFAULT_MODELS, OPENAI_PRICING
 from src.analysis.coverage import score_coverage, score_dimension_values
 from src.analysis.dimensions import DimensionProfile
@@ -33,16 +35,6 @@ from src.utils.secrets import get_openai_api_key
 from src.zotero.models import PaperMetadata
 
 logger = get_logger(__name__)
-
-
-@dataclass
-class BatchRequest:
-    """A single request in a batch."""
-
-    custom_id: str  # {paper_id}:pass{N}
-    paper: PaperMetadata
-    prompt: str
-    pass_number: int = 1
 
 
 @dataclass
@@ -71,16 +63,6 @@ class BatchIssue:
     message: str
     status_code: int = 0
     error_code: str = ""
-
-
-@dataclass
-class _PaperPassResults:
-    """Accumulator for per-paper pass results during batch reassembly."""
-
-    answers: dict[str, str | None] = field(default_factory=dict)
-    total_input_tokens: int = 0
-    total_output_tokens: int = 0
-    errors: list[str] = field(default_factory=list)
 
 
 class OpenAIBatchClient:
@@ -238,7 +220,7 @@ class OpenAIBatchClient:
             completion_window="24h",
         )
 
-        batch_id = batch.id
+        batch_id = cast(str, batch.id)
         logger.info(f"Batch submitted: {batch_id}")
 
         # Clean up temp file

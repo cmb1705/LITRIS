@@ -65,7 +65,6 @@ def get_dimension_group_map(profile_id: str | None = None) -> dict[str, str]:
     return mapping
 
 
-_DIM_CHUNK_TYPES = get_dimension_chunk_types()
 CHUNK_TYPES: list[str] = get_chunk_types()
 DIMENSION_GROUPS: dict[str, str] = get_dimension_group_map()
 
@@ -356,7 +355,7 @@ class EmbeddingGenerator:
 
     def _get_ollama_client(self):
         """Return a thread-local Ollama client when concurrency is enabled."""
-        if self.ollama_concurrency <= 1:
+        if max(1, int(getattr(self, "ollama_concurrency", 1))) <= 1:
             return self._ollama_client
         client = getattr(self._ollama_client_local, "client", None)
         if client is None:
@@ -679,12 +678,13 @@ class EmbeddingGenerator:
         if not texts:
             return
         batches = [texts[index : index + batch_size] for index in range(0, len(texts), batch_size)]
-        if self.ollama_concurrency <= 1 or len(batches) <= 1:
+        ollama_concurrency = max(1, int(getattr(self, "ollama_concurrency", 1)))
+        if ollama_concurrency <= 1 or len(batches) <= 1:
             for batch in batches:
                 yield self._ollama_embed_with_fallback(batch)
             return
 
-        max_workers = min(self.ollama_concurrency, len(batches))
+        max_workers = min(ollama_concurrency, len(batches))
         logger.info(
             "Embedding via Ollama with concurrency=%d over %d request batches",
             max_workers,

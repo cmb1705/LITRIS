@@ -7,6 +7,7 @@ import importlib.util
 import json
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from typing import Any
 
 import pytest
 import yaml
@@ -151,6 +152,35 @@ def _write_text_snapshot(index_dir: Path, paper_id: str, text: str) -> None:
 def _write_profile(path: Path, profile_dict: dict) -> None:
     with open(path, "w", encoding="utf-8") as handle:
         yaml.safe_dump(profile_dict, handle, sort_keys=False, allow_unicode=False)
+
+
+def _make_target_profile_extractor(target_profile: Any) -> type:
+    class DummyExtractor:
+        def extract_batch(self, papers, progress_callback=None, section_ids=None):
+            for paper in papers:
+                yield ExtractionResult(
+                    paper_id=paper.paper_id,
+                    success=True,
+                    extraction=DimensionedExtraction(
+                        paper_id=paper.paper_id,
+                        profile_id=target_profile.profile_id,
+                        profile_version=target_profile.version,
+                        profile_fingerprint=target_profile.fingerprint,
+                        prompt_version="2.0.0",
+                        extraction_model="target-model",
+                        extracted_at="2026-03-31T01:00:00",
+                        dimensions={
+                            "paradigm": "Updated paradigm",
+                            "methods": "Updated methods",
+                            "data": "Updated data",
+                            "reproducibility": "Updated reproducibility",
+                            "framework": "Updated framework",
+                        },
+                    ),
+                    model_used="target-model",
+                )
+
+    return DummyExtractor
 
 
 @pytest.fixture(autouse=True)
@@ -834,31 +864,7 @@ def test_partial_backfill_keeps_index_snapshot_on_old_profile(
     _write_profile(profile_path, profile_dict)
 
     target_profile = dimensions_cli.load_dimension_profile(profile_path)
-
-    class DummyExtractor:
-        def extract_batch(self, papers, progress_callback=None, section_ids=None):
-            for paper in papers:
-                yield ExtractionResult(
-                    paper_id=paper.paper_id,
-                    success=True,
-                    extraction=DimensionedExtraction(
-                        paper_id=paper.paper_id,
-                        profile_id=target_profile.profile_id,
-                        profile_version=target_profile.version,
-                        profile_fingerprint=target_profile.fingerprint,
-                        prompt_version="2.0.0",
-                        extraction_model="target-model",
-                        extracted_at="2026-03-31T01:00:00",
-                        dimensions={
-                            "paradigm": "Updated paradigm",
-                            "methods": "Updated methods",
-                            "data": "Updated data",
-                            "reproducibility": "Updated reproducibility",
-                            "framework": "Updated framework",
-                        },
-                    ),
-                    model_used="target-model",
-                )
+    DummyExtractor = _make_target_profile_extractor(target_profile)
 
     monkeypatch.setattr(
         dimensions_cli,
@@ -933,31 +939,7 @@ def test_backfill_does_not_advance_profile_if_embedding_refresh_fails(
     _write_profile(profile_path, profile_dict)
 
     target_profile = dimensions_cli.load_dimension_profile(profile_path)
-
-    class DummyExtractor:
-        def extract_batch(self, papers, progress_callback=None, section_ids=None):
-            for paper in papers:
-                yield ExtractionResult(
-                    paper_id=paper.paper_id,
-                    success=True,
-                    extraction=DimensionedExtraction(
-                        paper_id=paper.paper_id,
-                        profile_id=target_profile.profile_id,
-                        profile_version=target_profile.version,
-                        profile_fingerprint=target_profile.fingerprint,
-                        prompt_version="2.0.0",
-                        extraction_model="target-model",
-                        extracted_at="2026-03-31T01:00:00",
-                        dimensions={
-                            "paradigm": "Updated paradigm",
-                            "methods": "Updated methods",
-                            "data": "Updated data",
-                            "reproducibility": "Updated reproducibility",
-                            "framework": "Updated framework",
-                        },
-                    ),
-                    model_used="target-model",
-                )
+    DummyExtractor = _make_target_profile_extractor(target_profile)
 
     monkeypatch.setattr(
         dimensions_cli,

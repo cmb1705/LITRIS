@@ -194,8 +194,8 @@ class ExtractionCache:
                 try:
                     cache_file.unlink()
                     count += 1
-                except Exception:
-                    pass
+                except OSError as exc:
+                    logger.warning("Failed to remove cached extraction %s: %s", cache_file, exc)
         logger.info(f"Cleared {count} cached extractions")
         return count
 

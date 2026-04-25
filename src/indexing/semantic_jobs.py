@@ -826,7 +826,11 @@ def _record_matches_target(
 
     try:
         extraction = DimensionedExtraction.from_record(record)
-    except Exception:
+    except (TypeError, ValueError) as exc:
+        logger.warning(
+            "Existing semantic extraction record is unreadable; scheduling re-extraction: %s",
+            exc,
+        )
         return False
     return (
         extraction.profile_fingerprint == profile.fingerprint
@@ -949,8 +953,10 @@ def _ensure_index_profile_compatible(
             continue
         try:
             extraction = DimensionedExtraction.from_record(record)
-        except Exception:
-            continue
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Cannot validate existing semantic extraction for {paper_id!r}: {exc}"
+            ) from exc
         if extraction.profile_fingerprint and extraction.profile_fingerprint != profile.fingerprint:
             mismatched_ids.append(paper_id)
             if len(mismatched_ids) >= 5:

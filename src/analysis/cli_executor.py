@@ -154,7 +154,18 @@ class ClaudeCliAuthenticator:
         try:
             with open(self.creds_path, encoding="utf-8") as f:
                 creds = json.load(f)
-        except Exception:
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "Failed to load Claude OAuth credentials from %s: %s",
+                self.creds_path,
+                exc,
+            )
+            return None
+        if not isinstance(creds, dict):
+            logger.warning(
+                "Claude OAuth credentials file %s did not contain a JSON object",
+                self.creds_path,
+            )
             return None
         oauth = creds.get("claudeAiOauth")
         return oauth if isinstance(oauth, dict) else None

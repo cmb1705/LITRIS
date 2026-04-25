@@ -4,13 +4,15 @@ import json
 import time
 from collections import defaultdict
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
 from anthropic import Anthropic
 
+from src.analysis.batch_types import BatchRequest
+from src.analysis.batch_types import PaperPassResults as _PaperPassResults
 from src.analysis.constants import ANTHROPIC_BATCH_PRICING, DEFAULT_MODELS
 from src.analysis.coverage import score_coverage, score_dimension_values
 from src.analysis.dimensions import DimensionProfile
@@ -31,16 +33,6 @@ CUSTOM_ID_PASS_SEPARATOR = "__pass"
 
 
 @dataclass
-class BatchRequest:
-    """A single request in a batch."""
-
-    custom_id: str  # {paper_id}__pass{N}
-    paper: PaperMetadata
-    prompt: str
-    pass_number: int = 1
-
-
-@dataclass
 class BatchStatus:
     """Status of a batch job."""
 
@@ -52,16 +44,6 @@ class BatchStatus:
     failed_requests: int = 0
     expired_at: datetime | None = None
     results_url: str | None = None
-
-
-@dataclass
-class _PaperPassResults:
-    """Accumulator for per-paper pass results during batch reassembly."""
-
-    answers: dict[str, str | None] = field(default_factory=dict)
-    total_input_tokens: int = 0
-    total_output_tokens: int = 0
-    errors: list[str] = field(default_factory=list)
 
 
 class BatchExtractionClient:
@@ -196,7 +178,7 @@ class BatchExtractionClient:
         # Create the batch
         response = self.client.messages.batches.create(requests=cast(Any, batch_requests))
 
-        batch_id = response.id
+        batch_id = cast(str, response.id)
         logger.info(f"Batch submitted: {batch_id}")
 
         # Save batch state
