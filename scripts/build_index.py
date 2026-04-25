@@ -81,7 +81,7 @@ def parse_args():
         "--model",
         type=str,
         default=None,
-        help="Model to use (e.g., gpt-5.4, claude-opus-4-6)",
+        help="Model to use (e.g., gpt-5.5, claude-opus-4-6)",
     )
     parser.add_argument(
         "--summary-model",
@@ -768,7 +768,9 @@ def run_embedding_generation(
     rebuild: bool,
     logger,
     embedding_backend: str = "sentence-transformers",
+    embedding_device: str | None = None,
     ollama_base_url: str = "http://localhost:11434",
+    ollama_concurrency: int = 1,
     document_prefix: str | None = None,
     embedding_batch_size: int | str = "auto",
 ) -> int:
@@ -782,8 +784,10 @@ def run_embedding_generation(
     logger.info("Initializing embedding generator...")
     embedding_gen = EmbeddingGenerator(
         model_name=embedding_model,
+        device=embedding_device,
         backend=embedding_backend,
         ollama_base_url=ollama_base_url,
+        ollama_concurrency=ollama_concurrency,
         document_prefix=document_prefix,
     )
 
@@ -899,7 +903,9 @@ def compute_similarity_pairs(
     embedding_model: str,
     top_n: int = 20,
     embedding_backend: str = "sentence-transformers",
+    embedding_device: str | None = None,
     ollama_base_url: str = "http://localhost:11434",
+    ollama_concurrency: int = 1,
     query_prefix: str | None = None,
     document_prefix: str | None = None,
     embedding_batch_size: int | str | None = None,
@@ -974,8 +980,10 @@ def compute_similarity_pairs(
                 if overview_chunks:
                     embedding_gen = EmbeddingGenerator(
                         model_name=embedding_model,
+                        device=embedding_device,
                         backend=embedding_backend,
                         ollama_base_url=ollama_base_url,
+                        ollama_concurrency=ollama_concurrency,
                         query_prefix=query_prefix,
                         document_prefix=document_prefix,
                     )

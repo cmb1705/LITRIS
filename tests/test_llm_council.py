@@ -1616,6 +1616,8 @@ class TestGapFilling:
         # Gap-fill fields now populated
         assert merged.q06_paradigm is not None
         assert gaps_filled > 0
+        assert merged.dimension_coverage == pytest.approx(10 / 40)
+        assert "CRITICAL_GAPS" in merged.coverage_flags
 
     def test_no_gaps_returns_unchanged(self):
         """fill_gaps returns original analysis when all fields are filled."""

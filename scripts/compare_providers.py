@@ -501,8 +501,8 @@ def main():
     parser.add_argument(
         "--openai-model",
         dest="openai_model",
-        default="gpt-5.4",
-        help="OpenAI model to use (default: gpt-5.4)",
+        default=DEFAULT_MODELS["openai"],
+        help=f"OpenAI model to use (default: {DEFAULT_MODELS['openai']})",
     )
     parser.add_argument(
         "--anthropic-model",

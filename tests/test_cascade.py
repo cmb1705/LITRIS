@@ -1,6 +1,7 @@
 """Tests for multi-tier PDF extraction cascade."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -242,6 +243,41 @@ class TestExtractionCascade:
         )
         with pytest.raises(PDFExtractionError, match="All extraction tiers failed"):
             cascade.extract_text(Path("bad.pdf"))
+
+    @patch("src.extraction.cascade.opendataloader_extractor.get_last_attempt_result")
+    @patch("src.extraction.cascade.opendataloader_extractor.extract_with_opendataloader")
+    @patch("src.extraction.cascade.opendataloader_extractor.is_available")
+    @patch("src.extraction.cascade.web_extractor.extract_html_attachment")
+    def test_cascade_uses_html_attachment_fallback_for_local_html(
+        self,
+        mock_html_extract,
+        mock_odl_available,
+        mock_odl_extract,
+        mock_odl_attempt,
+        mock_pdf_extractor,
+    ):
+        """Local HTML attachments should not fall through to PDF backends."""
+        mock_odl_available.return_value = True
+        mock_odl_extract.return_value = None
+        mock_odl_attempt.return_value = SimpleNamespace(error="no markdown output produced")
+        mock_html_extract.return_value = SimpleNamespace(
+            text=self._LONG_TEXT,
+            word_count=len(self._LONG_TEXT.split()),
+        )
+
+        cascade = ExtractionCascade(
+            pdf_extractor=mock_pdf_extractor,
+            enable_arxiv=False,
+            enable_opendataloader=True,
+            enable_marker=False,
+        )
+        result = cascade.extract_text(Path("saved-page.html"), url="https://example.com")
+
+        assert result.method == "html_attachment"
+        assert "opendataloader" in result.tiers_attempted
+        assert "html_attachment" in result.tiers_attempted
+        mock_html_extract.assert_called_once_with(Path("saved-page.html"), url="https://example.com")
+        mock_pdf_extractor.extract_text_with_method.assert_not_called()
 
     def test_cascade_rejects_insufficient_text(self, mock_pdf_extractor):
         """Text below min_words threshold is rejected."""

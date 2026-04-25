@@ -651,7 +651,8 @@ class IndexOrchestrator:
         stage_times: dict[str, float] = {}
         run_failed_ids: list[str] = []
 
-        if classification_scope_ids or plan.change_set.deleted_items:
+        classification_deleted_ids = self._delete_paper_ids_for_run(args=args, plan=plan)
+        if classification_scope_ids or classification_deleted_ids:
             with self._time_stage("classification", stage_times):
                 self._update_classification_index(
                     class_store=class_store,
@@ -659,7 +660,7 @@ class IndexOrchestrator:
                     papers=[
                         current_papers_by_id[paper_id] for paper_id in classification_scope_ids
                     ],
-                    deleted_paper_ids=plan.change_set.deleted_items,
+                    deleted_paper_ids=sorted(classification_deleted_ids),
                     config=config,
                     force_reclassify=getattr(args, "reclassify", False),
                     refresh_text=getattr(args, "refresh_text", False),
@@ -1001,7 +1002,11 @@ class IndexOrchestrator:
         else:
             final_papers = dict(existing_papers)
             final_extractions = dict(existing_extractions)
-            deleted_from_store = set(plan.change_set.deleted_items) | removed_from_index_ids
+            deleted_from_store = self._delete_paper_ids_for_run(
+                args=args,
+                plan=plan,
+                removed_from_index_ids=removed_from_index_ids,
+            )
             for paper_id in deleted_from_store:
                 final_papers.pop(paper_id, None)
                 final_extractions.pop(paper_id, None)
@@ -1023,7 +1028,13 @@ class IndexOrchestrator:
             final_extractions=final_extractions,
             failed_extraction_ids=failed_extraction_ids,
         )
-        delete_embedding_ids = sorted(set(plan.change_set.deleted_items) | removed_from_index_ids)
+        delete_embedding_ids = sorted(
+            self._delete_paper_ids_for_run(
+                args=args,
+                plan=plan,
+                removed_from_index_ids=removed_from_index_ids,
+            )
+        )
 
         artifact_snapshot = IndexArtifactSnapshot.capture(
             self.index_dir,
@@ -1159,6 +1170,39 @@ class IndexOrchestrator:
                         if plan.clear_vector_store:
                             staged_chroma_dir = self._create_staged_chroma_dir()
                         embedding_run_metadata: dict[str, Any] = {}
+                        manifest.stage_health["embeddings"] = "pending"
+                        if plan.clear_vector_store:
+                            manifest.pending_work["embeddings"].all = True
+                            manifest.pending_work["raptor"].all = True
+                        manifest.save(self.manifest_path)
+                        last_embedding_progress_persist = 0.0
+
+                        def persist_embedding_progress(payload: dict[str, Any]) -> None:
+                            nonlocal last_embedding_progress_persist
+                            manifest.last_run.update(payload)
+                            progress = payload.get("embedding_progress", {})
+                            now = perf_counter()
+                            should_persist = (
+                                not progress
+                                or progress.get("remaining_chunks", 0) == 0
+                                or now - last_embedding_progress_persist >= 5.0
+                            )
+                            if not should_persist:
+                                return
+                            last_embedding_progress_persist = now
+                            manifest.save(self.manifest_path)
+                            summary_snapshot = (
+                                safe_read_json(self.index_dir / "summary.json", default={}) or {}
+                            )
+                            self._write_metadata(
+                                manifest=manifest,
+                                final_papers=final_papers,
+                                final_extractions=final_extractions,
+                                stage_times=stage_times,
+                                failed_paper_ids=run_failed_ids,
+                                summary=summary_snapshot,
+                            )
+
                         run_embedding_generation(
                             papers=raptor_papers,
                             extractions=final_extractions,
@@ -1167,7 +1211,9 @@ class IndexOrchestrator:
                             rebuild=plan.clear_vector_store,
                             logger=self.logger,
                             embedding_backend=config.embeddings.backend,
+                            embedding_device=config.embeddings.device,
                             ollama_base_url=config.embeddings.ollama_base_url,
+                            ollama_concurrency=config.embeddings.ollama_concurrency,
                             query_prefix=config.embeddings.query_prefix,
                             document_prefix=config.embeddings.document_prefix,
                             embedding_batch_size=config.embeddings.batch_size,
@@ -1177,6 +1223,7 @@ class IndexOrchestrator:
                             ),
                             vector_store_dir=staged_chroma_dir,
                             run_metadata=embedding_run_metadata,
+                            progress_callback=persist_embedding_progress,
                         )
                         manifest.last_run.update(embedding_run_metadata)
                         if staged_chroma_dir is not None:
@@ -1205,7 +1252,9 @@ class IndexOrchestrator:
                             embedding_model=config.embeddings.model,
                             top_n=20,
                             embedding_backend=config.embeddings.backend,
+                            embedding_device=config.embeddings.device,
                             ollama_base_url=config.embeddings.ollama_base_url,
+                            ollama_concurrency=config.embeddings.ollama_concurrency,
                             query_prefix=config.embeddings.query_prefix,
                             document_prefix=config.embeddings.document_prefix,
                             embedding_batch_size=config.embeddings.batch_size,
@@ -1244,8 +1293,6 @@ class IndexOrchestrator:
                 summary=summary,
             )
         except Exception:
-            if staged_chroma_dir is not None:
-                shutil.rmtree(staged_chroma_dir, ignore_errors=True)
             artifact_snapshot.restore()
             self.store = StructuredStore(self.index_dir)
             self.logger.error("Rolled back live index artifacts after persist-stage failure")
@@ -1387,7 +1434,9 @@ class IndexOrchestrator:
             rebuild=True,
             logger=self.logger,
             embedding_backend=config.embeddings.backend,
+            embedding_device=config.embeddings.device,
             ollama_base_url=config.embeddings.ollama_base_url,
+            ollama_concurrency=config.embeddings.ollama_concurrency,
             query_prefix=config.embeddings.query_prefix,
             document_prefix=config.embeddings.document_prefix,
             embedding_batch_size=config.embeddings.batch_size,
@@ -1403,7 +1452,9 @@ class IndexOrchestrator:
                 embedding_model=config.embeddings.model,
                 top_n=20,
                 embedding_backend=config.embeddings.backend,
+                embedding_device=config.embeddings.device,
                 ollama_base_url=config.embeddings.ollama_base_url,
+                ollama_concurrency=config.embeddings.ollama_concurrency,
                 query_prefix=config.embeddings.query_prefix,
                 document_prefix=config.embeddings.document_prefix,
                 embedding_batch_size=config.embeddings.batch_size,
@@ -1846,6 +1897,19 @@ class IndexOrchestrator:
         scoped_ids.update(pending_ids)
         return scoped_ids & set(desired_index_ids)
 
+    @staticmethod
+    def _delete_paper_ids_for_run(
+        *,
+        args: argparse.Namespace,
+        plan: SyncPlan,
+        removed_from_index_ids: set[str] | None = None,
+    ) -> set[str]:
+        """Return existing index IDs this run is allowed to remove."""
+
+        if getattr(args, "paper", []):
+            return set()
+        return set(plan.change_set.deleted_items) | set(removed_from_index_ids or set())
+
     def _extraction_required_ids(
         self,
         args: argparse.Namespace,
@@ -2126,7 +2190,9 @@ class IndexOrchestrator:
 
     def _create_staged_chroma_dir(self) -> Path:
         """Create a temporary Chroma directory for a staged full rebuild."""
-        return Path(tempfile.mkdtemp(prefix="chroma_staging_", dir=self.index_dir))
+        staged_dir = self.index_dir / "chroma_staging_resume"
+        staged_dir.mkdir(parents=True, exist_ok=True)
+        return staged_dir
 
     def _commit_staged_chroma_dir(self, staged_dir: Path) -> None:
         """Replace the live Chroma directory with a staged rebuild."""
@@ -2244,6 +2310,8 @@ class IndexOrchestrator:
         }
         return {
             **fingerprint_payload_fields,
+            "device": config.embeddings.device,
+            "ollama_concurrency": config.embeddings.ollama_concurrency,
             "batch_size": config.embeddings.batch_size,
             "fingerprint": fingerprint_payload(fingerprint_payload_fields),
         }
@@ -2384,10 +2452,14 @@ class IndexOrchestrator:
                 "dimension_profile_fingerprint": manifest.extraction.get("profile_fingerprint"),
                 "embedding_model": manifest.embedding.get("model"),
                 "embedding_backend": manifest.embedding.get("backend"),
+                "embedding_device": manifest.embedding.get("device"),
+                "embedding_ollama_concurrency": manifest.embedding.get("ollama_concurrency"),
                 "embedding_batch_size_setting": manifest.embedding.get("batch_size"),
                 "embedding_batch_size_resolved": manifest.last_run.get(
                     "embedding_batch_size_resolved"
                 ),
+                "embedding_progress": manifest.last_run.get("embedding_progress"),
+                "embedding_resume": manifest.last_run.get("embedding_resume"),
                 "stage_durations_seconds": stage_times,
             },
             "statistics": {

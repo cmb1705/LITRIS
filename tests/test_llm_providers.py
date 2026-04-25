@@ -157,8 +157,8 @@ class TestAnthropicClient:
         for model in AnthropicLLMClient.MODELS.keys():
             assert model in AnthropicLLMClient.MODEL_PRICING
 
-    def test_cli_oversize_routes_to_api_fallback(self):
-        """Anthropic CLI should use API fallback for oversized prompts."""
+    def test_cli_oversize_uses_truncated_text_with_cli(self):
+        """Anthropic CLI should keep oversized prompts on CLI with truncation."""
         from src.analysis.anthropic_client import AnthropicLLMClient
         from src.analysis.prompts import PAPER_TEXT_STDIN_PLACEHOLDER
 
@@ -170,7 +170,8 @@ class TestAnthropicClient:
         client.client = object()
         client.cli_executor = MagicMock()
         client.CLI_API_FALLBACK_CHAR_THRESHOLD = 10
-        client._call_api = MagicMock(return_value=('{"q02_thesis":"Recovered"}', 12, 4))
+        client._truncate_text_for_cli = MagicMock(return_value="truncated paper text")
+        client.cli_executor.extract.return_value = {"q02_thesis": "Recovered"}
 
         result = client.extract(
             paper_id="paper-1",
@@ -182,15 +183,18 @@ class TestAnthropicClient:
             prompt_override=PAPER_TEXT_STDIN_PLACEHOLDER,
         )
 
-        client.cli_executor.extract.assert_not_called()
-        client._call_api.assert_called_once_with("full paper text")
+        client._truncate_text_for_cli.assert_called_once_with("full paper text")
+        client.cli_executor.extract.assert_called_once_with(
+            PAPER_TEXT_STDIN_PLACEHOLDER,
+            "truncated paper text",
+        )
         assert result.success is True
         assert result.extraction.q02_thesis == "Recovered"
-        assert result.input_tokens == 12
-        assert result.output_tokens == 4
+        assert result.input_tokens == 0
+        assert result.output_tokens == 0
 
-    def test_cli_prompt_too_long_retries_with_api(self):
-        """Prompt-too-long CLI failures should retry via API when available."""
+    def test_cli_prompt_too_long_retries_with_truncated_text(self):
+        """Prompt-too-long CLI failures should retry on CLI with truncation."""
         from src.analysis.anthropic_client import AnthropicLLMClient
         from src.analysis.cli_executor import PromptTooLongError
         from src.analysis.prompts import PAPER_TEXT_STDIN_PLACEHOLDER
@@ -202,8 +206,11 @@ class TestAnthropicClient:
         client.timeout = 120
         client.client = object()
         client.cli_executor = MagicMock()
-        client.cli_executor.extract.side_effect = PromptTooLongError("prompt is too long")
-        client._call_api = MagicMock(return_value=('{"q02_thesis":"Recovered"}', 9, 3))
+        client.cli_executor.extract.side_effect = [
+            PromptTooLongError("prompt is too long"),
+            {"q02_thesis": "Recovered"},
+        ]
+        client._truncate_text_for_cli = MagicMock(return_value="truncated text")
 
         result = client.extract(
             paper_id="paper-2",
@@ -215,11 +222,16 @@ class TestAnthropicClient:
             prompt_override=PAPER_TEXT_STDIN_PLACEHOLDER,
         )
 
-        client.cli_executor.extract.assert_called_once_with(
+        assert client.cli_executor.extract.call_count == 2
+        client.cli_executor.extract.assert_any_call(
             PAPER_TEXT_STDIN_PLACEHOLDER,
             "short text",
         )
-        client._call_api.assert_called_once_with("short text")
+        client.cli_executor.extract.assert_any_call(
+            PAPER_TEXT_STDIN_PLACEHOLDER,
+            "truncated text",
+        )
+        client._truncate_text_for_cli.assert_called_once_with("short text")
         assert result.success is True
         assert result.extraction.q02_thesis == "Recovered"
 
@@ -286,6 +298,7 @@ class TestOpenAIClient:
 
         models = OpenAILLMClient.list_models()
         assert isinstance(models, dict)
+        assert "gpt-5.5" in models
         assert "gpt-5.4" in models
         assert "gpt-5.4-pro" in models
 
@@ -296,36 +309,64 @@ class TestOpenAIClient:
         for model in OpenAILLMClient.MODELS.keys():
             assert model in OpenAILLMClient.MODEL_PRICING
 
+    def test_detects_cli_prompt_too_long_error(self):
+        """Should recognize Codex CLI max-input failures."""
+        from src.analysis.openai_client import OpenAILLMClient
+
+        assert OpenAILLMClient.is_cli_prompt_too_long_error(
+            "Error: turn/start failed: Input exceeds the maximum length of 1048576 characters."
+        )
+        assert not OpenAILLMClient.is_cli_prompt_too_long_error("some other codex failure")
+
+    def test_summarizes_cli_prompt_too_long_error_without_prompt_text(self):
+        """Prompt-limit summaries should omit the rejected prompt body."""
+        from src.analysis.openai_client import OpenAILLMClient
+
+        prompt_text = "PAPER TEXT:\n" + ("copyrighted source text " * 200)
+        stderr = (
+            "OpenAI Codex v0.124.0\n"
+            "user\n"
+            f"{prompt_text}\n"
+            "Error: turn/start failed: Input exceeds the maximum length "
+            "of 1048576 characters."
+        )
+
+        summary = OpenAILLMClient.summarize_cli_prompt_too_long_error(stderr)
+
+        assert "Input exceeds the maximum length" in summary
+        assert "copyrighted source text" not in summary
+        assert "stderr" in summary
+
 
 class TestOpenAIClientEstimateCost:
     """Tests for OpenAI cost estimation."""
 
-    def test_estimate_cost_gpt_5_4(self):
-        """Should estimate cost for GPT-5.4."""
+    def test_estimate_cost_gpt_5_5(self):
+        """Should estimate cost for GPT-5.5."""
         from src.analysis.openai_client import OpenAILLMClient
 
         # Create client without API
         client = OpenAILLMClient.__new__(OpenAILLMClient)
-        client.model = "gpt-5.4"
+        client.model = "gpt-5.5"
 
         cost = client.estimate_cost(10000)  # 10k chars
         assert cost > 0
         assert isinstance(cost, float)
 
     def test_estimate_cost_mini_cheaper(self):
-        """GPT-5-Mini should be cheaper than GPT-5.4."""
+        """GPT-5-Mini should be cheaper than GPT-5.5."""
         from src.analysis.openai_client import OpenAILLMClient
 
         client1 = OpenAILLMClient.__new__(OpenAILLMClient)
-        client1.model = "gpt-5.4"
+        client1.model = "gpt-5.5"
 
         client2 = OpenAILLMClient.__new__(OpenAILLMClient)
         client2.model = "gpt-5-mini"
 
-        cost_5_4 = client1.estimate_cost(10000)
+        cost_5_5 = client1.estimate_cost(10000)
         cost_mini = client2.estimate_cost(10000)
 
-        assert cost_mini < cost_5_4
+        assert cost_mini < cost_5_5
 
 
 class TestGeminiClient:

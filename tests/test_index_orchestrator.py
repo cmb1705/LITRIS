@@ -19,6 +19,7 @@ from src.indexing.orchestrator import (
     PendingStageWork,
     detect_snapshot_changes,
 )
+from src.utils.file_utils import safe_read_json
 
 
 def _make_config(tmp_path: Path) -> Config:
@@ -264,7 +265,7 @@ def test_plan_sync_extraction_drift_stays_incremental_in_auto_mode(tmp_path):
             sync_mode="auto",
             provider="openai",
             mode="cli",
-            model="gpt-5.4",
+            model="gpt-5.5",
         ),
         config=config,
         ref_db=ref_db,
@@ -279,7 +280,7 @@ def test_plan_sync_extraction_drift_stays_incremental_in_auto_mode(tmp_path):
     assert not any("extraction configuration changed" in reason.lower() for reason in plan.reasons)
     assert len(plan.advisories) == 1
     assert "baseline: anthropic/api/claude-test" in plan.advisories[0]
-    assert "requested: openai/cli/gpt-5.4" in plan.advisories[0]
+    assert "requested: openai/cli/gpt-5.5" in plan.advisories[0]
 
 
 def test_plan_sync_update_mode_allows_extraction_drift(tmp_path):
@@ -294,7 +295,7 @@ def test_plan_sync_update_mode_allows_extraction_drift(tmp_path):
             sync_mode="update",
             provider="openai",
             mode="cli",
-            model="gpt-5.4",
+            model="gpt-5.5",
         ),
         config=config,
         ref_db=ref_db,
@@ -407,6 +408,14 @@ def test_targeted_full_refresh_scopes_only_forced_paper_when_manifest_missing(tm
         plan=plan,
         desired_index_ids=desired_index_ids,
     ) == {"P1"}
+    assert (
+        orchestrator._delete_paper_ids_for_run(
+            args=args,
+            plan=SimpleNamespace(change_set=ChangeSet(deleted_items=["P2"])),
+            removed_from_index_ids={"P3"},
+        )
+        == set()
+    )
 
 
 def test_resolved_manifest_snapshots_omits_unprocessed_new_papers(tmp_path):
@@ -514,3 +523,49 @@ def test_plan_sync_pending_extraction_work_prevents_noop(tmp_path):
         final_extractions={"P1": {"paper_id": "P1"}, "P2": {"paper_id": "P2"}},
         failed_extraction_ids=set(),
     ) == {"P2"}
+
+
+def test_write_metadata_includes_embedding_progress_resume_and_device(tmp_path):
+    orchestrator = IndexOrchestrator(
+        project_root=tmp_path,
+        logger=logging.getLogger("test"),
+        index_dir=tmp_path,
+    )
+    manifest = IndexManifest(
+        embedding={
+            "model": "embed-test",
+            "backend": "sentence-transformers",
+            "device": "cuda",
+            "ollama_concurrency": 3,
+            "batch_size": "auto",
+        },
+        extraction={},
+        source_scope={},
+        classification_policy={},
+        last_run={
+            "requested_mode": "full",
+            "resolved_mode": "full",
+            "embedding_batch_size_resolved": 16,
+            "embedding_progress": {"completed_chunks": 12, "total_chunks": 20},
+            "embedding_resume": {"status": "running", "completed_chunks": 10},
+        },
+        last_full_build="2026-04-18T00:00:00",
+        last_successful_sync="2026-04-18T00:10:00",
+    )
+
+    orchestrator._write_metadata(
+        manifest=manifest,
+        final_papers={"P1": {"paper_id": "P1"}},
+        final_extractions={"P1": {"paper_id": "P1", "extraction": {}}},
+        stage_times={"embeddings": 12.5},
+        failed_paper_ids=[],
+        summary={},
+    )
+
+    metadata = safe_read_json(tmp_path / "metadata.json", default={})
+    processing = metadata["processing"]
+    assert processing["embedding_device"] == "cuda"
+    assert processing["embedding_ollama_concurrency"] == 3
+    assert processing["embedding_batch_size_resolved"] == 16
+    assert processing["embedding_progress"] == {"completed_chunks": 12, "total_chunks": 20}
+    assert processing["embedding_resume"] == {"status": "running", "completed_chunks": 10}

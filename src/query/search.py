@@ -65,7 +65,9 @@ class SearchEngine:
         chroma_dir: Path | str | None = None,
         embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
         embedding_backend: str = "sentence-transformers",
+        embedding_device: str | None = None,
         ollama_base_url: str = "http://localhost:11434",
+        embedding_ollama_concurrency: int = 1,
         query_prefix: str | None = None,
         document_prefix: str | None = None,
     ):
@@ -76,7 +78,9 @@ class SearchEngine:
             chroma_dir: Directory for ChromaDB storage. Defaults to index_dir/chroma.
             embedding_model: Name of embedding model.
             embedding_backend: Backend ('sentence-transformers' or 'ollama').
+            embedding_device: Device override for sentence-transformers backends.
             ollama_base_url: Base URL for Ollama server.
+            embedding_ollama_concurrency: Max in-flight Ollama embedding requests.
             query_prefix: Prefix for query texts (e.g., instruction prefix for Qwen3).
             document_prefix: Prefix for document texts during embedding.
         """
@@ -99,8 +103,10 @@ class SearchEngine:
         self.vector_store = VectorStore(self.chroma_dir)
         self.embedding_generator = EmbeddingGenerator(
             model_name=embedding_model,
+            device=embedding_device,
             backend=embedding_backend,
             ollama_base_url=ollama_base_url,
+            ollama_concurrency=embedding_ollama_concurrency,
             query_prefix=query_prefix,
             document_prefix=document_prefix,
         )

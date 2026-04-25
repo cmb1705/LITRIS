@@ -1,6 +1,6 @@
 """OpenAI LLM client for paper extraction.
 
-Supports GPT-5.x models including GPT-5.4 for professional work.
+Supports GPT-5.x models including GPT-5.5 for professional work.
 Also supports Codex CLI for subscription-based usage.
 
 References:
@@ -36,6 +36,10 @@ from src.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+class OpenAIPromptTooLongError(RuntimeError):
+    """Raised when Codex CLI rejects a prompt for exceeding the input limit."""
+
+
 class OpenAILLMClient(BaseLLMClient):
     """Client for OpenAI GPT-based paper extraction.
 
@@ -47,8 +51,12 @@ class OpenAILLMClient(BaseLLMClient):
     MODEL_PRICING = OPENAI_PRICING
 
     # Models supported by Codex CLI with ChatGPT authentication
-    # Default is gpt-5.4 for ChatGPT Plus/Pro subscribers
-    CLI_SUPPORTED_MODELS = {"gpt-5.4"}
+    # Default is gpt-5.5 for ChatGPT Plus/Pro subscribers
+    CLI_SUPPORTED_MODELS = {"gpt-5.5", "gpt-5.4"}
+    CLI_PROMPT_TOO_LONG_MARKERS = (
+        "Input exceeds the maximum length",
+        "turn/start failed: Input exceeds the maximum length",
+    )
 
     def __init__(
         self,
@@ -62,7 +70,7 @@ class OpenAILLMClient(BaseLLMClient):
 
         Args:
             mode: Extraction mode ('api' for OpenAI API, 'cli' for Codex CLI).
-            model: Model to use for extraction. Defaults to gpt-5.4.
+            model: Model to use for extraction. Defaults to gpt-5.5.
             max_tokens: Maximum tokens for response.
             timeout: Request timeout in seconds.
             reasoning_effort: Reasoning effort level for GPT-5.x models.
@@ -99,10 +107,10 @@ class OpenAILLMClient(BaseLLMClient):
             if self.model not in self.CLI_SUPPORTED_MODELS:
                 logger.warning(
                     f"Model '{self.model}' may not be supported by Codex CLI with ChatGPT auth. "
-                    f"Supported models: {', '.join(self.CLI_SUPPORTED_MODELS)}. "
-                    f"Using default 'gpt-5.4'."
+                    f"Supported models: {', '.join(sorted(self.CLI_SUPPORTED_MODELS))}. "
+                    f"Using default '{DEFAULT_MODELS['openai']}'."
                 )
-                self.model = "gpt-5.4"
+                self.model = DEFAULT_MODELS["openai"]
 
     @property
     def provider(self) -> LLMProvider:
@@ -292,6 +300,17 @@ class OpenAILLMClient(BaseLLMClient):
                 duration_seconds=duration,
                 model_used=self.model,
             )
+        except OpenAIPromptTooLongError as e:
+            duration = time.time() - start_time
+            error_summary = self.summarize_cli_prompt_too_long_error(str(e))
+            logger.warning("Prompt too long for paper %s: %s", paper_id, error_summary)
+            return ExtractionResult(
+                paper_id=paper_id,
+                success=False,
+                error=f"Prompt too long: {error_summary}",
+                duration_seconds=duration,
+                model_used=self.model,
+            )
         except (json.JSONDecodeError, ValidationError) as e:
             duration = time.time() - start_time
             logger.error(f"Response parsing failed for paper {paper_id}: {e}")
@@ -402,6 +421,9 @@ class OpenAILLMClient(BaseLLMClient):
             )
 
             if result.returncode != 0:
+                stderr = (result.stderr or result.stdout or "").strip()
+                if self.is_cli_prompt_too_long_error(stderr):
+                    raise OpenAIPromptTooLongError(stderr)
                 raise RuntimeError(f"Codex CLI failed (exit {result.returncode}): {result.stderr}")
 
             # Read response from output file
@@ -411,6 +433,40 @@ class OpenAILLMClient(BaseLLMClient):
         finally:
             # Clean up temp file
             Path(output_path).unlink(missing_ok=True)
+
+    @classmethod
+    def is_cli_prompt_too_long_error(cls, error_text: str | None) -> bool:
+        """Return whether Codex CLI rejected the prompt for input length."""
+
+        if not isinstance(error_text, str) or not error_text:
+            return False
+        return any(marker in error_text for marker in cls.CLI_PROMPT_TOO_LONG_MARKERS)
+
+    @staticmethod
+    def summarize_cli_prompt_too_long_error(
+        error_text: str | None,
+        max_chars: int = 300,
+    ) -> str:
+        """Summarize Codex prompt-limit stderr without retaining prompt text."""
+
+        fallback = "Codex CLI input exceeded maximum length"
+        if not isinstance(error_text, str) or not error_text:
+            return fallback
+
+        lines = [line.strip() for line in error_text.splitlines() if line.strip()]
+        marker_terms = ("Input exceeds", "maximum length", "turn/start failed")
+        summary = next(
+            (
+                line
+                for line in reversed(lines)
+                if any(marker in line for marker in marker_terms)
+            ),
+            lines[-1] if lines else fallback,
+        )
+        summary = " ".join(summary.split())
+        if len(summary) > max_chars:
+            summary = f"{summary[: max_chars - 3]}..."
+        return f"{summary} (stderr {len(error_text):,} chars)"
 
     def _parse_response(self, response_text: str) -> SemanticAnalysis:
         """Parse JSON response into SemanticAnalysis.
@@ -784,7 +840,7 @@ class OpenAILLMClient(BaseLLMClient):
         input_tokens = text_length // 4 + 500  # Add prompt overhead
         output_tokens = 2000  # Typical extraction output
 
-        # Get pricing for model (default to gpt-5.4 pricing)
+        # Get pricing for model (default to GPT-5.x pricing)
         pricing = self.MODEL_PRICING.get(self.model, (10.0, 30.0))
         input_cost_per_million, output_cost_per_million = pricing
 

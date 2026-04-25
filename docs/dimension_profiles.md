@@ -120,7 +120,7 @@ and still writes `dimension_proposals.json`.
 ```bash
 python scripts/dimensions.py suggest --index-dir data/index
 python scripts/dimensions.py suggest --index-dir data/index \
-  --provider openai --mode api --model gpt-5.4 --sample-size 12
+  --provider openai --mode api --model gpt-5.5 --sample-size 12
 python scripts/dimensions.py suggest --index-dir data/index --heuristic-only
 python scripts/dimensions.py approve --profile ./profiles/sts_policy.yaml \
   --proposals data/index/dimension_proposals.json \

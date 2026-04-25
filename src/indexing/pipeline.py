@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import inspect
 import os
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from tqdm import tqdm
 
@@ -26,13 +29,15 @@ from src.indexing.embeddings import EmbeddingChunk, EmbeddingGenerator
 from src.indexing.structured_store import StructuredStore
 from src.indexing.vector_store import VectorStore
 from src.utils.checkpoint import CheckpointManager
-from src.utils.file_utils import safe_write_json
+from src.utils.file_utils import safe_read_json, safe_write_json
 from src.utils.run_control import PauseRequested
 from src.zotero.models import PaperMetadata
 
 CHECKPOINT_PAPERS_FILENAME = "papers.checkpoint.json"
 CHECKPOINT_EXTRACTIONS_FILENAME = "semantic_analyses.checkpoint.json"
 CHECKPOINT_METADATA_FILENAME = "metadata.checkpoint.json"
+EMBEDDING_RESUME_STATE_FILENAME = "embedding_resume_state.json"
+EMBEDDING_STREAM_WRITE_CHUNK_COUNT = 512
 
 
 @dataclass
@@ -45,6 +50,151 @@ class ExtractionRunResult:
     interrupted: bool = False
     pause_requested: bool = False
     pending_ids: list[str] = field(default_factory=list)
+
+
+def _embedding_resume_state_path(chroma_dir: Path) -> Path:
+    """Return the staged rebuild resume-state path."""
+    return chroma_dir / EMBEDDING_RESUME_STATE_FILENAME
+
+
+def _embedding_resume_key(
+    embedding_gen: EmbeddingGenerator,
+    chunks: list[EmbeddingChunk],
+) -> str:
+    """Return a stable fingerprint for one rebuild scope and embedding config."""
+    hasher = hashlib.sha256()
+    for value in (
+        embedding_gen.backend,
+        embedding_gen.model_name,
+        embedding_gen.query_prefix or "",
+        embedding_gen.document_prefix or "",
+    ):
+        hasher.update(value.encode("utf-8"))
+        hasher.update(b"\0")
+    for chunk in chunks:
+        hasher.update(chunk.chunk_id.encode("utf-8"))
+        hasher.update(b"\0")
+        hasher.update(hashlib.sha256(chunk.text.encode("utf-8")).digest())
+        hasher.update(b"\0")
+    return hasher.hexdigest()
+
+
+def _make_embedding_progress(
+    *,
+    embedding_gen: EmbeddingGenerator,
+    batch_size: int,
+    completed_chunks: int,
+    total_chunks: int,
+    elapsed_seconds: float = 0.0,
+    rolling_chunks_per_second: float = 0.0,
+    overall_chunks_per_second: float = 0.0,
+    eta_seconds: float = 0.0,
+) -> dict[str, Any]:
+    """Build a normalized embedding progress payload."""
+    progress_fraction = 1.0 if total_chunks <= 0 else min(1.0, completed_chunks / total_chunks)
+    return {
+        "backend": embedding_gen.backend,
+        "model": embedding_gen.model_name,
+        "batch_size": batch_size,
+        "completed_chunks": completed_chunks,
+        "total_chunks": total_chunks,
+        "remaining_chunks": max(total_chunks - completed_chunks, 0),
+        "elapsed_seconds": round(elapsed_seconds, 3),
+        "rolling_chunks_per_second": round(rolling_chunks_per_second, 6),
+        "overall_chunks_per_second": round(overall_chunks_per_second, 6),
+        "eta_seconds": round(eta_seconds, 3),
+        "progress_fraction": round(progress_fraction, 6),
+    }
+
+
+def _update_embedding_run_metadata(
+    run_metadata: dict[str, Any] | None,
+    *,
+    progress: dict[str, Any],
+    resume_state: dict[str, Any] | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> None:
+    """Persist the latest embedding progress snapshot in-memory and via callback."""
+    payload: dict[str, Any]
+    if run_metadata is None:
+        payload = {"embedding_progress": dict(progress)}
+        if resume_state is not None:
+            payload["embedding_resume"] = dict(resume_state)
+    else:
+        run_metadata["embedding_progress"] = dict(progress)
+        if resume_state is not None:
+            run_metadata["embedding_resume"] = dict(resume_state)
+        payload = dict(run_metadata)
+    if progress_callback is not None:
+        progress_callback(payload)
+
+
+def _prepare_rebuild_resume_state(
+    *,
+    chroma_dir: Path,
+    vector_store: VectorStore,
+    embedding_gen: EmbeddingGenerator,
+    chunks: list[EmbeddingChunk],
+    batch_size: int,
+    logger,
+) -> tuple[Path, dict[str, Any], list[EmbeddingChunk]]:
+    """Prepare or validate staged rebuild state for resumable embedding writes."""
+    state_path = _embedding_resume_state_path(chroma_dir)
+    existing_state = safe_read_json(state_path, default={}) or {}
+    resume_key = _embedding_resume_key(embedding_gen, chunks)
+    current_chunk_ids = {chunk.chunk_id for chunk in chunks}
+    existing_count = vector_store.count()
+    existing_ids: set[str] = set()
+    reset_reason: str | None = None
+
+    if existing_count > 0:
+        if not isinstance(existing_state, dict) or existing_state.get("resume_key") != resume_key:
+            reset_reason = "resume key mismatch"
+        else:
+            existing_ids = vector_store.get_all_chunk_ids()
+            stale_ids = existing_ids - current_chunk_ids
+            if stale_ids:
+                reset_reason = f"{len(stale_ids)} staged chunk(s) are outside the current rebuild scope"
+
+    if reset_reason is not None:
+        logger.info("Resetting staged embedding rebuild cache (%s)", reset_reason)
+        vector_store.clear()
+        existing_ids = set()
+        existing_count = 0
+
+    reused_chunks = len(existing_ids)
+    remaining_chunks = [chunk for chunk in chunks if chunk.chunk_id not in existing_ids]
+    resume_state = {
+        "status": "running",
+        "stage_dir": str(chroma_dir),
+        "state_path": str(state_path),
+        "backend": embedding_gen.backend,
+        "model": embedding_gen.model_name,
+        "batch_size": batch_size,
+        "resume_key": resume_key,
+        "total_chunks": len(chunks),
+        "completed_chunks": reused_chunks,
+        "remaining_chunks": len(remaining_chunks),
+        "reused_chunks": reused_chunks,
+        "resumed": reused_chunks > 0,
+        "started_at": existing_state.get("started_at", datetime.now().isoformat())
+        if isinstance(existing_state, dict)
+        else datetime.now().isoformat(),
+        "last_persisted_at": datetime.now().isoformat(),
+    }
+    safe_write_json(state_path, resume_state)
+
+    if reused_chunks:
+        logger.info(
+            "Resuming staged rebuild from %d/%d chunks already written in %s",
+            reused_chunks,
+            len(chunks),
+            chroma_dir,
+        )
+    else:
+        logger.info("Starting staged rebuild in %s", chroma_dir)
+
+    return state_path, resume_state, remaining_chunks
 
 
 def save_checkpoint(
@@ -561,7 +711,9 @@ def run_embedding_generation(
     rebuild: bool,
     logger,
     embedding_backend: str = "sentence-transformers",
+    embedding_device: str | None = None,
     ollama_base_url: str = "http://localhost:11434",
+    ollama_concurrency: int = 1,
     query_prefix: str | None = None,
     document_prefix: str | None = None,
     embedding_batch_size: int | str = "auto",
@@ -569,14 +721,17 @@ def run_embedding_generation(
     delete_paper_ids: list[str] | None = None,
     vector_store_dir: Path | None = None,
     run_metadata: dict | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> int:
     """Generate embeddings and populate the vector store for the scoped papers."""
     chroma_dir = vector_store_dir or (index_dir / "chroma")
     logger.info("Initializing embedding generator...")
     embedding_gen = EmbeddingGenerator(
         model_name=embedding_model,
+        device=embedding_device,
         backend=embedding_backend,
         ollama_base_url=ollama_base_url,
+        ollama_concurrency=ollama_concurrency,
         query_prefix=query_prefix,
         document_prefix=document_prefix,
     )
@@ -585,10 +740,6 @@ def run_embedding_generation(
     vector_store = VectorStore(chroma_dir)
 
     try:
-        if rebuild:
-            logger.info("Clearing existing embeddings...")
-            vector_store.clear()
-
         normalized_extractions = _normalize_extractions(extractions)
         papers_with_extractions = [
             paper for paper in papers if paper.paper_id in normalized_extractions
@@ -628,25 +779,162 @@ def run_embedding_generation(
                 "Generating embeddings with batch size %d...",
                 resolved_batch_size,
             )
-            all_chunks = embedding_gen.generate_embeddings(
-                all_chunks,
-                batch_size=resolved_batch_size,
-            )
 
         if run_metadata is not None:
             run_metadata["embedding_batch_size_setting"] = embedding_batch_size
             run_metadata["embedding_batch_size_resolved"] = resolved_batch_size
 
-        logger.info("Writing embeddings to vector store...")
-        if rebuild:
-            added = vector_store.add_chunks(all_chunks, batch_size=100)
-        else:
-            added = vector_store.replace_papers(
-                chunks=all_chunks,
-                scope_paper_ids=scope_paper_ids,
-                delete_paper_ids=delete_ids,
-                batch_size=100,
+        if all_chunks and resolved_batch_size is not None:
+            _update_embedding_run_metadata(
+                run_metadata,
+                progress=_make_embedding_progress(
+                    embedding_gen=embedding_gen,
+                    batch_size=resolved_batch_size,
+                    completed_chunks=0,
+                    total_chunks=len(all_chunks),
+                ),
+                progress_callback=progress_callback,
             )
+
+        if rebuild:
+            if not all_chunks:
+                logger.info("Clearing existing embeddings...")
+                vector_store.clear()
+                resume_state_path = _embedding_resume_state_path(chroma_dir)
+                if resume_state_path.exists():
+                    resume_state_path.unlink()
+                return 0
+
+            logger.info("Streaming embeddings to staged vector store...")
+            state_path, resume_state, remaining_chunks = _prepare_rebuild_resume_state(
+                chroma_dir=chroma_dir,
+                vector_store=vector_store,
+                embedding_gen=embedding_gen,
+                chunks=all_chunks,
+                batch_size=resolved_batch_size,
+                logger=logger,
+            )
+            _update_embedding_run_metadata(
+                run_metadata,
+                progress=_make_embedding_progress(
+                    embedding_gen=embedding_gen,
+                    batch_size=resolved_batch_size,
+                    completed_chunks=resume_state["completed_chunks"],
+                    total_chunks=len(all_chunks),
+                ),
+                resume_state=resume_state,
+                progress_callback=progress_callback,
+            )
+
+            buffered_chunks: list[EmbeddingChunk] = []
+            persisted_chunks = 0
+
+            def flush_buffer() -> None:
+                nonlocal buffered_chunks
+                nonlocal persisted_chunks
+                if not buffered_chunks:
+                    return
+                persisted_chunks += vector_store.add_chunks(
+                    buffered_chunks,
+                    batch_size=100,
+                    log_progress=False,
+                )
+                resume_state["completed_chunks"] = resume_state["reused_chunks"] + persisted_chunks
+                resume_state["remaining_chunks"] = max(
+                    len(all_chunks) - resume_state["completed_chunks"],
+                    0,
+                )
+                resume_state["last_persisted_at"] = datetime.now().isoformat()
+                safe_write_json(state_path, resume_state)
+                buffered_chunks = []
+
+            def handle_progress(snapshot: dict[str, Any]) -> None:
+                progress = dict(snapshot)
+                progress["total_chunks"] = len(all_chunks)
+                progress["completed_chunks"] = resume_state["reused_chunks"] + progress["completed_chunks"]
+                progress["remaining_chunks"] = max(
+                    len(all_chunks) - progress["completed_chunks"],
+                    0,
+                )
+                progress["progress_fraction"] = round(
+                    progress["completed_chunks"] / len(all_chunks),
+                    6,
+                )
+                _update_embedding_run_metadata(
+                    run_metadata,
+                    progress=progress,
+                    resume_state=resume_state,
+                    progress_callback=progress_callback,
+                )
+
+            for batch in embedding_gen.iter_embedded_batches(
+                remaining_chunks,
+                batch_size=resolved_batch_size,
+                progress_callback=handle_progress,
+            ):
+                buffered_chunks.extend(batch)
+                if len(buffered_chunks) >= EMBEDDING_STREAM_WRITE_CHUNK_COUNT:
+                    flush_buffer()
+            flush_buffer()
+
+            added = vector_store.count()
+            resume_state["completed_chunks"] = len(all_chunks)
+            resume_state["remaining_chunks"] = 0
+            resume_state["status"] = "complete"
+            resume_state["last_persisted_at"] = datetime.now().isoformat()
+            final_progress = (
+                dict(run_metadata.get("embedding_progress", {}))
+                if isinstance(run_metadata, dict)
+                else {}
+            )
+            if not final_progress:
+                final_progress = _make_embedding_progress(
+                    embedding_gen=embedding_gen,
+                    batch_size=resolved_batch_size,
+                    completed_chunks=len(all_chunks),
+                    total_chunks=len(all_chunks),
+                )
+            else:
+                final_progress["completed_chunks"] = len(all_chunks)
+                final_progress["remaining_chunks"] = 0
+                final_progress["progress_fraction"] = 1.0
+            _update_embedding_run_metadata(
+                run_metadata,
+                progress=final_progress,
+                resume_state=resume_state,
+                progress_callback=progress_callback,
+            )
+            if state_path.exists():
+                state_path.unlink()
+            logger.info("Added %d chunks to vector store", added)
+            return added
+
+        if all_chunks:
+            def handle_progress(snapshot: dict[str, Any]) -> None:
+                progress = dict(snapshot)
+                progress["remaining_chunks"] = max(
+                    len(all_chunks) - progress["completed_chunks"],
+                    0,
+                )
+                _update_embedding_run_metadata(
+                    run_metadata,
+                    progress=progress,
+                    progress_callback=progress_callback,
+                )
+
+            all_chunks = embedding_gen.generate_embeddings(
+                all_chunks,
+                batch_size=resolved_batch_size,
+                progress_callback=handle_progress,
+            )
+
+        logger.info("Writing embeddings to vector store...")
+        added = vector_store.replace_papers(
+            chunks=all_chunks,
+            scope_paper_ids=scope_paper_ids,
+            delete_paper_ids=delete_ids,
+            batch_size=100,
+        )
         logger.info("Added %d chunks to vector store", added)
         return added
     finally:
@@ -667,7 +955,9 @@ def compute_similarity_pairs(
     embedding_model: str,
     top_n: int = 20,
     embedding_backend: str = "sentence-transformers",
+    embedding_device: str | None = None,
     ollama_base_url: str = "http://localhost:11434",
+    ollama_concurrency: int = 1,
     query_prefix: str | None = None,
     document_prefix: str | None = None,
     embedding_batch_size: int | str | None = None,
@@ -732,8 +1022,10 @@ def compute_similarity_pairs(
                 if overview_chunks:
                     embedding_gen = EmbeddingGenerator(
                         model_name=embedding_model,
+                        device=embedding_device,
                         backend=embedding_backend,
                         ollama_base_url=ollama_base_url,
+                        ollama_concurrency=ollama_concurrency,
                         query_prefix=query_prefix,
                         document_prefix=document_prefix,
                     )

@@ -116,12 +116,14 @@ class VectorStore:
         self,
         chunks: list[EmbeddingChunk],
         batch_size: int = 100,
+        log_progress: bool = True,
     ) -> int:
         """Add chunks to the vector store.
 
         Args:
             chunks: List of chunks with embeddings.
             batch_size: Batch size for insertion.
+            log_progress: Whether to emit vector-store progress logs.
 
         Returns:
             Number of chunks added.
@@ -132,7 +134,8 @@ class VectorStore:
         # Filter out chunks without embeddings
         valid_chunks = [c for c in chunks if c.embedding]
         if len(valid_chunks) < len(chunks):
-            logger.warning(f"Skipping {len(chunks) - len(valid_chunks)} chunks without embeddings")
+            if log_progress:
+                logger.warning(f"Skipping {len(chunks) - len(valid_chunks)} chunks without embeddings")
 
         if not valid_chunks:
             return 0
@@ -145,13 +148,18 @@ class VectorStore:
             existing_count = self.collection.count()
             if existing_count > 0:
                 # ChromaDB will error if dimensions mismatch, but log for clarity
-                logger.debug(
-                    f"Adding embeddings with dimension {dim} to collection with {existing_count} existing chunks"
-                )
+                if log_progress:
+                    logger.debug(
+                        "Adding embeddings with dimension %d to collection with %d existing chunks",
+                        dim,
+                        existing_count,
+                    )
             else:
-                logger.info(f"Initializing collection with embedding dimension {dim}")
+                if log_progress:
+                    logger.info(f"Initializing collection with embedding dimension {dim}")
 
-        logger.info(f"Adding {len(valid_chunks)} chunks to vector store")
+        if log_progress:
+            logger.info(f"Adding {len(valid_chunks)} chunks to vector store")
 
         # Process in batches
         added = 0
@@ -178,7 +186,8 @@ class VectorStore:
             )
             added += len(batch)
 
-        logger.info(f"Added {added} chunks to collection")
+        if log_progress:
+            logger.info(f"Added {added} chunks to collection")
         return added
 
     def search(
@@ -437,6 +446,19 @@ class VectorStore:
                     "Vector store write failed and restore did not complete"
                 ) from restore_exc
             raise exc
+
+    def get_all_chunk_ids(self, page_size: int = 1000) -> set[str]:
+        """Return every chunk id in the collection."""
+        ids: set[str] = set()
+        offset = 0
+        while True:
+            results = self.collection.get(include=[], limit=page_size, offset=offset)
+            batch_ids = results.get("ids") or []
+            if not batch_ids:
+                break
+            ids.update(batch_ids)
+            offset += len(batch_ids)
+        return ids
 
     def count(self) -> int:
         """Get total number of documents in the collection."""

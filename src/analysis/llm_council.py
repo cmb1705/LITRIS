@@ -936,6 +936,7 @@ class LLMCouncil:
         """
         from datetime import datetime
 
+        from src.analysis.coverage import apply_coverage
         from src.analysis.semantic_prompts import (
             build_pass_user_prompt,
             get_pass_definitions,
@@ -1036,6 +1037,7 @@ class LLMCouncil:
         merged.prompt_version = analysis.prompt_version
         merged.extraction_model = analysis.extraction_model
         merged.extracted_at = analysis.extracted_at
+        apply_coverage(merged)
 
         # Count how many previously-None fields are now filled
         gaps_filled = sum(

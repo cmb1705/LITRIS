@@ -33,6 +33,7 @@ from src.analysis.prompts import (
 )
 from src.analysis.retry import with_retry
 from src.analysis.schemas import ExtractionResult, SemanticAnalysis
+from src.extraction.text_cleaner import TextCleaner
 from src.utils.logging_config import get_logger
 from src.utils.run_control import RunControlPoller
 from src.utils.secrets import get_anthropic_api_key
@@ -47,7 +48,12 @@ class AnthropicLLMClient(BaseLLMClient):
     MODELS = ANTHROPIC_MODELS
     MODEL_PRICING = ANTHROPIC_PRICING
     BATCH_PRICING = ANTHROPIC_BATCH_PRICING
-    CLI_API_FALLBACK_CHAR_THRESHOLD = 500_000
+    # Claude CLI can accommodate much larger prompts than Codex CLI on this
+    # workflow. Once a prompt exceeds the practical CLI working range, keep the
+    # run on Claude CLI but fall back to the standard 3M-char LLM view instead
+    # of switching providers or modes mid-pass.
+    CLI_API_FALLBACK_CHAR_THRESHOLD = 3_500_000
+    CLI_TRUNCATED_TEXT_MAX_CHARS = 3_000_000
 
     def __init__(
         self,
@@ -167,35 +173,35 @@ class AnthropicLLMClient(BaseLLMClient):
                         item_type=item_type,
                     )
                     prompt = f"{EXTRACTION_SYSTEM_PROMPT}\n\n---\n\n{user_prompt}"
-                estimated_chars = self._estimate_cli_prompt_chars(prompt, text)
-                if (
-                    estimated_chars > self.CLI_API_FALLBACK_CHAR_THRESHOLD
-                    and self._ensure_api_client()
-                ):
-                    logger.info(
-                        "Prompt estimate for paper %s exceeds Claude CLI threshold "
-                        "(%d chars); using Anthropic API fallback",
-                        paper_id,
-                        estimated_chars,
-                    )
-                    api_prompt = self._build_api_fallback_prompt(prompt, text)
-                    response_text, input_tokens, output_tokens = self._call_api(api_prompt)
-                else:
-                    try:
-                        response_dict = self.cli_executor.extract(prompt, text)
-                    except PromptTooLongError:
-                        if not self._ensure_api_client():
-                            raise
+                cli_text = text
+                estimated_chars = self._estimate_cli_prompt_chars(prompt, cli_text)
+                if estimated_chars > self.CLI_API_FALLBACK_CHAR_THRESHOLD:
+                    truncated_text = self._truncate_text_for_cli(cli_text)
+                    if truncated_text != cli_text:
                         logger.info(
-                            "Claude CLI prompt exceeded context for paper %s; "
-                            "retrying with Anthropic API",
+                            "Prompt estimate for paper %s exceeds Claude CLI threshold "
+                            "(%d chars); retrying on Claude CLI with truncated text view",
                             paper_id,
+                            estimated_chars,
                         )
-                        api_prompt = self._build_api_fallback_prompt(prompt, text)
-                        response_text, input_tokens, output_tokens = self._call_api(api_prompt)
-                    else:
-                        response_text = json.dumps(response_dict)
-                        input_tokens, output_tokens = 0, 0
+                        cli_text = truncated_text
+                try:
+                    response_dict = self.cli_executor.extract(prompt, cli_text)
+                except PromptTooLongError:
+                    if cli_text != text:
+                        raise
+                    truncated_text = self._truncate_text_for_cli(text)
+                    if truncated_text == text:
+                        raise
+                    logger.info(
+                        "Claude CLI prompt exceeded context for paper %s; "
+                        "retrying with truncated text view",
+                        paper_id,
+                    )
+                    response_dict = self.cli_executor.extract(prompt, truncated_text)
+
+                response_text = json.dumps(response_dict)
+                input_tokens, output_tokens = 0, 0
 
             # Parse JSON response
             extraction = self._parse_response(response_text)
@@ -353,6 +359,14 @@ class AnthropicLLMClient(BaseLLMClient):
         if PAPER_TEXT_STDIN_PLACEHOLDER in prompt:
             return len(prompt) - len(PAPER_TEXT_STDIN_PLACEHOLDER) + len(text)
         return len(prompt) + len("\n\nPAPER TEXT:\n") + len(text)
+
+    def _truncate_text_for_cli(self, text: str) -> str:
+        """Return the bounded Claude CLI text view for oversized inputs."""
+
+        return TextCleaner().truncate_for_llm(
+            text,
+            max_chars=self.CLI_TRUNCATED_TEXT_MAX_CHARS,
+        )
 
     def _parse_response(self, response_text: str) -> SemanticAnalysis:
         """Parse JSON response into SemanticAnalysis.

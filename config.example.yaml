@@ -61,7 +61,7 @@ extraction:
       model: "claude-opus-4-6"
       effort: "high"           # Extended thinking: low, medium, high
     openai:
-      model: "gpt-5.4"
+      model: "gpt-5.5"
       reasoning_effort: "xhigh"  # none, low, medium, high, xhigh
     google:
       model: "gemini-2.5-flash"
@@ -120,6 +120,27 @@ embeddings:
 
   # Embedding dimension (must match the model's output dimension)
   dimension: 384
+
+  # Backend: "sentence-transformers" or "ollama"
+  backend: "sentence-transformers"
+
+  # Optional device override for sentence-transformers ("cpu", "cuda", or null for auto)
+  device: null
+
+  # Ollama server URL (only used with the ollama backend)
+  ollama_base_url: "http://localhost:11434"
+
+  # Maximum in-flight embedding requests when using the ollama backend
+  ollama_concurrency: 1
+
+  # Optional query prefix for instruction-tuned embedding models
+  query_prefix: null
+
+  # Optional document prefix for instruction-tuned embedding models
+  document_prefix: null
+
+  # Embedding batch size: positive integer or "auto" to probe Ollama upward
+  batch_size: auto
 
 # =============================================================================
 # Storage Configuration

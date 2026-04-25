@@ -308,6 +308,8 @@ class SectionExtractor:
             )
 
         self.run_control = RunControlPoller(run_control_path) if run_control_path else None
+        self.effort = effort
+        self._oversize_fallback_client: BaseLLMClient | None = None
 
         # Create LLM client using factory
         self.llm_client: BaseLLMClient = create_llm_client(
@@ -355,6 +357,17 @@ class SectionExtractor:
         if self.run_control is None:
             return False
         return self.run_control.clear()
+
+    @staticmethod
+    def _resolve_local_source_path(paper: PaperMetadata) -> Path | None:
+        """Return the best local extractable source path for one paper."""
+        for candidate in (paper.pdf_path, paper.source_path):
+            if candidate is None:
+                continue
+            candidate_path = Path(candidate)
+            if candidate_path.exists():
+                return candidate_path
+        return None
 
     def _resolve_pass_plan(
         self,
@@ -440,8 +453,10 @@ class SectionExtractor:
                     else:
                         snapshot_hash = hashlib.sha256(snapshot_text.encode("utf-8")).hexdigest()
 
+            local_source_path = self._resolve_local_source_path(paper)
+
             # Check for source text
-            if snapshot_text is None and (not paper.pdf_path or not paper.pdf_path.exists()):
+            if snapshot_text is None and local_source_path is None:
                 logger.warning(f"No local extractable source available for paper {paper.paper_id}")
                 return ExtractionResult(
                     paper_id=paper.paper_id,
@@ -454,7 +469,7 @@ class SectionExtractor:
             use_full_result_cache = not section_ids and not skip_llm
             if check_cache and self.extraction_cache and use_full_result_cache:
                 full_hash = self.extraction_cache.compute_content_hash(
-                    paper.pdf_path,
+                    local_source_path,
                     self.model,
                     profile_fingerprint=self.dimension_profile_fingerprint,
                     source_fingerprint=snapshot_hash,
@@ -488,14 +503,21 @@ class SectionExtractor:
                 try:
                     if self.cascade:
                         cascade_result = self.cascade.extract_text(
-                            paper.pdf_path,
+                            local_source_path,
                             doi=getattr(paper, "doi", None),
                             url=getattr(paper, "url", None),
                         )
                         text = cascade_result.text
                         method = cascade_result.method
                     else:
-                        text, method = self.pdf_extractor.extract_text_with_method(paper.pdf_path)
+                        if paper.pdf_path and Path(paper.pdf_path).exists():
+                            text, method = self.pdf_extractor.extract_text_with_method(
+                                paper.pdf_path
+                            )
+                        else:
+                            raise ValueError(
+                                "No PDF extractor available for non-PDF local source without cascade"
+                            )
                     preserve_md = cascade_result.is_markdown if cascade_result else False
                     is_cleaned = False
                 except Exception as e:
@@ -551,6 +573,16 @@ class SectionExtractor:
                 except OSError:
                     pdf_size = None
                     pdf_mtime_ns = None
+            source_size = None
+            source_mtime_ns = None
+            if paper.source_path and Path(paper.source_path).exists():
+                try:
+                    stat = Path(paper.source_path).stat()
+                    source_size = int(stat.st_size)
+                    source_mtime_ns = int(stat.st_mtime_ns)
+                except OSError:
+                    source_size = None
+                    source_mtime_ns = None
 
             if snapshot_payload is None:
                 text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -572,6 +604,9 @@ class SectionExtractor:
                     "pdf_path": str(paper.pdf_path) if paper.pdf_path else None,
                     "pdf_size": pdf_size,
                     "pdf_mtime_ns": pdf_mtime_ns,
+                    "source_path": str(paper.source_path) if paper.source_path else None,
+                    "source_size": source_size,
+                    "source_mtime_ns": source_mtime_ns,
                     "should_persist": True,
                 }
             if planned_intent:
@@ -903,6 +938,19 @@ class SectionExtractor:
             total_output_tokens += result.output_tokens
             total_duration += result.duration_seconds
 
+            if not result.success and self._should_retry_oversize_with_anthropic(result.error):
+                fallback_result = self._extract_pass_with_anthropic_fallback(
+                    paper=paper,
+                    text=text,
+                    document_type=document_type,
+                    pass_num=pass_num,
+                )
+                if fallback_result is not None:
+                    total_input_tokens += fallback_result.input_tokens
+                    total_output_tokens += fallback_result.output_tokens
+                    total_duration += fallback_result.duration_seconds
+                    result = fallback_result
+
             if not result.success:
                 error_msg = f"pass {pass_num} ({pass_label}): {result.error or 'Unknown error'}"
                 errors.append(error_msg)
@@ -1037,15 +1085,92 @@ class SectionExtractor:
     def _truncate_text_for_provider(self, text: str) -> str:
         """Apply provider-aware truncation for LLM input.
 
-        Anthropic CLI now routes oversized prompts to API fallback on a
-        per-paper basis, so preserve the full cleaned text there. Other
-        providers continue to use a bounded LLM view while the canonical
-        snapshot on disk stays complete.
+        Anthropic CLI preserves the full cleaned text by default and applies any
+        last-mile truncation inside the client only when a prompt exceeds the
+        practical Claude CLI working range. Other providers continue to use a
+        bounded LLM view while the canonical snapshot on disk stays complete.
         """
 
         if self.provider == "anthropic" and self.mode == "cli":
             return text
         return self.text_cleaner.truncate_for_llm(text)
+
+    def _should_retry_oversize_with_anthropic(self, error_text: str | None) -> bool:
+        """Return whether an OpenAI CLI pass should retry through Anthropic CLI."""
+
+        if self.provider != "openai" or self.mode != "cli":
+            return False
+
+        from src.analysis.openai_client import OpenAILLMClient
+
+        return OpenAILLMClient.is_cli_prompt_too_long_error(error_text)
+
+    def _get_oversize_fallback_client(self) -> BaseLLMClient | None:
+        """Lazily create the Anthropic CLI client used for max-length retries."""
+
+        if self._oversize_fallback_client is not None:
+            return self._oversize_fallback_client
+
+        try:
+            self._oversize_fallback_client = create_llm_client(
+                provider="anthropic",
+                mode="cli",
+                max_tokens=self.max_tokens,
+                timeout=self.timeout,
+                effort=self.effort,
+                run_control=self.run_control,
+            )
+        except Exception as exc:
+            logger.warning("Could not initialize Anthropic CLI overflow fallback: %s", exc)
+            return None
+
+        return self._oversize_fallback_client
+
+    def _extract_pass_with_anthropic_fallback(
+        self,
+        *,
+        paper: PaperMetadata,
+        text: str,
+        document_type: str,
+        pass_num: int,
+    ) -> ExtractionResult | None:
+        """Retry one pass through Anthropic CLI when Codex rejects the prompt size."""
+
+        fallback_client = self._get_oversize_fallback_client()
+        if fallback_client is None:
+            return None
+
+        fallback_prompt = build_pass_user_prompt(
+            pass_number=pass_num,
+            title=paper.title,
+            authors=paper.author_string,
+            year=paper.publication_year,
+            document_type=document_type,
+            text=text,
+            embed_text=False,
+        )
+        logger.info(
+            "Pass %d exceeded OpenAI CLI prompt limit for %s; retrying with Anthropic CLI",
+            pass_num,
+            paper.paper_id,
+        )
+        fallback_result = fallback_client.extract(
+            paper_id=paper.paper_id,
+            title=paper.title,
+            authors=paper.author_string,
+            year=paper.publication_year,
+            item_type=paper.item_type,
+            text=text,
+            prompt_override=fallback_prompt,
+        )
+        if not fallback_result.success:
+            logger.warning(
+                "Anthropic CLI overflow fallback failed for %s pass %d: %s",
+                paper.paper_id,
+                pass_num,
+                fallback_result.error,
+            )
+        return fallback_result
 
     def extract_batch(
         self,
@@ -1129,7 +1254,10 @@ class SectionExtractor:
                 progress_callback(i + 1, len(papers), paper.title)
 
             # Skip papers without a local file source or supplied snapshot
-            if not paper.pdf_path and (text_snapshots or {}).get(paper.paper_id) is None:
+            if (
+                self._resolve_local_source_path(paper) is None
+                and (text_snapshots or {}).get(paper.paper_id) is None
+            ):
                 stats.skipped += 1
                 i += 1
                 continue
@@ -1392,7 +1520,7 @@ class SectionExtractor:
         Returns:
             Tuple of (ExtractionResult, from_cache).
         """
-        if not paper.pdf_path and text_snapshot is None:
+        if self._resolve_local_source_path(paper) is None and text_snapshot is None:
             return ExtractionResult(
                 paper_id=paper.paper_id,
                 success=False,

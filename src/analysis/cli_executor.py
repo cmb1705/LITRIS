@@ -521,6 +521,39 @@ class ClaudeCliExecutor:
         ]
         return any(indicator in combined for indicator in indicators)
 
+    @staticmethod
+    def _is_retryable_parse_error(error: ParseError) -> bool:
+        """Return whether a parse failure likely came from non-deterministic CLI prose.
+
+        Claude CLI occasionally returns a completion acknowledgement instead of the
+        requested JSON payload for long extraction jobs. Those responses are often
+        recoverable on a subsequent retry, so treat them as transient while still
+        surfacing genuinely malformed payloads immediately.
+        """
+
+        combined = " ".join(
+            part
+            for part in (
+                str(error),
+                getattr(error, "raw_output", ""),
+                getattr(error, "stdout", ""),
+                getattr(error, "stderr", ""),
+            )
+            if part
+        ).lower()
+        retryable_patterns = [
+            "returned non-json content",
+            "previous turn",
+            "returned above",
+            "ready for the next",
+            "ready for your next",
+            "analysis is complete",
+            "extraction is complete",
+            "json response was returned",
+            "json with all five",
+        ]
+        return any(pattern in combined for pattern in retryable_patterns)
+
     def _execute_prompt(self, prompt: str) -> str:
         """Execute a single prompt and return raw response.
 
@@ -674,6 +707,21 @@ class ClaudeCliExecutor:
             self._raise_if_pause_requested("before CLI extraction attempt")
             try:
                 return self._execute_single_extraction(prompt, input_text)
+            except ParseError as e:
+                last_error = e
+                if attempt < max_retries and self._is_retryable_parse_error(e):
+                    self._raise_if_pause_requested("before CLI parse retry backoff")
+                    delay = retry_delay * (2**attempt)
+                    logger.warning(
+                        "Non-JSON CLI response (attempt %d/%d): %s. Retrying in %.1fs...",
+                        attempt + 1,
+                        max_retries + 1,
+                        e,
+                        delay,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise
             except (EmptyResponseError, TransientError) as e:
                 last_error = e
                 if attempt < max_retries:
@@ -926,9 +974,11 @@ class ClaudeCliExecutor:
                 except json.JSONDecodeError:
                     continue
 
-        # CLI --output-format json returns a JSON array of event objects.
-        # Scan for the result event.
         if isinstance(parsed, list):
+            extracted = self._extract_json_from_event_stream(parsed)
+            if extracted:
+                return extracted
+
             result_obj = None
             for item in parsed:
                 if isinstance(item, dict) and item.get("type") == "result":
@@ -1010,5 +1060,47 @@ class ClaudeCliExecutor:
                 return json.loads(json_match.group(0))
             except json.JSONDecodeError:
                 pass
+
+        return None
+
+    def _extract_json_from_event_stream(self, events: list[dict]) -> dict | None:
+        """Extract a JSON payload from Claude's structured event stream.
+
+        Claude CLI's ``--output-format json`` emits an array of event objects.
+        The authoritative JSON answer may appear either in the assistant message
+        content or in the terminal result event. When the final ``result`` field
+        is only a prose summary, we still want to recover the assistant's actual
+        JSON answer from earlier events.
+        """
+
+        def _try_candidate(value: object) -> dict | None:
+            if isinstance(value, dict):
+                return value
+            if isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                except json.JSONDecodeError:
+                    return self._extract_json_from_text(value)
+                return parsed if isinstance(parsed, dict) else None
+            return None
+
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+
+            if event.get("type") == "assistant":
+                message = event.get("message")
+                if isinstance(message, dict):
+                    content = message.get("content", [])
+                    if isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                extracted = _try_candidate(block.get("text"))
+                                if extracted:
+                                    return extracted
+
+            extracted = _try_candidate(event.get("result"))
+            if extracted:
+                return extracted
 
         return None

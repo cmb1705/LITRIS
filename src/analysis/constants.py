@@ -16,7 +16,7 @@ LLMProvider = Literal["anthropic", "openai", "google", "ollama", "llamacpp"]
 # Default models per provider
 DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-opus-4-6",
-    "openai": "gpt-5.4",
+    "openai": "gpt-5.5",
     "google": "gemini-2.5-flash",
     "ollama": "llama3",
     "llamacpp": "llama-3",
@@ -65,10 +65,12 @@ ANTHROPIC_BATCH_PRICING: dict[str, tuple[float, float]] = {
 
 # OpenAI models and pricing
 # Source: https://developers.openai.com/codex/models/
-# Updated: 2026-03
+# Updated: 2026-04
 OPENAI_MODELS: dict[str, str] = {
-    # GPT-5.4 family (latest)
-    "gpt-5.4": "GPT-5.4 (Latest, most capable)",
+    # GPT-5.5 family (latest)
+    "gpt-5.5": "GPT-5.5 (Latest, most capable)",
+    # GPT-5.4 family
+    "gpt-5.4": "GPT-5.4 (Previous flagship)",
     "gpt-5.4-pro": "GPT-5.4 Pro (Highest quality, complex tasks)",
     # GPT-5 utility models
     "gpt-5-mini": "GPT-5 Mini (Fast, cost-efficient)",
@@ -85,6 +87,8 @@ OPENAI_MODELS: dict[str, str] = {
 }
 
 OPENAI_PRICING: dict[str, tuple[float, float]] = {
+    # GPT-5.5 family
+    "gpt-5.5": (5.0, 30.0),
     # GPT-5.4 family
     "gpt-5.4": (2.50, 15.0),
     "gpt-5.4-pro": (24.0, 192.0),

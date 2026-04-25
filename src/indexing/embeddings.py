@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import heapq
+from collections import deque
+from collections.abc import Callable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
+from threading import local
 from time import perf_counter, sleep
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.analysis.raptor import RaptorSummaries
@@ -73,6 +77,9 @@ OLLAMA_AUTO_BATCH_MAX = 512
 DEFAULT_OLLAMA_BATCH_SIZE = OLLAMA_AUTO_BATCH_START
 OLLAMA_AUTO_TARGET_SECONDS = 75.0
 OLLAMA_AUTO_BATCH_CANDIDATES = (8, 16, 32, 64, 128, 256, 384, 512)
+EMBEDDING_PROGRESS_LOG_INTERVAL_SECONDS = 15.0
+EMBEDDING_PROGRESS_WINDOW_SECONDS = 60.0
+TRUST_REMOTE_CODE_MODEL_PREFIXES = ("Alibaba-NLP/", "jinaai/")
 
 
 @dataclass
@@ -111,6 +118,129 @@ class OllamaProbeResult:
         return self.batch_size / max(self.duration_seconds, 1e-9)
 
 
+@dataclass(frozen=True)
+class EmbeddingProgressSnapshot:
+    """Progress snapshot for one embedding run."""
+
+    backend: str
+    model: str
+    batch_size: int
+    completed_chunks: int
+    total_chunks: int
+    elapsed_seconds: float
+    rolling_chunks_per_second: float
+    overall_chunks_per_second: float
+    eta_seconds: float
+
+    @property
+    def progress_fraction(self) -> float:
+        """Return normalized completion between 0 and 1."""
+        if self.total_chunks <= 0:
+            return 1.0
+        return min(1.0, self.completed_chunks / self.total_chunks)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the progress snapshot."""
+        return {
+            "backend": self.backend,
+            "model": self.model,
+            "batch_size": self.batch_size,
+            "completed_chunks": self.completed_chunks,
+            "total_chunks": self.total_chunks,
+            "elapsed_seconds": round(self.elapsed_seconds, 3),
+            "rolling_chunks_per_second": round(self.rolling_chunks_per_second, 6),
+            "overall_chunks_per_second": round(self.overall_chunks_per_second, 6),
+            "eta_seconds": round(self.eta_seconds, 3),
+            "progress_fraction": round(self.progress_fraction, 6),
+        }
+
+
+class EmbeddingProgressTracker:
+    """Track rolling embedding throughput and ETA."""
+
+    def __init__(
+        self,
+        *,
+        backend: str,
+        model: str,
+        batch_size: int,
+        total_chunks: int,
+    ) -> None:
+        self.backend = backend
+        self.model = model
+        self.batch_size = batch_size
+        self.total_chunks = total_chunks
+        self.started_at = perf_counter()
+        self._history: deque[tuple[float, int]] = deque()
+        self._last_log_at = self.started_at
+
+    def snapshot(self, completed_chunks: int) -> EmbeddingProgressSnapshot:
+        """Return a progress snapshot after updating the rolling window."""
+        now = perf_counter()
+        self._history.append((now, completed_chunks))
+        while self._history and now - self._history[0][0] > EMBEDDING_PROGRESS_WINDOW_SECONDS:
+            self._history.popleft()
+
+        elapsed = max(now - self.started_at, 1e-9)
+        overall_rate = completed_chunks / elapsed
+        rolling_rate = overall_rate
+        if len(self._history) >= 2:
+            start_time, start_completed = self._history[0]
+            delta_time = now - start_time
+            delta_completed = completed_chunks - start_completed
+            if delta_time > 0 and delta_completed >= 0:
+                rolling_rate = delta_completed / delta_time
+        rate_for_eta = rolling_rate if rolling_rate > 0 else overall_rate
+        remaining_chunks = max(self.total_chunks - completed_chunks, 0)
+        eta_seconds = remaining_chunks / max(rate_for_eta, 1e-9) if remaining_chunks else 0.0
+        return EmbeddingProgressSnapshot(
+            backend=self.backend,
+            model=self.model,
+            batch_size=self.batch_size,
+            completed_chunks=completed_chunks,
+            total_chunks=self.total_chunks,
+            elapsed_seconds=elapsed,
+            rolling_chunks_per_second=rolling_rate,
+            overall_chunks_per_second=overall_rate,
+            eta_seconds=eta_seconds,
+        )
+
+    def maybe_log(self, snapshot: EmbeddingProgressSnapshot) -> None:
+        """Log progress snapshots at a bounded cadence."""
+        now = perf_counter()
+        if (
+            snapshot.completed_chunks < snapshot.total_chunks
+            and now - self._last_log_at < EMBEDDING_PROGRESS_LOG_INTERVAL_SECONDS
+        ):
+            return
+        self._last_log_at = now
+        percent = snapshot.progress_fraction * 100
+        logger.info(
+            "Embedding progress: %d/%d chunks (%.1f%%) backend=%s model=%s "
+            "batch_size=%d rolling=%.2f chunks/s eta=%s",
+            snapshot.completed_chunks,
+            snapshot.total_chunks,
+            percent,
+            snapshot.backend,
+            snapshot.model,
+            snapshot.batch_size,
+            snapshot.rolling_chunks_per_second,
+            self._format_duration(snapshot.eta_seconds),
+        )
+
+    @staticmethod
+    def _format_duration(total_seconds: float) -> str:
+        """Render a compact ETA string."""
+        seconds = max(int(round(total_seconds)), 0)
+        hours, seconds = divmod(seconds, 3600)
+        minutes, seconds = divmod(seconds, 60)
+        if hours:
+            return f"{hours}h {minutes:02d}m {seconds:02d}s"
+        if minutes:
+            return f"{minutes}m {seconds:02d}s"
+        return f"{seconds}s"
+
+
 class EmbeddingGenerator:
     """Generate embeddings for paper extractions.
 
@@ -126,6 +256,7 @@ class EmbeddingGenerator:
         device: str | None = None,
         backend: str = "sentence-transformers",
         ollama_base_url: str = "http://localhost:11434",
+        ollama_concurrency: int = 1,
         query_prefix: str | None = None,
         document_prefix: str | None = None,
     ):
@@ -137,6 +268,7 @@ class EmbeddingGenerator:
             device: Device to use for sentence-transformers ('cpu', 'cuda', or None for auto).
             backend: Embedding backend ('sentence-transformers' or 'ollama').
             ollama_base_url: Base URL for the Ollama server (only used with ollama backend).
+            ollama_concurrency: Maximum number of in-flight Ollama embedding requests.
             query_prefix: Prefix to prepend to query texts (e.g., instruction for Qwen3).
             document_prefix: Prefix to prepend to document texts during indexing.
         """
@@ -144,6 +276,7 @@ class EmbeddingGenerator:
         self.max_chunk_tokens = max_chunk_tokens
         self.device = device
         self.backend = backend
+        self.ollama_concurrency = max(1, int(ollama_concurrency))
         self.query_prefix = query_prefix
         self.document_prefix = document_prefix
         self.ollama_max_retries = 3
@@ -167,9 +300,25 @@ class EmbeddingGenerator:
                     "sentence-transformers failed to import. "
                     "Install dependencies from requirements.txt and ensure the .venv is active."
                 ) from exc
-        self.model = transformer_cls(self.model_name, device=self.device)
+        init_kwargs = self._sentence_transformer_init_kwargs()
+        self.model = transformer_cls(self.model_name, device=self.device, **init_kwargs)
         self.embedding_dim = self.model.get_sentence_embedding_dimension()
-        logger.info(f"Model loaded. Embedding dimension: {self.embedding_dim}")
+        resolved_device = getattr(self.model, "device", self.device)
+        logger.info(
+            "Model loaded. Embedding dimension: %s (device=%s)",
+            self.embedding_dim,
+            resolved_device if resolved_device is not None else "auto",
+        )
+
+    def _sentence_transformer_init_kwargs(self) -> dict[str, Any]:
+        """Return model-init kwargs for sentence-transformers backends."""
+        if self.model_name.startswith(TRUST_REMOTE_CODE_MODEL_PREFIXES):
+            logger.info(
+                "Enabling trust_remote_code for sentence-transformers model %s",
+                self.model_name,
+            )
+            return {"trust_remote_code": True}
+        return {}
 
     def _init_ollama(self, base_url: str) -> None:
         """Initialize Ollama backend.
@@ -185,18 +334,35 @@ class EmbeddingGenerator:
                 raise RuntimeError(
                     "ollama package failed to import. Install it with: pip install ollama"
                 ) from exc
+        self._ollama_client_cls = client_cls
+        self._ollama_base_url = base_url
+        self._ollama_client_local = local()
         self._ollama_client = client_cls(host=base_url)
         self.model = None  # No sentence-transformers model
         # Probe the model to get the embedding dimension
         try:
-            probe = self._ollama_client.embed(model=self.model_name, input=["test"])
+            probe = self._get_ollama_client().embed(model=self.model_name, input=["test"])
             self.embedding_dim = len(probe["embeddings"][0])
-            logger.info(f"Ollama model loaded. Embedding dimension: {self.embedding_dim}")
+            logger.info(
+                "Ollama model loaded. Embedding dimension: %d (concurrency=%d)",
+                self.embedding_dim,
+                self.ollama_concurrency,
+            )
         except Exception as exc:
             raise RuntimeError(
                 f"Failed to connect to Ollama at {base_url} or load model '{self.model_name}'. "
                 f"Ensure Ollama is running and the model is pulled: ollama pull {self.model_name}"
             ) from exc
+
+    def _get_ollama_client(self):
+        """Return a thread-local Ollama client when concurrency is enabled."""
+        if self.ollama_concurrency <= 1:
+            return self._ollama_client
+        client = getattr(self._ollama_client_local, "client", None)
+        if client is None:
+            client = self._ollama_client_cls(host=self._ollama_base_url)
+            self._ollama_client_local.client = client
+        return client
 
     def _apply_prefix(self, text: str, prefix: str | None) -> str:
         """Apply a prefix to text if set.
@@ -371,6 +537,7 @@ class EmbeddingGenerator:
         chunks: list[EmbeddingChunk],
         batch_size: int = 32,
         show_progress: bool = True,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> list[EmbeddingChunk]:
         """Generate embeddings for chunks (documents).
 
@@ -380,34 +547,163 @@ class EmbeddingGenerator:
             chunks: List of chunks without embeddings.
             batch_size: Batch size for embedding generation.
             show_progress: Whether to show progress bar.
+            progress_callback: Optional callback receiving progress snapshots.
 
         Returns:
             List of chunks with embeddings populated.
         """
         if not chunks:
             return []
+        embedded_chunks: list[EmbeddingChunk] = []
+        for batch in self.iter_embedded_batches(
+            chunks,
+            batch_size=batch_size,
+            show_progress=show_progress,
+            progress_callback=progress_callback,
+        ):
+            embedded_chunks.extend(batch)
+        logger.info(f"Generated {len(chunks)} embeddings")
+        return embedded_chunks
+
+    def iter_embedded_batches(
+        self,
+        chunks: list[EmbeddingChunk],
+        batch_size: int = 32,
+        show_progress: bool = True,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> Iterator[list[EmbeddingChunk]]:
+        """Yield embedded chunk batches in generation order."""
+        if not chunks:
+            return
 
         texts = [self._apply_prefix(chunk.text, self.document_prefix) for chunk in chunks]
         logger.info(f"Generating embeddings for {len(texts)} chunks")
+        tracker = EmbeddingProgressTracker(
+            backend=self.backend,
+            model=self.model_name,
+            batch_size=batch_size,
+            total_chunks=len(chunks),
+        )
+        progress_bar = None
+        if show_progress:
+            try:
+                from tqdm import tqdm
 
-        if self.backend == "ollama":
-            embeddings = self._ollama_embed_batch(texts, batch_size=batch_size)
-        else:
-            embeddings = self.model.encode(
-                texts,
-                batch_size=batch_size,
-                show_progress_bar=show_progress,
-                convert_to_numpy=True,
-            )
+                progress_bar = tqdm(total=len(chunks), desc="Embedding", unit="chunk")
+            except Exception:  # noqa: BLE001 - progress is optional
+                progress_bar = None
 
-        for chunk, embedding in zip(chunks, embeddings, strict=True):
+        completed = 0
+        try:
+            if self.backend == "ollama":
+                for index, embeddings in enumerate(
+                    self._iter_ollama_batch_embeddings(texts, batch_size=batch_size)
+                ):
+                    chunk_batch = chunks[index * batch_size : (index + 1) * batch_size]
+                    completed = self._finalize_embedded_batch(
+                        chunk_batch=chunk_batch,
+                        embeddings=embeddings,
+                        completed=completed,
+                        tracker=tracker,
+                        progress_bar=progress_bar,
+                        progress_callback=progress_callback,
+                    )
+                    yield chunk_batch
+            else:
+                for index in range(0, len(chunks), batch_size):
+                    chunk_batch = chunks[index : index + batch_size]
+                    text_batch = texts[index : index + batch_size]
+                    embeddings = self._embed_prefixed_batch(text_batch, batch_size=batch_size)
+                    completed = self._finalize_embedded_batch(
+                        chunk_batch=chunk_batch,
+                        embeddings=embeddings,
+                        completed=completed,
+                        tracker=tracker,
+                        progress_bar=progress_bar,
+                        progress_callback=progress_callback,
+                    )
+                    yield chunk_batch
+        finally:
+            if progress_bar is not None:
+                progress_bar.close()
+
+    def _finalize_embedded_batch(
+        self,
+        *,
+        chunk_batch: list[EmbeddingChunk],
+        embeddings: list[list[float]] | Any,
+        completed: int,
+        tracker: EmbeddingProgressTracker,
+        progress_bar,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> int:
+        """Attach embeddings to one chunk batch and emit progress."""
+        for chunk, embedding in zip(chunk_batch, embeddings, strict=True):
             if hasattr(embedding, "tolist"):
                 chunk.embedding = embedding.tolist()
             else:
                 chunk.embedding = list(embedding)
+        completed += len(chunk_batch)
+        if progress_bar is not None:
+            progress_bar.update(len(chunk_batch))
+        snapshot = tracker.snapshot(completed)
+        if self.backend == "ollama":
+            tracker.maybe_log(snapshot)
+        if progress_callback is not None:
+            progress_callback(snapshot.to_dict())
+        return completed
 
-        logger.info(f"Generated {len(chunks)} embeddings")
-        return chunks
+    def _embed_prefixed_batch(
+        self,
+        prefixed_texts: list[str],
+        *,
+        batch_size: int,
+    ) -> list[list[float]] | Any:
+        """Embed one already-prefixed batch for the active backend."""
+        if self.backend == "ollama":
+            return self._ollama_embed_with_fallback(prefixed_texts)
+        return self.model.encode(
+            prefixed_texts,
+            batch_size=min(batch_size, len(prefixed_texts)),
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
+
+    def _iter_ollama_batch_embeddings(
+        self,
+        texts: list[str],
+        *,
+        batch_size: int,
+    ) -> Iterator[list[list[float]]]:
+        """Yield Ollama embedding batches in order with bounded concurrency."""
+        if not texts:
+            return
+        batches = [texts[index : index + batch_size] for index in range(0, len(texts), batch_size)]
+        if self.ollama_concurrency <= 1 or len(batches) <= 1:
+            for batch in batches:
+                yield self._ollama_embed_with_fallback(batch)
+            return
+
+        max_workers = min(self.ollama_concurrency, len(batches))
+        logger.info(
+            "Embedding via Ollama with concurrency=%d over %d request batches",
+            max_workers,
+            len(batches),
+        )
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="ollama-embed") as executor:
+            in_flight: dict[int, Future[list[list[float]]]] = {}
+            next_submit = 0
+            next_yield = 0
+            while next_yield < len(batches):
+                while next_submit < len(batches) and len(in_flight) < max_workers:
+                    in_flight[next_submit] = executor.submit(
+                        self._ollama_embed_with_fallback,
+                        batches[next_submit],
+                    )
+                    next_submit += 1
+                future = in_flight.pop(next_yield)
+                yield future.result()
+                next_yield += 1
 
     def resolve_batch_size(
         self,
@@ -462,7 +758,7 @@ class EmbeddingGenerator:
         prefixed = self._apply_prefix(text, self.query_prefix)
 
         if self.backend == "ollama":
-            response = self._ollama_client.embed(model=self.model_name, input=[prefixed])
+            response = self._get_ollama_client().embed(model=self.model_name, input=[prefixed])
             return list(response["embeddings"][0])
 
         embedding = self.model.encode(prefixed, convert_to_numpy=True)
@@ -503,9 +799,8 @@ class EmbeddingGenerator:
             List of embedding vectors.
         """
         all_embeddings: list[list[float]] = []
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i : i + batch_size]
-            all_embeddings.extend(self._ollama_embed_with_fallback(batch))
+        for batch_embeddings in self._iter_ollama_batch_embeddings(texts, batch_size=batch_size):
+            all_embeddings.extend(batch_embeddings)
         return all_embeddings
 
     def _auto_select_ollama_batch_size(self, texts: list[str]) -> int:
@@ -569,7 +864,7 @@ class EmbeddingGenerator:
         self,
         probe_results: list[OllamaProbeResult],
     ) -> OllamaProbeResult:
-        """Choose the best successful probe from measured capability and latency."""
+        """Choose the best successful probe by measured sustained throughput."""
         successes = [result for result in probe_results if result.success]
         if not successes:
             return OllamaProbeResult(
@@ -582,8 +877,14 @@ class EmbeddingGenerator:
             result for result in successes if result.duration_seconds <= OLLAMA_AUTO_TARGET_SECONDS
         ]
         if within_budget:
-            return max(within_budget, key=lambda result: result.batch_size)
-        return min(successes, key=lambda result: result.duration_seconds)
+            return max(
+                within_budget,
+                key=lambda result: (result.throughput, -result.duration_seconds, result.batch_size),
+            )
+        return max(
+            successes,
+            key=lambda result: (result.throughput, -result.duration_seconds, result.batch_size),
+        )
 
     def _select_probe_texts(self, texts: list[str], limit: int) -> list[str]:
         """Select the longest prefixed texts for conservative batch probing."""
@@ -612,7 +913,7 @@ class EmbeddingGenerator:
         last_exc: Exception | None = None
         for attempt in range(1, self.ollama_max_retries + 1):
             try:
-                response = self._ollama_client.embed(model=self.model_name, input=texts)
+                response = self._get_ollama_client().embed(model=self.model_name, input=texts)
                 if len(response["embeddings"]) != len(texts):
                     raise RuntimeError(
                         f"Expected {len(texts)} embeddings, got {len(response['embeddings'])}"
@@ -692,7 +993,7 @@ class EmbeddingGenerator:
         delay = self.ollama_retry_backoff_seconds
         for attempt in range(1, self.ollama_max_retries + 1):
             try:
-                response = self._ollama_client.embed(model=self.model_name, input=texts)
+                response = self._get_ollama_client().embed(model=self.model_name, input=texts)
                 return [list(emb) for emb in response["embeddings"]]
             except Exception as exc:  # noqa: BLE001 - client errors are backend-specific
                 last_exc = exc

@@ -641,8 +641,10 @@ def main():
         chroma_dir = index_dir / "chroma"
         embedding_gen = EmbeddingGenerator(
             model_name=config.embeddings.model,
+            device=config.embeddings.device,
             backend=config.embeddings.backend,
             ollama_base_url=config.embeddings.ollama_base_url,
+            ollama_concurrency=config.embeddings.ollama_concurrency,
             query_prefix=config.embeddings.query_prefix,
             document_prefix=config.embeddings.document_prefix,
         )

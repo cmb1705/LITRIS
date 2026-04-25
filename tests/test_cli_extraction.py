@@ -227,6 +227,46 @@ class TestClaudeCliExecutor:
 
         assert executor._execute_single_extraction.call_count == 1
 
+    def test_parse_error_completion_ack_is_retried(self):
+        """Completion acknowledgements without JSON should be retried."""
+        executor = ClaudeCliExecutor()
+        executor.verify_authentication = MagicMock(return_value=True)
+        executor._cli_path = "/usr/bin/claude"
+        executor._execute_single_extraction = MagicMock(
+            side_effect=[
+                ParseError(
+                    (
+                        "Could not parse JSON from CLI result. Claude returned non-JSON "
+                        "content: The Pass 1 extraction is complete. The JSON was "
+                        "returned in the previous turn."
+                    ),
+                    raw_output='{"type":"result","result":"summary only"}',
+                ),
+                {"status": "ok"},
+            ]
+        )
+
+        with patch("time.sleep") as mock_sleep:
+            result = executor.extract("prompt", "input text", max_retries=3)
+
+        assert result == {"status": "ok"}
+        assert executor._execute_single_extraction.call_count == 2
+        mock_sleep.assert_called_once()
+
+    def test_non_retryable_parse_error_raises_immediately(self):
+        """Deterministic malformed payloads should still fail fast."""
+        executor = ClaudeCliExecutor()
+        executor.verify_authentication = MagicMock(return_value=True)
+        executor._cli_path = "/usr/bin/claude"
+        executor._execute_single_extraction = MagicMock(
+            side_effect=ParseError("Malformed wrapper payload", raw_output="not json")
+        )
+
+        with pytest.raises(ParseError, match="Malformed wrapper payload"):
+            executor.extract("prompt", "input text", max_retries=3)
+
+        assert executor._execute_single_extraction.call_count == 1
+
     def test_execute_single_extraction_preserves_auth_outputs(self):
         """Authentication failures should keep raw stdout/stderr for diagnostics."""
         executor = ClaudeCliExecutor()
@@ -280,6 +320,32 @@ class TestClaudeCliExecutor:
         # JSON with surrounding text
         result = executor._parse_response('Here is the result:\n{"key": "value"}\nDone.')
         assert result == {"key": "value"}
+
+    def test_parse_json_from_assistant_event_when_result_is_summary(self):
+        """Structured event streams should recover JSON from assistant content."""
+        import json
+
+        executor = ClaudeCliExecutor()
+        output = json.dumps(
+            [
+                {"type": "system", "subtype": "init"},
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {"type": "text", "text": '{"key": "value", "source": "assistant"}'}
+                        ]
+                    },
+                },
+                {
+                    "type": "result",
+                    "result": "Analysis complete. The JSON response was returned above.",
+                },
+            ]
+        )
+
+        result = executor._parse_response(output)
+        assert result == {"key": "value", "source": "assistant"}
 
     def test_parse_invalid_json(self):
         """Test error on invalid JSON."""

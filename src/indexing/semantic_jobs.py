@@ -580,9 +580,6 @@ def retry_semantic_papers(
     if missing_ids:
         raise ValueError(f"Unknown paper_ids: {', '.join(missing_ids)}")
 
-    if profile is not None:
-        _ensure_index_profile_compatible(index_dir=index_dir, profile=profile)
-
     selected_papers = [
         _paper_from_index_dict(paper_id, papers[paper_id]) for paper_id in selected_ids
     ]
@@ -633,7 +630,7 @@ def retry_semantic_papers(
         selected_papers,
         text_snapshots=text_snapshots,
     ):
-        if result.success and result.extraction:
+        if result.success and result.extraction and not result.pass_errors:
             extractions[result.paper_id] = {
                 "paper_id": result.paper_id,
                 "extraction": result.extraction.to_index_dict(),
@@ -656,7 +653,12 @@ def retry_semantic_papers(
             failed_ids.append(result.paper_id)
 
     store.save_extractions(extractions)
-    if profile is not None:
+    if profile is not None and _should_save_retry_profile_snapshot(
+        store=store,
+        profile=profile,
+        selected_ids=selected_ids,
+        total_papers=len(papers),
+    ):
         store.save_dimension_profile(profile.model_dump(mode="json"))
     generate_summary(index_dir, active_logger)
     return {
@@ -666,6 +668,39 @@ def retry_semantic_papers(
         "failed_paper_ids": failed_ids,
         "total_extractions": len(extractions),
     }
+
+
+def _should_save_retry_profile_snapshot(
+    *,
+    store: StructuredStore,
+    profile: DimensionProfile,
+    selected_ids: list[str],
+    total_papers: int,
+) -> bool:
+    """Return whether a targeted retry should update dimension_profile.json.
+
+    Partial-scope retries are allowed during staged profile backfills where the
+    index intentionally contains a mix of old and new extractions. In that
+    state, flipping the index-wide active profile snapshot would break resume
+    logic for the main backfill, so only persist the new profile when the index
+    is already on that profile or the retry scope covers the entire corpus.
+    """
+
+    current_profile = DimensionProfile(**store.load_dimension_profile())
+    if current_profile.fingerprint == profile.fingerprint:
+        return True
+    if len(selected_ids) == total_papers:
+        return True
+    logger.info(
+        "Leaving dimension profile snapshot at %s during targeted retry because "
+        "the retry scope is partial (%d/%d papers) and the active index profile "
+        "still differs from %s",
+        current_profile.profile_id,
+        len(selected_ids),
+        total_papers,
+        profile.profile_id,
+    )
+    return False
 
 
 def estimate_semantic_batch_cost(
@@ -896,13 +931,22 @@ def _ensure_index_profile_compatible(
     *,
     index_dir: Path,
     profile: DimensionProfile,
+    paper_ids: list[str] | None = None,
 ) -> None:
-    """Reject mixed-profile writes into one index."""
+    """Reject incompatible writes into one index.
+
+    When ``paper_ids`` is provided, only those extraction records are checked.
+    This allows targeted retries during a staged profile backfill where the
+    index as a whole is intentionally mixed until the full corpus completes.
+    """
 
     store = StructuredStore(index_dir)
     existing = store.load_extractions()
     mismatched_ids: list[str] = []
+    relevant_ids = set(paper_ids) if paper_ids else None
     for paper_id, record in existing.items():
+        if relevant_ids is not None and paper_id not in relevant_ids:
+            continue
         try:
             extraction = DimensionedExtraction.from_record(record)
         except Exception:

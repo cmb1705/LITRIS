@@ -336,7 +336,9 @@ class EmbeddingsConfig(BaseModel):
     model: str = "sentence-transformers/all-MiniLM-L6-v2"
     dimension: int = 384
     backend: str = "sentence-transformers"
+    device: str | None = None
     ollama_base_url: str = "http://localhost:11434"
+    ollama_concurrency: int = 1
     query_prefix: str | None = None
     document_prefix: str | None = None
     batch_size: int | str = "auto"
@@ -355,6 +357,29 @@ class EmbeddingsConfig(BaseModel):
     def validate_batch_size(cls, v: Any) -> int | str:
         """Validate embedding batch size."""
         return parse_embedding_batch_size_setting(v)
+
+    @field_validator("device", mode="before")
+    @classmethod
+    def normalize_device(cls, v: Any) -> str | None:
+        """Normalize blank embedding devices to auto-detect."""
+        if v is None:
+            return None
+        value = str(v).strip()
+        return value or None
+
+    @field_validator("ollama_concurrency", mode="before")
+    @classmethod
+    def validate_ollama_concurrency(cls, v: Any) -> int:
+        """Validate the bounded number of in-flight Ollama embedding requests."""
+        if v is None or v == "":
+            return 1
+        try:
+            value = int(v)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("ollama_concurrency must be a positive integer") from exc
+        if value < 1:
+            raise ValueError("ollama_concurrency must be at least 1")
+        return value
 
 
 class DimensionsConfig(BaseModel):

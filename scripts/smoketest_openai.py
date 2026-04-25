@@ -22,12 +22,12 @@ def test_openai_cli_mode():
     print("=" * 60)
 
     try:
+        from src.analysis.constants import DEFAULT_MODELS
         from src.analysis.openai_client import OpenAILLMClient
 
-        # Note: Codex CLI with ChatGPT auth only supports gpt-5.4
         client = OpenAILLMClient(
             mode="cli",
-            model="gpt-5.4",  # Default for ChatGPT Plus/Pro users
+            model=DEFAULT_MODELS["openai"],
         )
         print(f"Provider: {client.provider}")
         print(f"Model: {client.model}")
@@ -158,7 +158,7 @@ def test_cost_estimation():
     # Test cost estimation for different models
     test_text_length = 10000  # ~10k chars typical paper
 
-    for model in ["gpt-5.4", "gpt-5-mini", "gpt-5-nano"]:
+    for model in ["gpt-5.5", "gpt-5-mini", "gpt-5-nano"]:
         client = OpenAILLMClient.__new__(OpenAILLMClient)
         client.model = model
         cost = client.estimate_cost(test_text_length)
@@ -173,6 +173,7 @@ def test_factory():
     print("LLM Factory Test")
     print("=" * 60)
 
+    from src.analysis.constants import DEFAULT_MODELS
     from src.analysis.llm_factory import create_llm_client, get_available_providers
 
     providers = get_available_providers()
@@ -183,7 +184,7 @@ def test_factory():
         client = create_llm_client(
             provider="openai",
             mode="api",
-            model="gpt-5.4",
+            model=DEFAULT_MODELS["openai"],
         )
         print(f"Created OpenAI client: {client.provider}, {client.model}")
         return True

@@ -1,6 +1,8 @@
 """Tests for LLM extraction schemas and prompts."""
 
 import json
+from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -16,6 +18,7 @@ from src.analysis.schemas import (
     SemanticAnalysis,
 )
 from src.analysis.semantic_prompts import build_pass_user_prompt
+from src.zotero.models import PaperMetadata
 
 # --- Helper ---
 
@@ -280,6 +283,169 @@ class TestSectionExtractorConfig:
 
         assert cli_text == long_text
         assert api_text == long_text
+
+    def test_section_extractor_retries_openai_oversize_pass_with_anthropic_cli(
+        self, tmp_path, monkeypatch
+    ):
+        """OpenAI CLI max-length failures should retry the pass via Anthropic CLI."""
+        from src.analysis import section_extractor as se_module
+
+        class DummyPDFExtractor:
+            def __init__(self, cache_dir=None, enable_ocr=False, ocr_config=None):
+                pass
+
+        class DummyOpenAIClient:
+            model = "gpt-5.4"
+
+            def extract(self, **kwargs):
+                return ExtractionResult(
+                    paper_id=kwargs["paper_id"],
+                    success=False,
+                    error=(
+                        "Prompt too long: Error: turn/start failed: Input exceeds the "
+                        "maximum length of 1048576 characters."
+                    ),
+                    duration_seconds=1.0,
+                    model_used=self.model,
+                )
+
+        class DummyAnthropicClient:
+            model = "claude-opus-4-6"
+
+            def __init__(self):
+                self.calls = []
+
+            def extract(self, **kwargs):
+                self.calls.append(kwargs)
+                assert PAPER_TEXT_STDIN_PLACEHOLDER in kwargs["prompt_override"]
+                assert kwargs["text"] == "x" * 1200000
+                return ExtractionResult(
+                    paper_id=kwargs["paper_id"],
+                    success=True,
+                    extraction=_make_analysis(
+                        paper_id=kwargs["paper_id"],
+                        q01_research_question="fallback ok",
+                        extraction_model=self.model,
+                    ),
+                    duration_seconds=2.0,
+                    model_used=self.model,
+                )
+
+        openai_client = DummyOpenAIClient()
+        anthropic_client = DummyAnthropicClient()
+
+        def dummy_create_llm_client(provider="anthropic", **kwargs):
+            if provider == "openai":
+                return openai_client
+            if provider == "anthropic":
+                return anthropic_client
+            raise AssertionError(provider)
+
+        monkeypatch.setattr(se_module, "PDFExtractor", DummyPDFExtractor)
+        monkeypatch.setattr(se_module, "create_llm_client", dummy_create_llm_client)
+
+        extractor = se_module.SectionExtractor(
+            cache_dir=tmp_path,
+            provider="openai",
+            mode="cli",
+        )
+        paper = PaperMetadata(
+            paper_id="oversize_paper",
+            zotero_key="oversize_paper",
+            zotero_item_id=1,
+            item_type="book",
+            title="Oversize Prompt Test",
+            date_added=datetime.now(),
+            date_modified=datetime.now(),
+        )
+
+        result = extractor._extract_6_pass(
+            paper=paper,
+            text="x" * 1200000,
+            document_type="book",
+            section_ids=["scholarly"],
+        )
+
+        assert result.success is True
+        assert result.extraction is not None
+        assert result.duration_seconds == 3.0
+        assert len(anthropic_client.calls) == 1
+
+    @pytest.mark.parametrize("parallel_workers", [1, 2])
+    def test_section_extractor_uses_source_path_only_inputs(
+        self,
+        tmp_path,
+        monkeypatch,
+        parallel_workers,
+    ):
+        """Source-backed papers without PDFs should still be extractable in skip_llm mode."""
+        from src.analysis import section_extractor as se_module
+
+        html_path = tmp_path / "saved-page.html"
+        html_path.write_text("<html><body>saved article</body></html>", encoding="utf-8")
+
+        class DummyPDFExtractor:
+            def __init__(self, cache_dir=None, enable_ocr=False, ocr_config=None):
+                self.ocr_handler = None
+
+        class DummyLLMClient:
+            def __init__(self, mode=None, model=None, max_tokens=None, **kwargs):
+                pass
+
+            @property
+            def model(self):
+                return "test-model"
+
+        class DummyCascade:
+            def __init__(self, **kwargs):
+                pass
+
+            def extract_text(self, source_path, doi=None, url=None):
+                assert source_path == html_path
+                return SimpleNamespace(
+                    text=" ".join(["source-backed"] * 800),
+                    method="html_attachment",
+                    is_markdown=False,
+                    tiers_attempted=["html_attachment"],
+                    tier_errors={},
+                )
+
+        monkeypatch.setattr(se_module, "PDFExtractor", DummyPDFExtractor)
+        monkeypatch.setattr(se_module, "ExtractionCascade", DummyCascade)
+        monkeypatch.setattr(se_module, "create_llm_client", lambda **kwargs: DummyLLMClient())
+        monkeypatch.setattr(
+            se_module,
+            "classify_document",
+            lambda **kwargs: (se_module.DocumentType.RESEARCH_PAPER, 0.9),
+        )
+
+        extractor = se_module.SectionExtractor(
+            cache_dir=tmp_path,
+            parallel_workers=parallel_workers,
+            skip_non_publications=False,
+        )
+        paper = PaperMetadata(
+            paper_id="paper_html",
+            zotero_key="paper_html",
+            zotero_item_id=1,
+            item_type="webpage",
+            title="Saved Article",
+            source_path=html_path,
+            pdf_path=None,
+            date_added=datetime.now(),
+            date_modified=datetime.now(),
+        )
+
+        results = list(extractor.extract_batch([paper], skip_llm=True))
+
+        assert len(results) == 1
+        result = results[0]
+        assert result.success is True
+        assert result.extraction is None
+        assert result.extraction_method == "html_attachment"
+        assert result.text_snapshot is not None
+        assert result.text_snapshot["source_path"] == str(html_path)
+        assert result.text_snapshot["source_size"] == html_path.stat().st_size
 
 
 class TestLLMClientMocked:

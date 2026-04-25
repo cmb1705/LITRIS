@@ -10,6 +10,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from src.analysis.constants import DEFAULT_MODELS  # noqa: E402
 from src.analysis.gap_detection import GapDetectionConfig, load_gap_report  # noqa: E402
 from src.analysis.research_questions import (  # noqa: E402
     QuestionScope,
@@ -56,7 +57,7 @@ def create_llm_caller(provider: str, model: str | None = None):
         import openai
 
         client = openai.OpenAI()
-        model_name = model or "gpt-5.4"
+        model_name = model or DEFAULT_MODELS["openai"]
 
         def call_openai(prompt: str) -> str:
             response = client.chat.completions.create(

@@ -92,7 +92,9 @@ class FederatedSearchEngine:
         config: FederatedSearchConfig,
         embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
         embedding_backend: str = "sentence-transformers",
+        embedding_device: str | None = None,
         ollama_base_url: str = "http://localhost:11434",
+        embedding_ollama_concurrency: int = 1,
         query_prefix: str | None = None,
         document_prefix: str | None = None,
     ):
@@ -103,7 +105,9 @@ class FederatedSearchEngine:
             config: Federated search configuration.
             embedding_model: Embedding model name.
             embedding_backend: Backend ('sentence-transformers' or 'ollama').
+            embedding_device: Device override for sentence-transformers backends.
             ollama_base_url: Base URL for Ollama server.
+            embedding_ollama_concurrency: Max in-flight Ollama embedding requests.
             query_prefix: Prefix for query texts.
             document_prefix: Prefix for document texts.
         """
@@ -112,7 +116,9 @@ class FederatedSearchEngine:
         self.embedding_model = embedding_model
         self._embedding_kwargs = {
             "embedding_backend": embedding_backend,
+            "embedding_device": embedding_device,
             "ollama_base_url": ollama_base_url,
+            "embedding_ollama_concurrency": embedding_ollama_concurrency,
             "query_prefix": query_prefix,
             "document_prefix": document_prefix,
         }

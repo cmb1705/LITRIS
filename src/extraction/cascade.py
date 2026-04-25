@@ -32,7 +32,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from src.extraction import arxiv_extractor, marker_extractor, opendataloader_extractor
+from src.extraction import (
+    arxiv_extractor,
+    marker_extractor,
+    opendataloader_extractor,
+    web_extractor,
+)
 from src.extraction.opendataloader_extractor import OpenDataLoaderHybridConfig
 from src.extraction.pdf_extractor import PDFExtractionError, PDFExtractor
 from src.utils.logging_config import get_logger
@@ -45,6 +50,7 @@ CascadeMethod = Literal[
     "ar5iv",
     "opendataloader",
     "opendataloader_hybrid",
+    "html_attachment",
     "marker",
     "pymupdf",
     "ocr",
@@ -309,7 +315,40 @@ class ExtractionCascade:
                     tier_errors=tier_errors,
                 )
 
-        # Tier 5: PyMuPDF (fallback for when ODL/Java unavailable)
+        # Tier 5: Local HTML attachment fallback for webpage-backed sources.
+        if pdf_path.suffix.lower() in {".htm", ".html"}:
+            tiers_attempted.append("html_attachment")
+            try:
+                html_result = web_extractor.extract_html_attachment(pdf_path, url=url)
+            except Exception as exc:
+                tier_errors["html_attachment"] = str(exc)
+                diagnostics = " Diagnostics: " + "; ".join(
+                    f"{tier}={error}" for tier, error in sorted(tier_errors.items())
+                )
+                raise PDFExtractionError(
+                    f"All extraction tiers failed for {pdf_path.name}. "
+                    f"Tiers attempted: {', '.join(tiers_attempted)}.{diagnostics}"
+                ) from exc
+
+            if self._is_sufficient(html_result.text):
+                return CascadeResult(
+                    text=html_result.text,
+                    method="html_attachment",
+                    word_count=html_result.word_count,
+                    tiers_attempted=tiers_attempted,
+                    tier_errors=tier_errors,
+                )
+
+            tier_errors["html_attachment"] = "insufficient text after HTML extraction"
+            diagnostics = " Diagnostics: " + "; ".join(
+                f"{tier}={error}" for tier, error in sorted(tier_errors.items())
+            )
+            raise PDFExtractionError(
+                f"All extraction tiers failed for {pdf_path.name}. "
+                f"Tiers attempted: {', '.join(tiers_attempted)}.{diagnostics}"
+            )
+
+        # Tier 6: PyMuPDF (fallback for when ODL/Java unavailable)
         tiers_attempted.append("pymupdf")
         try:
             text, method = self.pdf_extractor.extract_text_with_method(pdf_path)
@@ -329,7 +368,7 @@ class ExtractionCascade:
         except PDFExtractionError:
             pass
 
-        # Tier 6: Marker (ML fallback for complex layouts, scanned docs)
+        # Tier 7: Marker (ML fallback for complex layouts, scanned docs)
         if self.enable_marker:
             tiers_attempted.append("marker")
             text = marker_extractor.extract_with_marker(pdf_path)

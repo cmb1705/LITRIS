@@ -72,16 +72,17 @@ codex login status
 
 ### Supported Models
 
-With ChatGPT authentication, `gpt-5.4` is the current default:
+With ChatGPT authentication, `gpt-5.5` is the current default:
 
 | Model | Description | Availability |
 |-------|-------------|--------------|
-| gpt-5.4 | Latest, most capable | CLI + API |
+| gpt-5.5 | Latest, most capable | CLI + API |
+| gpt-5.4 | Previous flagship | CLI + API |
 | gpt-5.4-pro | Highest quality, complex tasks | API only |
 | gpt-5-mini | Fast, cost-efficient | API only |
 | gpt-5-nano | Fastest, most economical | API only |
 
-LITRIS automatically defaults to `gpt-5.4` when using CLI mode.
+LITRIS automatically defaults to `gpt-5.5` when using CLI mode.
 
 ## MCP Integration (Codex + LITRIS)
 
@@ -160,7 +161,7 @@ export OPENAI_API_KEY="sk-..."
 python scripts/build_index.py --provider openai --mode api --model gpt-5-mini
 
 # Higher quality
-python scripts/build_index.py --provider openai --mode api --model gpt-5.4
+python scripts/build_index.py --provider openai --mode api --model gpt-5.5
 
 # Maximum quality
 python scripts/build_index.py --provider openai --mode api --model gpt-5.4-pro
@@ -174,7 +175,7 @@ python scripts/build_index.py --provider openai --mode api --model gpt-5.4-pro
 |-------|---------------|
 | gpt-5-nano | $0.001 |
 | gpt-5-mini | $0.005 |
-| gpt-5.4 | $0.10 |
+| gpt-5.5 | $0.20 |
 
 ### CLI Mode
 
@@ -206,7 +207,7 @@ The 'gpt-5-mini' model is not supported when using Codex with a ChatGPT account.
 ```
 
 This means you're using CLI mode with a model that requires API access. Solutions:
-1. Use `gpt-5.4` (default for CLI mode)
+1. Use `gpt-5.5` (default for CLI mode)
 2. Switch to API mode with `--mode api`
 
 ### Authentication Failed
@@ -239,7 +240,7 @@ curl https://api.openai.com/v1/models -H "Authorization: Bearer $env:OPENAI_API_
 
 | Feature | Claude (Anthropic) | GPT (OpenAI) |
 |---------|-------------------|--------------|
-| Default Model | claude-opus-4-6 | gpt-5.4 |
+| Default Model | claude-opus-4-6 | gpt-5.5 |
 | CLI Tool | claude | codex |
 | Subscription Auth | Claude Max | ChatGPT Plus/Pro |
 | API Pricing | Similar | Similar |
@@ -260,7 +261,7 @@ from src.analysis.dimensions import get_dimension_value
 client = create_llm_client(
     provider="openai",
     mode="cli",
-    model="gpt-5.4"
+    model="gpt-5.5"
 )
 
 # API mode

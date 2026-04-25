@@ -209,7 +209,7 @@ api: PASS (if API key set)
 
 | Feature | Claude (Anthropic) | GPT (OpenAI) | Gemini (Google) |
 |---------|-------------------|--------------|-----------------|
-| Default Model | claude-opus-4-6 | gpt-5.4 | gemini-2.5-flash |
+| Default Model | claude-opus-4-6 | gpt-5.5 | gemini-2.5-flash |
 | CLI Mode | Yes (claude) | Yes (codex) | No |
 | Subscription Auth | Claude Max | ChatGPT Plus/Pro | No |
 | API Pricing | $$$ | $$$ | $ (cheapest) |

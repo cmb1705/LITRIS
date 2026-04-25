@@ -60,7 +60,9 @@ class LitrisAdapter:
                 chroma_dir=chroma_dir,
                 embedding_model=self.config.embeddings.model,
                 embedding_backend=self.config.embeddings.backend,
+                embedding_device=self.config.embeddings.device,
                 ollama_base_url=self.config.embeddings.ollama_base_url,
+                embedding_ollama_concurrency=self.config.embeddings.ollama_concurrency,
                 query_prefix=self.config.embeddings.query_prefix,
                 document_prefix=self.config.embeddings.document_prefix,
             )

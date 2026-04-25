@@ -61,7 +61,7 @@ from src.indexing.semantic_jobs import (
     resolve_dimension_profile as resolve_runtime_dimension_profile,
 )
 from src.indexing.structured_store import StructuredStore
-from src.utils.checkpoint import CheckpointManager
+from src.utils.checkpoint import CheckpointManager, CheckpointState
 from src.utils.file_utils import safe_read_json, safe_write_json
 from src.utils.logging_config import setup_logging
 from src.zotero.models import Author, PaperMetadata
@@ -1002,6 +1002,9 @@ def _paper_from_index_dict(paper_id: str, paper_dict: dict[str, Any]) -> PaperMe
         tags=paper_dict.get("tags", []),
         pdf_path=paper_dict.get("pdf_path"),
         pdf_attachment_key=paper_dict.get("pdf_attachment_key"),
+        source_path=paper_dict.get("source_path"),
+        source_attachment_key=paper_dict.get("source_attachment_key"),
+        source_media_type=paper_dict.get("source_media_type"),
         date_added=_coerce_index_datetime(paper_dict.get("date_added")),
         date_modified=_coerce_index_datetime(paper_dict.get("date_modified")),
     )
@@ -1177,6 +1180,77 @@ def _checkpoint_matches_request(
         "fulltext_only",
     ]
     return all(state_metadata.get(key) == request_metadata.get(key) for key in comparable_keys)
+
+
+def _checkpoint_can_reconcile_corpus(
+    state_metadata: dict[str, Any],
+    request_metadata: dict[str, Any],
+) -> bool:
+    """Return whether a full-corpus checkpoint can be reconciled to a new corpus snapshot.
+
+    This preserves resumability when the live corpus has changed since a previous
+    full-corpus backfill started, as long as the profile transition and runtime
+    options are unchanged. Added papers will be queued, removed papers will be
+    pruned from the checkpoint state, and overlapping staged results can still
+    be reused.
+    """
+
+    comparable_keys = [
+        "old_profile_id",
+        "old_profile_fingerprint",
+        "target_profile_id",
+        "target_profile_fingerprint",
+        "changed_sections",
+        "reextract_sections",
+        "partial_scope",
+        "refresh_text",
+        "fulltext_only",
+    ]
+    if not all(state_metadata.get(key) == request_metadata.get(key) for key in comparable_keys):
+        return False
+
+    if bool(state_metadata.get("partial_scope")) or bool(request_metadata.get("partial_scope")):
+        return False
+
+    state_ids = state_metadata.get("paper_ids")
+    request_ids = request_metadata.get("paper_ids")
+    if not isinstance(state_ids, list) or not isinstance(request_ids, list):
+        return False
+
+    return bool(state_ids) and bool(request_ids)
+
+
+def _reconcile_checkpoint_state_to_request(
+    checkpoint_state: CheckpointState,
+    request_metadata: dict[str, Any],
+) -> None:
+    """Prune a resumable checkpoint to the current corpus snapshot."""
+
+    request_ids = request_metadata.get("paper_ids", [])
+    request_id_set = set(request_ids) if isinstance(request_ids, list) else set()
+
+    checkpoint_state.processed_ids = [
+        paper_id for paper_id in checkpoint_state.processed_ids if paper_id in request_id_set
+    ]
+    checkpoint_state.failed_items = [
+        item for item in checkpoint_state.failed_items if item.item_id in request_id_set
+    ]
+    checkpoint_state.skipped_ids = [
+        paper_id for paper_id in checkpoint_state.skipped_ids if paper_id in request_id_set
+    ]
+    if checkpoint_state.current_item not in request_id_set:
+        checkpoint_state.current_item = None
+
+    checkpoint_state.success_count = len(checkpoint_state.processed_ids)
+    checkpoint_state.failed_count = len(checkpoint_state.failed_items)
+    checkpoint_state.skipped_count = len(checkpoint_state.skipped_ids)
+    checkpoint_state.processed_count = (
+        checkpoint_state.success_count
+        + checkpoint_state.failed_count
+        + checkpoint_state.skipped_count
+    )
+    checkpoint_state.total_items = len(request_id_set)
+    checkpoint_state.metadata = request_metadata
 
 
 def _section_dimension_ids(
@@ -1884,7 +1958,26 @@ def backfill_dimensions(
     checkpoint_mgr = CheckpointManager(checkpoint_dir, checkpoint_id="dimension_backfill")
     checkpoint_state = checkpoint_mgr.load() if resume_requested else None
     if checkpoint_state is not None:
-        if not _checkpoint_matches_request(checkpoint_state.metadata, request_metadata):
+        if _checkpoint_matches_request(checkpoint_state.metadata, request_metadata):
+            pass
+        elif _checkpoint_can_reconcile_corpus(checkpoint_state.metadata, request_metadata):
+            existing_ids = checkpoint_state.metadata.get("paper_ids", [])
+            existing_id_set = set(existing_ids) if isinstance(existing_ids, list) else set()
+            request_id_set = set(target_ids)
+            removed_paper_count = sum(
+                1 for paper_id in existing_id_set if paper_id not in request_id_set
+            )
+            added_paper_count = sum(1 for paper_id in target_ids if paper_id not in existing_id_set)
+            logger.info(
+                "Reconciling backfill checkpoint from %d to %d papers (%d removed, %d added)",
+                len(existing_id_set),
+                len(target_ids),
+                removed_paper_count,
+                added_paper_count,
+            )
+            _reconcile_checkpoint_state_to_request(checkpoint_state, request_metadata)
+            checkpoint_mgr.save()
+        else:
             raise ValueError(
                 "Existing backfill checkpoint does not match the current request. "
                 "Delete the checkpoint or rerun without --resume."
@@ -1895,7 +1988,12 @@ def backfill_dimensions(
             metadata=request_metadata,
         )
 
-    staged_extractions = _load_staged_backfill_extractions(checkpoint_dir)
+    requested_target_id_set = set(target_ids)
+    staged_extractions = {
+        paper_id: record
+        for paper_id, record in _load_staged_backfill_extractions(checkpoint_dir).items()
+        if paper_id in requested_target_id_set
+    }
     updated_extractions: ExtractionRecordMap = dict(extractions)
     updated_extractions.update(staged_extractions)
     requested_target_ids = list(target_ids)
@@ -1920,9 +2018,14 @@ def backfill_dimensions(
             config,
             logger,
         )
+        extractor_config = config
+        if fulltext_only and config.processing.arxiv_enabled:
+            logger.info("Disabling arXiv/ar5iv HTTP fetch for --fulltext-only backfill")
+            extractor_config = config.model_copy(deep=True)
+            extractor_config.processing.arxiv_enabled = False
         extractor = build_section_extractor(
             args=args,
-            config=config,
+            config=extractor_config,
             cache_dir=cache_dir,
             mode=mode,
             parallel_workers=parallel_workers,
@@ -2113,7 +2216,9 @@ def backfill_dimensions(
             rebuild=False,
             logger=logger,
             embedding_backend=config.embeddings.backend,
+            embedding_device=config.embeddings.device,
             ollama_base_url=config.embeddings.ollama_base_url,
+            ollama_concurrency=config.embeddings.ollama_concurrency,
             query_prefix=config.embeddings.query_prefix,
             document_prefix=config.embeddings.document_prefix,
             embedding_batch_size=config.embeddings.batch_size,
@@ -2126,7 +2231,9 @@ def backfill_dimensions(
                 embedding_model=config.embeddings.model,
                 top_n=20,
                 embedding_backend=config.embeddings.backend,
+                embedding_device=config.embeddings.device,
                 ollama_base_url=config.embeddings.ollama_base_url,
+                ollama_concurrency=config.embeddings.ollama_concurrency,
                 query_prefix=config.embeddings.query_prefix,
                 document_prefix=config.embeddings.document_prefix,
                 embedding_batch_size=config.embeddings.batch_size,

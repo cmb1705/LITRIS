@@ -10,7 +10,7 @@ Usage:
     python scripts/reset_old_schema.py              # Execute reset
 
 After running, resume the build to re-extract old-schema papers:
-    python scripts/build_index.py --provider openai --mode cli --model gpt-5.4 \
+    python scripts/build_index.py --provider openai --mode cli --model gpt-5.5 \
         --use-subscription --resume --gap-fill --gap-fill-threshold 0.90
 """
 
@@ -159,7 +159,7 @@ def main() -> int:
     print(f"\nDone. Resume the build to re-extract {len(old_ids)} papers:")
     print(
         "  python scripts/build_index.py --provider openai --mode cli "
-        "--model gpt-5.4 --use-subscription --resume --gap-fill"
+        "--model gpt-5.5 --use-subscription --resume --gap-fill"
     )
 
     return 0

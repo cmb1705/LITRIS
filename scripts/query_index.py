@@ -229,7 +229,9 @@ def main():
                 config=federated_config,
                 embedding_model=config.embeddings.model,
                 embedding_backend=config.embeddings.backend,
+                embedding_device=config.embeddings.device,
                 ollama_base_url=config.embeddings.ollama_base_url,
+                embedding_ollama_concurrency=config.embeddings.ollama_concurrency,
                 query_prefix=config.embeddings.query_prefix,
                 document_prefix=config.embeddings.document_prefix,
             )
@@ -240,7 +242,9 @@ def main():
                 chroma_dir=chroma_dir,
                 embedding_model=config.embeddings.model,
                 embedding_backend=config.embeddings.backend,
+                embedding_device=config.embeddings.device,
                 ollama_base_url=config.embeddings.ollama_base_url,
+                embedding_ollama_concurrency=config.embeddings.ollama_concurrency,
                 query_prefix=config.embeddings.query_prefix,
                 document_prefix=config.embeddings.document_prefix,
             )
