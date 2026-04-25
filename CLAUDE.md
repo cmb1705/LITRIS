@@ -17,6 +17,7 @@
 
 ```bash
 pip install -r requirements.txt
+python scripts/preflight.py  # Verify local extraction/LLM/embedding dependencies
 python scripts/build_index.py --limit 5  # Test extraction on 5 papers
 python scripts/query_index.py -q "network analysis"  # Search the index
 pytest tests/ -v --tb=short  # Run test suite
@@ -245,6 +246,13 @@ Enable in `.claude/settings.json`:
 - `cli_executor.extract(prompt, text)` - Separates prompt (-p flag) from text (stdin); used for paper extraction
 - `call_with_prompt(combined)` - Sends everything as single prompt; different behavior
 - When debugging extraction issues, verify which method is being called
+
+### Managed OpenDataLoader Hybrid
+
+- Hybrid OCR/formula/picture routes use the fixed localhost managed pool in `processing.opendataloader_hybrid_servers`
+- Missing local managed endpoints start on demand; use `python scripts/manage_opendataloader_hybrid.py start` only to pre-warm the full pool
+- `python scripts/preflight.py --config config.yaml` is the health gate; when hybrid is required, down endpoints are critical failures
+- If startup fails, check `processing.opendataloader_hybrid_python_executable`, OCR Python deps, and `data/logs/opendataloader_hybrid_*.log`
 
 ### Multi-Provider Support
 

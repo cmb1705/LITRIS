@@ -17,6 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.config import Config  # noqa: E402
 from src.extraction.opendataloader_extractor import (  # noqa: E402
+    DEFAULT_MANAGED_HYBRID_STARTUP_TIMEOUT_SECONDS,
     build_managed_server_specs,
     hybrid_server_executable_for_python,
     is_hybrid_server_reachable,
@@ -230,6 +231,16 @@ def command_stop(config: Config, *, project_root: Path = PROJECT_ROOT) -> int:
     return 0
 
 
+def resolve_startup_timeout(processing, timeout_seconds: float | None = None) -> float:
+    """Resolve managed hybrid startup timeout."""
+    if timeout_seconds is not None:
+        return timeout_seconds
+    return max(
+        float(processing.opendataloader_hybrid_startup_timeout_seconds),
+        DEFAULT_MANAGED_HYBRID_STARTUP_TIMEOUT_SECONDS,
+    )
+
+
 def command_start(
     config: Config,
     *,
@@ -240,11 +251,7 @@ def command_start(
     targets = build_server_commands(config.processing, project_root=project_root)
     state = load_state(project_root)
     failure = False
-    timeout = (
-        timeout_seconds
-        if timeout_seconds is not None
-        else float(config.processing.opendataloader_hybrid_startup_timeout_seconds)
-    )
+    timeout = resolve_startup_timeout(config.processing, timeout_seconds)
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
     for name, target in targets.items():

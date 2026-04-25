@@ -521,8 +521,10 @@ dimensions:
 ```
 
 Run preflight against the project config before a build. If that config requires
-OpenDataLoader hybrid, preflight now treats missing managed endpoints as a
-critical failure instead of a soft warning.
+OpenDataLoader hybrid, preflight treats missing managed endpoints as a critical
+failure instead of a soft warning. Normal extraction starts a missing local
+managed endpoint on demand; the manager command is useful when you want to
+pre-warm the full pool before a larger run.
 
 ```bash
 python scripts/preflight.py --config C:/Users/cmb17/projects/chem_project/config.yaml
@@ -1070,8 +1072,10 @@ processing:
   marker_enabled: true
 ```
 
-Managed hybrid mode now defaults to the fixed localhost GPU pool defined in
-`processing.opendataloader_hybrid_servers`. Start and inspect that pool with:
+Managed hybrid mode defaults to the fixed localhost GPU pool defined in
+`processing.opendataloader_hybrid_servers`. Missing local endpoints are started
+on demand when a hybrid route needs them. Pre-warm and inspect the full pool
+with:
 
 ```bash
 python scripts/manage_opendataloader_hybrid.py start

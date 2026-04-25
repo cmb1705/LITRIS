@@ -1,7 +1,7 @@
 """Tests for OpenDataLoader hybrid backend helpers."""
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from src.config import ManagedHybridServerConfig, ProcessingConfig
 from src.extraction import opendataloader_extractor
@@ -130,11 +130,12 @@ def test_build_hybrid_config_from_processing_preserves_legacy_single_url():
     assert config.resolved_server_url() == "http://legacy-host:7000"
 
 
-def test_ensure_hybrid_server_health_checks_managed_pool_without_autostart():
-    """Managed pool mode should never try to spawn a local server."""
+def test_ensure_hybrid_server_autostarts_matched_managed_endpoint():
+    """Managed pool mode should start the matched local endpoint on demand."""
     config = opendataloader_extractor.OpenDataLoaderHybridConfig(
         enabled=True,
         force_ocr=True,
+        python_executable=r"C:\Python310\python.exe",
         managed_servers=(
             ManagedHybridServerSpec(
                 name="ocr",
@@ -150,11 +151,38 @@ def test_ensure_hybrid_server_health_checks_managed_pool_without_autostart():
             return_value=False,
         ),
         patch(
-            "src.extraction.opendataloader_extractor._hybrid_server_executable"
+            "src.extraction.opendataloader_extractor.hybrid_extra_installed",
+            return_value=True,
+        ),
+        patch(
+            "src.extraction.opendataloader_extractor.hybrid_server_executable_for_python",
+            return_value=r"C:\Python310\Scripts\opendataloader-pdf-hybrid.exe",
         ) as mock_executable,
+        patch("src.extraction.opendataloader_extractor.subprocess.Popen") as mock_popen,
     ):
-        assert opendataloader_extractor.ensure_hybrid_server(config) is None
-        mock_executable.assert_not_called()
+        process = MagicMock()
+        process.poll.return_value = None
+        mock_popen.return_value = process
+        opendataloader_extractor.is_hybrid_server_reachable.side_effect = [False, True]
+
+        assert opendataloader_extractor.ensure_hybrid_server(config) is config
+        mock_executable.assert_called_once_with(
+            r"C:\Python310\python.exe",
+            allow_path_fallback=False,
+        )
+        mock_popen.assert_called_once()
+        command = mock_popen.call_args.args[0]
+        assert command == [
+            r"C:\Python310\Scripts\opendataloader-pdf-hybrid.exe",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "5003",
+            "--device",
+            "cuda",
+            "--force-ocr",
+        ]
+        opendataloader_extractor._stop_hybrid_server()
 
 
 def test_build_managed_server_specs_from_processing_models():

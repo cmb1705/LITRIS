@@ -70,3 +70,12 @@ def test_build_server_commands_uses_configured_python_and_fixed_ports(tmp_path):
         "--picture-description-prompt",
         "Describe the chart.",
     )
+
+
+def test_resolve_startup_timeout_uses_managed_floor():
+    """Default managed startup should allow slow Docling/CUDA initialization."""
+    module = _load_manage_script()
+    processing = ProcessingConfig(opendataloader_hybrid_startup_timeout_seconds=30.0)
+
+    assert module.resolve_startup_timeout(processing) == 90.0
+    assert module.resolve_startup_timeout(processing, timeout_seconds=12.0) == 12.0

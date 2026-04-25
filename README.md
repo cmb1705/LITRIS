@@ -61,12 +61,13 @@ limits, but the stored snapshot is not truncated for search or quote retrieval.
 
 ## Managed Hybrid Pool
 
-OpenDataLoader hybrid now defaults to a fixed localhost GPU server pool rather
-than per-run autostart. Fast OpenDataLoader remains the default PDF path, while
-hybrid OCR/formula/picture profiles resolve to exact localhost endpoints on
-ports `5002` through `5009`.
+OpenDataLoader hybrid defaults to a fixed localhost GPU server pool. Fast
+OpenDataLoader remains the default PDF path, while hybrid OCR/formula/picture
+profiles resolve to exact localhost endpoints on ports `5002` through `5009`.
 
-Start the pool before a hybrid-heavy run:
+When a local managed endpoint is missing, LITRIS starts the matched endpoint on
+demand and waits up to the managed startup timeout. For hybrid-heavy runs, you
+can also pre-warm and inspect the full pool:
 
 ```bash
 python scripts/manage_opendataloader_hybrid.py start
@@ -77,6 +78,8 @@ python scripts/preflight.py
 The manager reads `processing.opendataloader_hybrid_python_executable` from
 `config.yaml`, locates `opendataloader-pdf-hybrid.exe` next to that Python
 install, and launches the configured fixed URLs with `--device cuda`.
+`preflight.py` reports down managed endpoints as critical when the active config
+requires hybrid support.
 
 ## Current Workflow Support
 

@@ -220,12 +220,14 @@ sudo apt install tesseract-ocr
 ### Managed Hybrid Pool Not Running
 
 **Symptoms**:
-1. Hybrid extraction downgrades back to fast OpenDataLoader or PyMuPDF
-2. `scripts/preflight.py` reports one or more hybrid endpoints down
+1. `scripts/preflight.py` reports one or more hybrid endpoints down
+2. Hybrid extraction tries to start an endpoint but still downgrades back to
+   fast OpenDataLoader or PyMuPDF
 
 **Solution**:
 
-Start the fixed localhost GPU pool:
+Current LITRIS runs start a missing local managed endpoint on demand. For a
+larger hybrid-heavy run, pre-warm the fixed localhost GPU pool first:
 
 ```bash
 python scripts/manage_opendataloader_hybrid.py start
@@ -235,6 +237,8 @@ python scripts/manage_opendataloader_hybrid.py status
 If startup fails, verify that `processing.opendataloader_hybrid_python_executable`
 points at the CUDA-capable Python install that owns
 `opendataloader-pdf-hybrid.exe`, then check `data/logs/opendataloader_hybrid_*.log`.
+The managed startup path allows slow Docling/CUDA initialization and uses a
+90-second default floor unless you pass an explicit `--timeout`.
 
 ### Minimum Text Length
 

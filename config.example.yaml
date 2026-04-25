@@ -170,12 +170,12 @@ processing:
   opendataloader_hybrid_url: null
   # Bound hybrid requests so heavy picture/OCR enrichments cannot stall a run indefinitely.
   opendataloader_hybrid_timeout_ms: 60000
-  # Legacy autostart for a single local backend. Managed pool mode never
-  # autostarts; use `python scripts/manage_opendataloader_hybrid.py start`.
+  # Legacy autostart for a single local backend. Managed-pool endpoints start
+  # on demand when a hybrid route needs them; use the manager CLI to pre-warm.
   opendataloader_hybrid_autostart: false
   opendataloader_hybrid_host: "127.0.0.1"
   opendataloader_hybrid_port: 5002
-  opendataloader_hybrid_startup_timeout_seconds: 30.0
+  opendataloader_hybrid_startup_timeout_seconds: 90.0
   # Hybrid backend profile flags from the upstream README.
   opendataloader_hybrid_force_ocr: false
   opendataloader_hybrid_ocr_lang: null

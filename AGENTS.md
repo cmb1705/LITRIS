@@ -37,6 +37,9 @@ bd remember "persistent insight"
 - Use `bd` for all task tracking.
 - Do not use `TodoWrite`, `TaskCreate`, markdown TODOs, or other side trackers.
 - Use `bd remember` for persistent knowledge. Do not use `MEMORY.md` files.
+- For extraction/backend changes, run `python scripts/preflight.py --config config.yaml`
+  before reporting readiness. Managed OpenDataLoader hybrid endpoints start on
+  demand, but preflight is the operator-visible health gate.
 
 ## Session Close
 

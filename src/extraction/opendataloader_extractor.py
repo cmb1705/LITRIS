@@ -37,10 +37,12 @@ DEFAULT_HYBRID_HOST = "127.0.0.1"
 DEFAULT_HYBRID_PORT = 5002
 DEFAULT_HYBRID_TIMEOUT_MS = 0
 DEFAULT_HYBRID_STARTUP_TIMEOUT_SECONDS = 30.0
+DEFAULT_MANAGED_HYBRID_STARTUP_TIMEOUT_SECONDS = 90.0
 DEFAULT_HYBRID_DEVICE = "cuda"
 
 _HYBRID_SERVER_PROCESS: subprocess.Popen[str] | None = None
 _HYBRID_SERVER_COMMAND: tuple[str, ...] | None = None
+_HYBRID_SERVER_PROCESSES: dict[str, tuple[subprocess.Popen[str], tuple[str, ...]]] = {}
 _ATTEMPT_STATE = local()
 
 
@@ -459,20 +461,142 @@ def is_hybrid_server_reachable(
 
 def _stop_hybrid_server() -> None:
     """Terminate any locally managed hybrid server."""
-    global _HYBRID_SERVER_PROCESS, _HYBRID_SERVER_COMMAND
-    if _HYBRID_SERVER_PROCESS is None:
-        return
-    if _HYBRID_SERVER_PROCESS.poll() is None:
-        _HYBRID_SERVER_PROCESS.terminate()
-        try:
-            _HYBRID_SERVER_PROCESS.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            _HYBRID_SERVER_PROCESS.kill()
+    global _HYBRID_SERVER_PROCESS, _HYBRID_SERVER_COMMAND, _HYBRID_SERVER_PROCESSES
+
+    def stop_process(process: subprocess.Popen[str]) -> None:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+    if _HYBRID_SERVER_PROCESS is not None:
+        stop_process(_HYBRID_SERVER_PROCESS)
     _HYBRID_SERVER_PROCESS = None
     _HYBRID_SERVER_COMMAND = None
 
+    for process, _command in _HYBRID_SERVER_PROCESSES.values():
+        stop_process(process)
+    _HYBRID_SERVER_PROCESSES = {}
+
 
 atexit.register(_stop_hybrid_server)
+
+
+def _build_hybrid_server_command(
+    config: OpenDataLoaderHybridConfig,
+    resolved_url: str,
+    executable: str,
+) -> list[str] | None:
+    """Build a local hybrid server launch command for a resolved URL."""
+    parsed = urlparse(resolved_url)
+    if parsed.hostname not in {None, "127.0.0.1", "localhost"}:
+        logger.info("Hybrid autostart only supports local backends")
+        return None
+
+    host = parsed.hostname or config.host
+    port = parsed.port or config.port
+    command = [
+        executable,
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--device",
+        config.device,
+    ]
+    if config.force_ocr:
+        command.append("--force-ocr")
+    if config.ocr_lang:
+        command.extend(["--ocr-lang", config.ocr_lang])
+    if config.enrich_formula:
+        command.append("--enrich-formula")
+    if config.enrich_picture_description:
+        command.append("--enrich-picture-description")
+    if config.picture_description_prompt:
+        command.extend(["--picture-description-prompt", config.picture_description_prompt])
+    return command
+
+
+def _start_managed_hybrid_endpoint(
+    config: OpenDataLoaderHybridConfig,
+    resolved_url: str,
+) -> OpenDataLoaderHybridConfig | None:
+    """Start one matched managed endpoint on demand."""
+    if not hybrid_extra_installed():
+        logger.info("OpenDataLoader hybrid extra not installed; hybrid disabled")
+        return None
+
+    executable = hybrid_server_executable_for_python(
+        config.python_executable,
+        allow_path_fallback=False,
+    )
+    if executable is None:
+        logger.info(
+            "OpenDataLoader hybrid executable not found next to %r",
+            config.python_executable,
+        )
+        return None
+
+    command = _build_hybrid_server_command(config, resolved_url, executable)
+    if command is None:
+        return None
+
+    global _HYBRID_SERVER_PROCESSES
+    command_tuple = tuple(command)
+    existing = _HYBRID_SERVER_PROCESSES.get(resolved_url)
+    if existing is not None:
+        process, existing_command = existing
+        if process.poll() is None and existing_command == command_tuple:
+            deadline = time.perf_counter() + max(
+                config.startup_timeout_seconds,
+                DEFAULT_MANAGED_HYBRID_STARTUP_TIMEOUT_SECONDS,
+            )
+            while time.perf_counter() < deadline:
+                if is_hybrid_server_reachable(resolved_url):
+                    return config
+                time.sleep(0.25)
+            return None
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    logger.info("Starting managed OpenDataLoader hybrid endpoint at %s", resolved_url)
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        creationflags=creationflags,
+    )
+    _HYBRID_SERVER_PROCESSES[resolved_url] = (process, command_tuple)
+
+    deadline = time.perf_counter() + max(
+        config.startup_timeout_seconds,
+        DEFAULT_MANAGED_HYBRID_STARTUP_TIMEOUT_SECONDS,
+    )
+    while time.perf_counter() < deadline:
+        if process.poll() is not None:
+            _HYBRID_SERVER_PROCESSES.pop(resolved_url, None)
+            return None
+        if is_hybrid_server_reachable(resolved_url):
+            return config
+        time.sleep(0.25)
+
+    logger.warning("Managed OpenDataLoader hybrid endpoint failed to become healthy")
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+    _HYBRID_SERVER_PROCESSES.pop(resolved_url, None)
+    return None
 
 
 def ensure_hybrid_server(
@@ -490,11 +614,12 @@ def ensure_hybrid_server(
         return config
     if matched_managed_server is not None:
         logger.info(
-            "Managed OpenDataLoader hybrid backend '%s' unavailable at %s",
+            "Managed OpenDataLoader hybrid backend '%s' unavailable at %s; "
+            "starting it on demand",
             matched_managed_server.name,
             resolved_url,
         )
-        return None
+        return _start_managed_hybrid_endpoint(config, resolved_url)
     if not config.autostart:
         return None
 
@@ -511,25 +636,9 @@ def ensure_hybrid_server(
         logger.info("Hybrid autostart only supports local backends")
         return None
 
-    command = [
-        executable,
-        "--host",
-        config.host,
-        "--port",
-        str(config.port),
-        "--device",
-        config.device,
-    ]
-    if config.force_ocr:
-        command.append("--force-ocr")
-    if config.ocr_lang:
-        command.extend(["--ocr-lang", config.ocr_lang])
-    if config.enrich_formula:
-        command.append("--enrich-formula")
-    if config.enrich_picture_description:
-        command.append("--enrich-picture-description")
-    if config.picture_description_prompt:
-        command.extend(["--picture-description-prompt", config.picture_description_prompt])
+    command = _build_hybrid_server_command(config, resolved_url, executable)
+    if command is None:
+        return None
 
     if (
         _HYBRID_SERVER_PROCESS is not None
