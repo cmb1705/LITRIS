@@ -13,14 +13,13 @@ Usage:
 """
 
 import argparse
-import json
 import sys
 from collections import Counter
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from scripts.dimensions import _paper_from_index_dict
 from src.analysis.constants import (
     ANTHROPIC_MODELS,
     DEFAULT_MODELS,
@@ -39,8 +38,8 @@ from src.extraction.cascade import ExtractionCascade
 from src.extraction.opendataloader_extractor import build_hybrid_config_from_processing
 from src.extraction.pdf_extractor import PDFExtractor
 from src.extraction.text_cleaner import TextCleaner
+from src.indexing.structured_store import StructuredStore
 from src.utils.logging_config import setup_logging
-from src.zotero.database import ZoteroDatabase
 
 PROVIDER_OPPOSITES = {
     "anthropic": "openai",
@@ -120,10 +119,40 @@ def resolve_gap_fill_provider(
     return "anthropic"
 
 
+def extraction_dimension_stats(extraction: dict) -> tuple[int, int, float]:
+    """Return filled count, total q-field count, and coverage for an extraction."""
+
+    stored_coverage = extraction.get("dimension_coverage")
+    q_keys = [
+        key
+        for key in extraction
+        if isinstance(key, str) and key.startswith("q") and key[1:3].isdigit()
+    ]
+    total = len(q_keys) or 40
+    filled = sum(1 for key in q_keys if extraction.get(key) not in (None, "", [], {}))
+    if isinstance(stored_coverage, (int, float)):
+        coverage = float(stored_coverage)
+    else:
+        coverage = filled / total if total else 0.0
+    return filled, total, coverage
+
+
 def main():
     parser = argparse.ArgumentParser(description="Gap-fill across full corpus")
     parser.add_argument("--threshold", type=float, default=0.90)
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--index-dir",
+        type=Path,
+        default=None,
+        help="Index directory to read/write. Defaults to storage.index_path or data/index.",
+    )
+    parser.add_argument(
+        "--paper",
+        action="append",
+        default=[],
+        help="Restrict gap-fill to specific paper_ids (repeatable).",
+    )
     parser.add_argument(
         "--provider",
         default=None,
@@ -138,15 +167,18 @@ def main():
     setup_logging(level="DEBUG" if args.verbose else "INFO")
     config = Config.load(args.config)
     config.extraction.apply_provider(args.provider)
+    project_root = Path(__file__).resolve().parents[1]
+    index_dir = args.index_dir or config.get_index_path(project_root)
+    store = StructuredStore(index_dir)
 
-    # Load corpus
-    db = ZoteroDatabase(config.zotero.database_path, config.zotero.storage_path)
-    paper_lookup = {p.paper_id: p for p in db.get_all_papers()}
-
-    # Load extractions
-    sa_path = Path("data/index/semantic_analyses.json")
-    sa = json.loads(sa_path.read_text(encoding="utf-8"))
-    extractions = sa.get("extractions", {})
+    # Load corpus from the selected index so pdffolder/custom corpora work
+    # without relying on the user's Zotero database.
+    paper_lookup = {
+        paper_id: _paper_from_index_dict(paper_id, paper)
+        for paper_id, paper in store.load_papers().items()
+    }
+    extractions = dict(store.load_extractions())
+    selected_papers = set(args.paper or [])
 
     # Academic item types worth gap-filling
     academic_types = {
@@ -157,6 +189,7 @@ def main():
         "conferencePaper",
         "report",
         "preprint",
+        "document",
     }
 
     # Non-academic title patterns to skip
@@ -178,13 +211,10 @@ def main():
     # Find academic papers below threshold
     candidates = []
     for pid, entry in extractions.items():
+        if selected_papers and pid not in selected_papers:
+            continue
         ext = entry.get("extraction", {})
-        filled = sum(
-            1
-            for k, v in ext.items()
-            if k.startswith("q") and len(k) > 3 and k[1:3].isdigit() and v is not None
-        )
-        coverage = filled / 40
+        filled, total, coverage = extraction_dimension_stats(ext)
         if coverage >= args.threshold or pid not in paper_lookup:
             continue
 
@@ -197,7 +227,7 @@ def main():
         if any(p in title_lower for p in skip_patterns):
             continue
 
-        candidates.append((pid, filled, coverage))
+        candidates.append((pid, filled, total, coverage))
 
     candidates.sort(key=lambda x: x[1])
 
@@ -229,7 +259,7 @@ def main():
         ],
         aggregation_strategy="quality_weighted",
     )
-    cascade_cache = Path("data/cache/cascade_text")
+    cascade_cache = index_dir / "cache" / "cascade_text"
     pdf_extractor = PDFExtractor(
         enable_ocr=config.processing.ocr_enabled or config.processing.ocr_on_fail,
     )
@@ -253,7 +283,7 @@ def main():
     def process_one(idx_and_candidate):
         """Process a single paper gap-fill (thread-safe)."""
         nonlocal filled_total, processed, failed
-        idx, (pid, filled, coverage) = idx_and_candidate
+        idx, (pid, filled, total, coverage) = idx_and_candidate
 
         paper = paper_lookup[pid]
         try:
@@ -266,34 +296,38 @@ def main():
         n_gaps = sum(len(fields) for fields in gap_passes.values())
         print(
             f"[{idx}/{len(candidates)}] {pid[:20]} "
-            f"{filled}/40 ({coverage:.0%}) "
+            f"{filled}/{total} ({coverage:.0%}) "
             f"-- {len(gap_passes)} pass(es), {n_gaps} gaps",
             flush=True,
         )
 
         # Get text
-        cached_path = cascade_cache / f"{pid}.txt"
-        if cached_path.exists():
-            text = cached_path.read_text(encoding="utf-8")
-        elif paper.pdf_path and paper.pdf_path.exists():
-            try:
-                result = cascade.extract_text(
-                    paper.pdf_path,
-                    doi=getattr(paper, "doi", None),
-                    url=getattr(paper, "url", None),
-                )
-                text = result.text
-                if not result.is_markdown:
-                    text = text_cleaner.clean(text)
-                text = text_cleaner.truncate_for_llm(text)
-            except Exception as exc:
-                print(f"  [{idx}] Text extraction failed: {exc}")
+        snapshot = store.load_text_snapshot(pid)
+        if snapshot and isinstance(snapshot.get("text"), str):
+            text = str(snapshot["text"])
+        else:
+            cached_path = cascade_cache / f"{pid}.txt"
+            if cached_path.exists():
+                text = cached_path.read_text(encoding="utf-8")
+            elif paper.pdf_path and paper.pdf_path.exists():
+                try:
+                    result = cascade.extract_text(
+                        paper.pdf_path,
+                        doi=getattr(paper, "doi", None),
+                        url=getattr(paper, "url", None),
+                    )
+                    text = result.text
+                    if not result.is_markdown:
+                        text = text_cleaner.clean(text)
+                    text = text_cleaner.truncate_for_llm(text)
+                except Exception as exc:
+                    print(f"  [{idx}] Text extraction failed: {exc}")
+                    failed += 1
+                    return
+            else:
+                print(f"  [{idx}] No fulltext snapshot or PDF, skipping")
                 failed += 1
                 return
-        else:
-            print(f"  [{idx}] No PDF, skipping")
-            failed += 1
-            return
 
         if not text:
             print(f"  [{idx}] Empty text, skipping")
@@ -328,12 +362,13 @@ def main():
             with save_lock:
                 if gaps_filled > 0:
                     filled_total += gaps_filled
-                    new_filled = sum(
-                        1
-                        for k, v in merged.model_dump().items()
-                        if k.startswith("q") and len(k) > 3 and k[1:3].isdigit() and v is not None
+                    new_filled, new_total, _new_coverage = extraction_dimension_stats(
+                        merged.model_dump()
                     )
-                    print(f"  [{idx}] Filled {gaps_filled} gaps ({filled}/40 -> {new_filled}/40)")
+                    print(
+                        f"  [{idx}] Filled {gaps_filled} gaps "
+                        f"({filled}/{total} -> {new_filled}/{new_total})"
+                    )
 
                     extractions[pid]["extraction"] = merged.to_index_dict()
                     extractions[pid]["gap_filled_by"] = gap_provider_name
@@ -367,12 +402,7 @@ def main():
 
             # Save after each chunk
             with save_lock:
-                sa["extractions"] = extractions
-                sa["extraction_count"] = len(extractions)
-                sa_path.write_text(
-                    json.dumps(sa, indent=2, ensure_ascii=False, default=str),
-                    encoding="utf-8",
-                )
+                store.save_extractions(extractions)
                 print(f"  [Saved: {filled_total} gaps filled, {processed} processed]")
     else:
         for idx, candidate in enumerate(candidates, 1):
@@ -380,24 +410,16 @@ def main():
 
             # Save every 10 papers
             if idx % 10 == 0:
-                sa["extractions"] = extractions
-                sa["extraction_count"] = len(extractions)
-                sa_path.write_text(
-                    json.dumps(sa, indent=2, ensure_ascii=False, default=str),
-                    encoding="utf-8",
-                )
+                store.save_extractions(extractions)
                 print(f"  [Saved checkpoint: {filled_total} gaps filled so far]")
 
     # Final save
-    sa["extractions"] = extractions
-    sa["extraction_count"] = len(extractions)
-    sa["generated_at"] = datetime.now().isoformat()
-    sa_path.write_text(
-        json.dumps(sa, indent=2, ensure_ascii=False, default=str),
-        encoding="utf-8",
-    )
+    store.save_extractions(extractions)
 
-    print(f"\nDone: {processed} processed, {failed} failed, {filled_total} gaps filled")
+    print(
+        f"\nDone: {processed} processed, {failed} failed, "
+        f"{filled_total} gaps filled in {index_dir}"
+    )
     print("\nGenerate embeddings: python scripts/build_index.py --skip-extraction")
 
 

@@ -113,7 +113,7 @@ To generate candidate dimensions from the corpus, use:
 ```bash
 python scripts/dimensions.py suggest --index-dir data/index
 python scripts/dimensions.py suggest --index-dir data/index \
-  --provider openai --mode api --model gpt-5.4 --sample-size 12
+  --provider openai --mode api --model gpt-5.5 --sample-size 12
 python scripts/dimensions.py suggest --index-dir data/index --heuristic-only
 ```
 
@@ -424,7 +424,7 @@ extraction:
 Provider defaults:
 
 - **Anthropic**: `claude-opus-4-6`
-- **OpenAI**: `gpt-5.4`
+- **OpenAI**: `gpt-5.5`
 - **Google**: `gemini-2.5-flash`
 
 ### Model Overrides by Document Type
@@ -503,6 +503,59 @@ python scripts/build_index.py --source paperpile --source-path paperpile.bib
 ```
 
 See [guides/alternative-sources.md](guides/alternative-sources.md) for detailed setup.
+
+## Separate Corpus Indexes
+
+Use `storage.index_path` when a project needs its own corpus, profile, and
+derived artifacts instead of the default `data/index` tree. The same entrypoints
+can then target a project config without reading or writing the default profile.
+
+```yaml
+storage:
+  index_path: C:/Users/cmb17/projects/chem_project/data/index
+
+dimensions:
+  active_profile: som_v1
+  profile_paths:
+    - C:/Users/cmb17/projects/chem_project/profiles/som_v1.json
+```
+
+Run preflight against the project config before a build. If that config requires
+OpenDataLoader hybrid, preflight now treats missing managed endpoints as a
+critical failure instead of a soft warning.
+
+```bash
+python scripts/preflight.py --config C:/Users/cmb17/projects/chem_project/config.yaml
+python scripts/manage_opendataloader_hybrid.py start --config C:/Users/cmb17/projects/chem_project/config.yaml
+```
+
+Build or refresh the isolated index with the project config and source:
+
+```bash
+python scripts/build_index.py --config C:/Users/cmb17/projects/chem_project/config.yaml \
+  --source pdffolder --source-path C:/Users/cmb17/projects/chem_project/papers \
+  --sync-mode full
+```
+
+For staged custom-profile work, capture full text first, then run semantic
+backfill or gap fill against the same index:
+
+```bash
+python scripts/dimensions.py backfill \
+  --config C:/Users/cmb17/projects/chem_project/config.yaml \
+  --index-dir C:/Users/cmb17/projects/chem_project/data/index \
+  --dimension-profile C:/Users/cmb17/projects/chem_project/profiles/som_v1.json \
+  --fulltext-only
+
+python scripts/run_gap_fill.py \
+  --config C:/Users/cmb17/projects/chem_project/config.yaml \
+  --index-dir C:/Users/cmb17/projects/chem_project/data/index \
+  --threshold 0.90
+```
+
+`run_gap_fill.py` reads papers, semantic analyses, and canonical full-text
+snapshots from the selected index, so it can fill gaps for Zotero and
+non-Zotero corpora without falling back to the default Zotero database.
 
 ## Web UI
 
@@ -593,7 +646,7 @@ python scripts/research_questions.py \
 python scripts/research_questions.py \
   --gap-report report.json \
   --provider openai \
-  --model gpt-5.4
+  --model gpt-5.5
 
 # JSON output for programmatic use
 python scripts/research_questions.py \

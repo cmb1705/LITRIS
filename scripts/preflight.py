@@ -9,6 +9,7 @@ Usage:
     python scripts/preflight.py --fix    # Show install commands for missing deps
 """
 
+import argparse
 import os
 import shutil
 import subprocess
@@ -35,12 +36,12 @@ def ok(msg: str) -> None:
 
 def fail(msg: str, fix: str = "") -> tuple[str, str]:
     print(f"  {RED}[FAIL]{RESET} {msg}")
-    return (msg, fix)
+    return (f"FAIL: {msg}", fix)
 
 
 def warn(msg: str, fix: str = "") -> tuple[str, str]:
     print(f"  {YELLOW}[MISS]{RESET} {msg}")
-    return (msg, fix)
+    return (f"MISS: {msg}", fix)
 
 
 def info(msg: str) -> None:
@@ -51,11 +52,10 @@ def section(title: str) -> None:
     print(f"\n{BOLD}=== {title} ==={RESET}\n")
 
 
-def load_runtime_config() -> tuple[Any | None, Exception | None]:
+def load_runtime_config(config_path: Path) -> tuple[Any | None, Exception | None]:
     """Load config.yaml once so other checks can reuse the same config."""
-    config_path = Path("config.yaml")
     if not config_path.exists():
-        return None, FileNotFoundError("config.yaml not found")
+        return None, FileNotFoundError(f"{config_path} not found")
 
     try:
         from src.config import Config
@@ -80,6 +80,14 @@ def check_managed_hybrid_pool(processing: Any | None) -> list[tuple[str, str]]:
         if processing is not None
         else None
     )
+    hybrid_required = bool(
+        processing is not None
+        and (
+            getattr(processing, "opendataloader_hybrid_enabled", False)
+            or getattr(processing, "opendataloader_mode", "fast") == "hybrid"
+        )
+    )
+    issue = fail if hybrid_required else warn
     if python_executable:
         ok(f"OpenDataLoader hybrid Python: {python_executable}")
 
@@ -96,7 +104,7 @@ def check_managed_hybrid_pool(processing: Any | None) -> list[tuple[str, str]]:
         ok(f"OpenDataLoader hybrid executable: {hybrid_exe}")
     else:
         issues.append(
-            warn(
+            issue(
                 "OpenDataLoader hybrid executable not found",
                 'pip install "opendataloader-pdf[hybrid]"',
             )
@@ -114,7 +122,7 @@ def check_managed_hybrid_pool(processing: Any | None) -> list[tuple[str, str]]:
                 ok(f"Hybrid backend {spec.name} responding on {spec.url}")
             else:
                 issues.append(
-                    warn(
+                    issue(
                         f"Hybrid backend {spec.name} not running on {spec.url}",
                         "python scripts/manage_opendataloader_hybrid.py start",
                     )
@@ -125,7 +133,7 @@ def check_managed_hybrid_pool(processing: Any | None) -> list[tuple[str, str]]:
         ok("OpenDataLoader hybrid backend responding on http://127.0.0.1:5002")
     else:
         issues.append(
-            warn(
+            issue(
                 "OpenDataLoader hybrid backend not running on http://127.0.0.1:5002",
                 "opendataloader-pdf-hybrid --port 5002",
             )
@@ -401,15 +409,16 @@ def check_optional() -> list[tuple[str, str]]:
 def check_config(
     config: Any | None = None,
     config_error: Exception | None = None,
+    config_path: Path | None = None,
 ) -> list[tuple[str, str]]:
     """Check LITRIS configuration."""
     issues: list[tuple[str, str]] = []
 
     section("Configuration")
 
-    config_path = Path("config.yaml")
+    config_path = config_path or Path("config.yaml")
     if config_path.exists():
-        ok(f"config.yaml found ({config_path.stat().st_size} bytes)")
+        ok(f"Config file found: {config_path} ({config_path.stat().st_size} bytes)")
 
         if config is not None and config_error is None:
             ok(
@@ -429,36 +438,50 @@ def check_config(
         )
 
     # Check index directory
-    index_dir = Path("data/index")
+    project_root = Path(__file__).resolve().parents[1]
+    if config is not None and hasattr(config, "get_index_path"):
+        index_dir = config.get_index_path(project_root)
+    else:
+        index_dir = Path("data/index")
     if index_dir.exists():
         papers_json = index_dir / "papers.json"
-        extractions_json = index_dir / "extractions.json"
+        extractions_json = index_dir / "semantic_analyses.json"
         papers_size = papers_json.stat().st_size if papers_json.exists() else 0
         extractions_size = extractions_json.stat().st_size if extractions_json.exists() else 0
         ok(
-            f"Index directory: papers.json ({papers_size:,} bytes), "
-            f"extractions.json ({extractions_size:,} bytes)"
+            f"Index directory: {index_dir} | papers.json ({papers_size:,} bytes), "
+            f"semantic_analyses.json ({extractions_size:,} bytes)"
         )
     else:
-        info("No existing index (fresh build)")
+        info(f"No existing index at {index_dir} (fresh build)")
 
     return issues
 
 
-def main() -> int:
-    show_fixes = "--fix" in sys.argv
-    config, config_error = load_runtime_config()
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse preflight arguments."""
+    parser = argparse.ArgumentParser(description="Preflight check for LITRIS extraction pipeline")
+    parser.add_argument("--config", type=Path, default=Path("config.yaml"))
+    parser.add_argument("--fix", action="store_true", help="Show fix commands for missing deps")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    show_fixes = args.fix
+    config, config_error = load_runtime_config(args.config)
 
     print(f"\n{BOLD}LITRIS Extraction Pipeline Preflight{RESET}")
     print(f"Python: {sys.version.split()[0]} ({sys.executable})")
     print(f"Working directory: {os.getcwd()}")
+    print(f"Config: {args.config}")
 
     all_issues: list[tuple[str, str]] = []
     all_issues.extend(check_extraction_pipeline(config))
     all_issues.extend(check_llm_providers())
     all_issues.extend(check_embeddings())
     all_issues.extend(check_optional())
-    all_issues.extend(check_config(config, config_error))
+    all_issues.extend(check_config(config, config_error, args.config))
 
     # Summary
     section("Summary")
@@ -467,8 +490,8 @@ def main() -> int:
         print(f"  {GREEN}{BOLD}All checks passed. Ready to build.{RESET}")
         return 0
 
-    fails = [i for i in all_issues if "[FAIL]" in str(i)]
-    warns = [i for i in all_issues if "[MISS]" in str(i)]
+    fails = [i for i in all_issues if i[0].startswith("FAIL:")]
+    warns = [i for i in all_issues if i[0].startswith("MISS:")]
 
     if fails:
         print(f"  {RED}{len(fails)} critical issue(s){RESET} (build may fail)")
