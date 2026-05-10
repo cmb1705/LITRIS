@@ -1312,6 +1312,26 @@ def _merge_reextracted_dimensions(
     )
 
 
+def _empty_extraction_for_scoped_merge(
+    *,
+    paper_id: str,
+    target_profile: DimensionProfile,
+    template_extraction: DimensionedExtraction,
+) -> DimensionedExtraction:
+    """Create a valid merge base for scoped backfill of a first-time record."""
+
+    return DimensionedExtraction(
+        paper_id=paper_id,
+        profile_id=target_profile.profile_id,
+        profile_version=target_profile.version,
+        profile_fingerprint=target_profile.fingerprint,
+        prompt_version=template_extraction.prompt_version,
+        extraction_model=template_extraction.extraction_model,
+        extracted_at=template_extraction.extracted_at,
+        dimensions={dimension.id: None for dimension in target_profile.dimensions},
+    )
+
+
 def _extraction_manifest_info(
     args: argparse.Namespace,
     config: Config,
@@ -2109,12 +2129,17 @@ def backfill_dimensions(
                             error=Exception("; ".join(result.pass_errors)),
                         )
                     else:
-                        current_record = updated_extractions.get(
-                            result.paper_id,
-                            {"paper_id": result.paper_id},
-                        )
-                        old_extraction = DimensionedExtraction.from_record(current_record)
                         new_extraction = DimensionedExtraction.from_record(result.extraction)
+                        current_record = updated_extractions.get(result.paper_id)
+                        if current_record:
+                            old_extraction = DimensionedExtraction.from_record(current_record)
+                        else:
+                            current_record = {"paper_id": result.paper_id}
+                            old_extraction = _empty_extraction_for_scoped_merge(
+                                paper_id=result.paper_id,
+                                target_profile=target_profile,
+                                template_extraction=new_extraction,
+                            )
                         merged = _merge_reextracted_dimensions(
                             old_extraction=old_extraction,
                             new_extraction=new_extraction,

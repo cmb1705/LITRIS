@@ -413,6 +413,78 @@ def test_backfill_reextracts_changed_section_only_and_preserves_other_dimensions
     assert updated.dimensions["power_dynamics"] == "Legacy power dynamics"
 
 
+def test_scoped_backfill_creates_first_time_extraction_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dimensions_cli: ModuleType,
+) -> None:
+    store = _write_fulltext_only_index(tmp_path, ["paper_001"])
+    old_profile = build_legacy_dimension_profile()
+    store.save_dimension_profile(old_profile.model_dump(mode="json"))
+
+    profile_dict = old_profile.model_dump(mode="json")
+    profile_dict["profile_id"] = "legacy_semantic_methods_v2"
+    profile_dict["version"] = "2.0.0"
+    for dimension in profile_dict["dimensions"]:
+        if dimension["id"] == "methods":
+            dimension["question"] = "What updated methods and analytical techniques are used?"
+    profile_path = tmp_path / "methods_v2.yaml"
+    _write_profile(profile_path, profile_dict)
+
+    target_profile = dimensions_cli.load_dimension_profile(profile_path)
+    DummyExtractor = _make_target_profile_extractor(target_profile)
+
+    monkeypatch.setattr(
+        dimensions_cli,
+        "configure_extraction_runtime",
+        lambda *args, **kwargs: ("anthropic", "api", tmp_path, 1, False),
+    )
+    monkeypatch.setattr(
+        dimensions_cli,
+        "build_section_extractor",
+        lambda **kwargs: DummyExtractor(),
+    )
+    monkeypatch.setattr(dimensions_cli, "generate_scoped_raptor_summaries", lambda **kwargs: {})
+    monkeypatch.setattr(dimensions_cli, "run_embedding_generation", lambda **kwargs: None)
+    monkeypatch.setattr(dimensions_cli, "compute_similarity_pairs", lambda **kwargs: 0)
+    monkeypatch.setattr(dimensions_cli, "generate_summary", lambda *args, **kwargs: {})
+
+    args = argparse.Namespace(
+        index_dir=tmp_path,
+        dimension_profile=profile_path,
+        paper=["paper_001"],
+        dry_run=False,
+        skip_embeddings=True,
+        skip_similarity=True,
+        provider=None,
+        mode=None,
+        model=None,
+        parallel=None,
+        no_cache=False,
+        summary_model=None,
+        methodology_model=None,
+    )
+    logger = SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+    )
+    config = _make_config(tmp_path)
+
+    assert dimensions_cli.backfill_dimensions(args, config, logger) == 0
+
+    updated = DimensionedExtraction.from_record(
+        StructuredStore(tmp_path).load_extractions()["paper_001"]
+    )
+
+    assert updated.profile_id == "legacy_semantic_methods_v2"
+    assert updated.prompt_version == "2.0.0"
+    assert updated.extraction_model == "target-model"
+    assert updated.dimensions["methods"] == "Updated methods"
+    assert updated.dimensions["data"] == "Updated data"
+    assert updated.dimensions["thesis"] is None
+
+
 def test_backfill_reuses_matching_fulltext_snapshot_by_default(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
